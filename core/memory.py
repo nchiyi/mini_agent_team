@@ -22,6 +22,9 @@ class Memory:
 
     def _init_db(self):
         """Create tables if they don't exist."""
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS messages (

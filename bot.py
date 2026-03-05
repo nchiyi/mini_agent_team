@@ -188,14 +188,17 @@ async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ 未知指令: {command}")
         return
 
-    processing_msg = await update.message.reply_text(f"⏳ {skill.name} 處理中...")
+    # Show typing status
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    processing_msg = await update.message.reply_text(f"⏳ {skill.name} 執行中...")
 
     try:
         result = await skill.handle(command, args, update.effective_user.id)
         await processing_msg.delete()
         await split_send(update, result)
     except Exception as e:
-        await processing_msg.delete()
+        if processing_msg:
+            await processing_msg.delete()
         await update.message.reply_text(f"❌ Skill 錯誤: {e}")
 
 
@@ -213,8 +216,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cwd = memory.get_setting(user_id, "cwd", config.DEFAULT_CWD)
 
+    # Show typing status
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     processing_msg = await update.message.reply_text(
-        f"⏳ Gemini 處理中...\n📂 {cwd}"
+        f"🧠 Gemini 思考中...\n📂 `{cwd}`"
     )
 
     try:
@@ -222,7 +227,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_msg.delete()
         await split_send(update, result)
     except Exception as e:
-        await processing_msg.delete()
+        if processing_msg:
+            await processing_msg.delete()
         await update.message.reply_text(f"❌ 錯誤: {e}")
 
 
@@ -241,9 +247,29 @@ app_instance = None
 
 async def post_init(application: Application):
     """Actions to take after the application has initialized."""
-    # Register all skill commands here to ensure they show up in the menu properly
-    # (Optional, but good practice for newer PTB versions)
-    
+    # Register all skill commands in the Telegram menu
+    try:
+        commands = [
+            BotCommand("start", "開始並顯示幫助"),
+            BotCommand("help", "顯示指令說明"),
+            BotCommand("cwd", "設定/查看工作目錄")
+        ]
+        
+        # Add commands from skills
+        skills_info = engine.get_all_skills_info()
+        for s in skills_info:
+            for cmd in s['commands']:
+                # Slash command menu doesn't support arguments in 'command' field, just name
+                cmd_name = cmd.lstrip("/")
+                desc = s['description']
+                # Telegram requires command to be lowercase alphanumeric
+                commands.append(BotCommand(cmd_name.lower(), desc[:100]))
+        
+        await application.bot.set_my_commands(commands)
+        logger.info(f"✅ Registered {len(commands)} commands to Telegram menu")
+    except Exception as e:
+        logger.error(f"Failed to register commands: {e}")
+
     # Start the scheduler now that we have a running loop
     scheduler.start()
     logger.info("✅ Scheduler started in post_init hook")
