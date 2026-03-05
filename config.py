@@ -14,10 +14,9 @@ ALLOWED_USER_IDS = [
     if uid.strip().isdigit()
 ]
 
-# Agent defaults
-DEFAULT_AGENT = os.getenv("DEFAULT_AGENT", "gemini")
+# Defaults
 DEFAULT_CWD = os.getenv("DEFAULT_CWD", os.path.expanduser("~"))
 
 # Limits
 MAX_MESSAGE_LENGTH = 4096  # Telegram max
-AGENT_TIMEOUT = 300  # 5 minutes
+AGENT_TIMEOUT = 300  # 5 minutes for Gemini CLI
