@@ -39,9 +39,54 @@ engine = Engine(gemini=gemini, memory=memory, scheduler=scheduler)
 
 def is_authorized(user_id: int) -> bool:
     """Check if user is in the whitelist."""
+    # If ALLOWED_USER_IDS is not set, we allow everyone temporarily just to catch the first binding
     if not config.ALLOWED_USER_IDS:
         return True
     return user_id in config.ALLOWED_USER_IDS
+
+async def try_auto_bind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    If ALLOWED_USER_IDS is completely empty in config, the first person
+    to interact with the bot gets automatically bound as the sole owner.
+    """
+    if config.ALLOWED_USER_IDS:
+         return False # Already configured
+
+    user_id = update.effective_user.id
+    username = update.effective_user.username or "Unknown"
+    
+    # Update config.py in memory and on disk
+    config.ALLOWED_USER_IDS = [user_id]
+    
+    import re
+    try:
+        with open("config.py", "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        # We need to update the .env file instead as config reads from it
+        with open(".env", "r", encoding="utf-8") as f:
+            env_content = f.read()
+            
+        if "ALLOWED_USER_IDS=" in env_content:
+            env_content = re.sub(r"ALLOWED_USER_IDS=.*", f"ALLOWED_USER_IDS={user_id}", env_content)
+        else:
+            env_content += f"\nALLOWED_USER_IDS={user_id}\n"
+            
+        with open(".env", "w", encoding="utf-8") as f:
+            f.write(env_content)
+            
+        logger.info(f"Auto-bound to first user: {user_id} (@{username})")
+        await update.message.reply_text(
+            f"🎉 **專屬綁定成功！**\n\n"
+            f"您是第一個與我對話的使用者 (ID: `{user_id}`)。\n"
+            f"我已經將這個 Bot 鎖定為**您專屬**，其他人無法再使用。\n\n"
+            f"已自動更新 `.env` 檔案。",
+            parse_mode="Markdown"
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Auto-bind failed: {e}")
+        return False
 
 
 async def split_send(update: Update, text: str):
@@ -69,8 +114,11 @@ async def split_send(update: Update, text: str):
 # === Command Handlers ===
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Check for auto-bind first
+    await try_auto_bind(update, context)
+
     if not is_authorized(update.effective_user.id):
-        await update.message.reply_text("🚫 未授權的使用者。")
+        await update.message.reply_text("🚫 此 Bot 已綁定為私人專屬，未授權的使用者。")
         return
 
     skills_info = engine.get_all_skills_info()
@@ -122,7 +170,7 @@ async def cmd_cwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Route /command to the appropriate skill."""
     if not is_authorized(update.effective_user.id):
-        await update.message.reply_text("🚫 未授權。")
+        await update.message.reply_text("🚫 此 Bot 已綁定為私人專屬，未授權。")
         return
 
     command = update.message.text.split()[0]
@@ -148,8 +196,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle free-text messages — send to Gemini CLI."""
     user_id = update.effective_user.id
 
-    if not is_authorized(user_id):
-        await update.message.reply_text("🚫 未授權。")
+    if not is_authorized(update.effective_user.id):
+        await update.message.reply_text("🚫 此 Bot 已綁定為私人專屬，未授權。")
         return
 
     text = update.message.text.strip()
