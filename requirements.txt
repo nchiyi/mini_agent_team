@@ -4,3 +4,7 @@ apscheduler>=3.10.0
 # Browser Skill (Optional)
 playwright>=1.40.0
 html2text>=2020.1.16
+# Vector Memory (Phase 3)
+faiss-cpu>=1.7.4
+sentence-transformers>=2.2.2
+numpy>=1.24.0

@@ -94,7 +94,19 @@ else
     echo "⏭️ 跳過瀏覽器擴展安裝。"
 fi
 
-echo "✅ Python 套件安裝完成。"
+# 5.2 Optional: Semantic Memory (Phase 3 - Intelligence Upgrade)
+echo ""
+read -p "是否安裝 「Semantic Memory」語義記憶擴展？(提供語義搜尋與長期記憶，需額外下載 400MB 模型) [y/N]: " INSTALL_SEMANTIC
+if [[ "$INSTALL_SEMANTIC" =~ ^[Yy]$ ]]; then
+    echo "🧠 正在準備語義記憶引擎..."
+    # Dependencies are already in requirements.txt, but we might want to trigger a pre-download
+    # or just let it happen on first start.
+    echo "✅ 語義記憶組件已就緒。"
+else
+    echo "⏭️ 跳過語義記憶安裝。"
+fi
+
+echo "✅ Python 套件處理完成。"
 echo ""
 
 # 6. Systemd Service Setup

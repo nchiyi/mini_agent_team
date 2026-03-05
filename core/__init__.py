@@ -96,26 +96,36 @@ class Engine:
         if routed_result is not None:
              return routed_result
 
-        # 2. Enter Autonomous Reasoning Loop (Phase 2)
+        # 2. Enter Autonomous Reasoning Loop (Phase 3 with RAG)
         logger.info(f"Starting Autonomous Loop for user {user_id}: '{text[:50]}...'")
         
+        # Retrieve Long-term Memory Context
+        semantic_context = self.memory.semantic.search(text)
+        if semantic_context:
+            logger.info(f"Retrieved semantic context: {len(semantic_context)} chars")
+            context_block = f"\nRelevant Context from Long-term Memory:\n{semantic_context}\n"
+        else:
+            context_block = ""
+
         # Prepare tool list
         skills_info = self.get_all_skills_info()
         skills_list = "\n".join([f"- {s['commands'][0]}: {s['description']}" for s in skills_info])
         
         # Build System Prompt
         system_prompt = (
-            "You are an AI Agent platform. Solve the user's task using the available skills.\n"
+            "You are an advanced AI Agent. Resolve the user's request efficiently.\n"
+            "You have access to long-term memory and specific tools.\n\n"
             "Format your reasoning in steps:\n"
             "Thought: Your reasoning\n"
             "Action: /command args\n"
             "Final Answer: Final result for the user\n\n"
             f"Current Directory: {cwd}\n"
-            f"Available Skills:\n{skills_list}\n\n"
+            f"{context_block}"
+            f"Available Tools:\n{skills_list}\n\n"
             "Rules:\n"
             "1. Only use one Action at a time.\n"
-            "2. Wait for the Observation after an Action.\n"
-            "3. If no skills are needed, just give the Final Answer.\n"
+            "2. Think if you need to remember something from the context provided.\n"
+            "3. If no tools are needed, provide a Final Answer immediately.\n"
         )
 
         history = f"User: {text}\n"
@@ -142,6 +152,7 @@ class Engine:
                 
                 # Execute action
                 parts = action_text.split()
+                if not parts: continue
                 command = parts[0]
                 args = parts[1:]
                 

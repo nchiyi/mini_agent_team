@@ -16,9 +16,9 @@ class Memory:
     """SQLite-backed memory for conversation history and settings."""
 
     def __init__(self, db_path: str = DB_PATH):
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self.db_path = db_path
         self._init_db()
+        self.semantic = SemanticMemory(db_path)
 
     def _init_db(self):
         """Create tables if they don't exist."""
@@ -65,6 +65,12 @@ class Memory:
                 ) AND user_id = ?
             """, (user_id, user_id))
             conn.commit()
+
+        # Phase 3: Also feed to semantic memory if it's substantial
+        if role == "user" and len(content) > 10:
+             self.semantic.add_fact(content, source="user_input")
+        elif role == "assistant" and len(content) > 20:
+             self.semantic.add_fact(content, source="bot_response")
 
     def get_context(self, user_id: int, limit: int = 10) -> str:
         """Get recent conversation context for a user."""
@@ -127,3 +133,97 @@ class Memory:
                 "SELECT path FROM projects WHERE name = ?", (name,)
             ).fetchone()
         return row[0] if row else None
+
+
+class SemanticMemory:
+    """Vector-based memory for efficient context retrieval (Phase 3)."""
+
+    def __init__(self, db_path: str = DB_PATH):
+        self.db_path = db_path
+        self.index_path = db_path.replace(".db", ".faiss")
+        self.meta_path = db_path.replace(".db", ".meta.json")
+        self.model = None
+        self.index = None
+        self.metadata = []  # List of dicts mapping to FAISS IDs
+        
+        self._initialized = False
+
+    def _lazy_init(self):
+        """Lazy load heavy models and index."""
+        if self._initialized:
+            return
+            
+        try:
+            import numpy as np
+            import faiss
+            from sentence_transformers import SentenceTransformer
+            
+            logger.info("Initializing Semantic Memory (Loading models)...")
+            # Using a very light and fast model
+            self.model = SentenceTransformer('all-MiniLM-L6-v2')
+            dim = 384  # Dimension of all-MiniLM-L6-v2
+            
+            if os.path.exists(self.index_path):
+                self.index = faiss.read_index(self.index_path)
+                with open(self.meta_path, "r", encoding="utf-8") as f:
+                    self.metadata = json.load(f)
+            else:
+                self.index = faiss.IndexFlatL2(dim)
+                self.metadata = []
+                
+            self._initialized = True
+            logger.info(f"Semantic Memory ready (Loaded {len(self.metadata)} facts)")
+        except ImportError:
+            logger.warning("FAISS or SentenceTransformers not found. Semantic memory disabled.")
+        except Exception as e:
+            logger.error(f"Failed to init semantic memory: {e}")
+
+    def add_fact(self, content: str, source: str = "conversation"):
+        """Embed and store a new fact."""
+        self._lazy_init()
+        if not self._initialized: return
+
+        try:
+            import numpy as np
+            vector = self.model.encode([content])[0].astype('float32')
+            self.index.add(np.array([vector]))
+            
+            self.metadata.append({
+                "content": content,
+                "source": source,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            # Save periodicially
+            self.save()
+        except Exception as e:
+            logger.error(f"Failed to add fact: {e}")
+
+    def search(self, query: str, top_k: int = 5) -> str:
+        """Search for top_k relevant facts."""
+        self._lazy_init()
+        if not self._initialized or not self.metadata: return ""
+
+        try:
+            import numpy as np
+            query_vector = self.model.encode([query])[0].astype('float32')
+            distances, indices = self.index.search(np.array([query_vector]), top_k)
+            
+            results = []
+            for i, idx in enumerate(indices[0]):
+                if idx != -1 and idx < len(self.metadata):
+                    results.append(f"- {self.metadata[idx]['content']}")
+            
+            if not results: return ""
+            return "\n".join(results)
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+            return ""
+
+    def save(self):
+        """Persist index and metadata."""
+        if not self._initialized: return
+        import faiss
+        faiss.write_index(self.index, self.index_path)
+        with open(self.meta_path, "w", encoding="utf-8") as f:
+            json.dump(self.metadata, f, ensure_ascii=False, indent=2)
