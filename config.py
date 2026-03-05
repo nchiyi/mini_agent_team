@@ -17,9 +17,13 @@ ALLOWED_USER_IDS = [
 # Defaults
 DEFAULT_CWD = os.getenv("DEFAULT_CWD", os.path.expanduser("~"))
 
+# Google Gemini
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")
+
 # Limits
 MAX_MESSAGE_LENGTH = 4096  # Telegram max
-AGENT_TIMEOUT = 60  # 60 seconds for Gemini CLI (fail fast)
+STREAM_UPDATE_INTERVAL = 200  # chars between streaming edits
 
 # Logging
 DEBUG_LOG = os.getenv("DEBUG_LOG", "false").lower() == "true"

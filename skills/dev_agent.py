@@ -1,13 +1,13 @@
 """
-Dev Agent Skill — Direct AI development via Gemini CLI.
-This is the default handler for free-text messages.
+Dev Agent Skill — Direct AI development via Gemini SDK.
+This is the handler for explicit /dev commands.
 """
 from .base_skill import BaseSkill
 
 
 class DevAgentSkill(BaseSkill):
     name = "dev_agent"
-    description = "AI 開發助手 — 透過 Gemini CLI 進行程式開發、除錯、分析"
+    description = "AI 開發助手 — 透過 Gemini 進行程式開發、除錯、分析"
     commands = ["/dev"]
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
@@ -23,8 +23,26 @@ class DevAgentSkill(BaseSkill):
             )
 
         prompt = " ".join(args)
-        cwd = self.engine.memory.get_setting(user_id, "cwd", "")
-        if not cwd:
-            cwd = self.engine.memory.get_setting(user_id, "default_cwd", "/tmp")
+        model = self.engine.memory.get_setting(user_id, "preferred_model", None)
 
-        return await self.engine.gemini.execute(prompt, cwd)
+        system_instruction = (
+            "你是一個專業的軟體工程師 AI 助手。\n"
+            "請用繁體中文回答，提供精確且實用的程式碼建議。\n"
+            "如果提供程式碼，請使用 markdown code block 格式。"
+        )
+
+        response, usage = await self.engine.gemini.generate(
+            prompt,
+            model=model,
+            system_instruction=system_instruction,
+        )
+
+        # Log usage
+        self.engine.memory.log_usage(
+            user_id,
+            usage.get("model", "unknown"),
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+        )
+
+        return response

@@ -3,9 +3,10 @@
 telegram-to-control — Telegram AI Agent Platform
 =================================================
 A personal AI agent accessible via Telegram.
-Uses Gemini CLI as AI brain with a modular skills system.
+Uses Google GenAI SDK as AI brain with a modular skills system.
 """
 import logging
+import os
 
 from telegram import Update, BotCommand
 from telegram.ext import (
@@ -18,7 +19,8 @@ from telegram.ext import (
 
 import config
 from core import Engine
-from core.gemini import GeminiCLI
+from core.auth import create_genai_client
+from core.gemini import GeminiClient
 from core.memory import Memory
 from core.scheduler import Scheduler
 from skills import discover_skills
@@ -39,14 +41,14 @@ if not config.DEBUG_LOG:
 
 # Initialize core
 memory = Memory()
-gemini = GeminiCLI(timeout=config.AGENT_TIMEOUT)
+genai_client = create_genai_client()
+gemini = GeminiClient(client=genai_client, default_model=config.DEFAULT_MODEL)
 scheduler = Scheduler()
 engine = Engine(gemini=gemini, memory=memory, scheduler=scheduler)
 
 
 def is_authorized(user_id: int) -> bool:
     """Check if user is in the whitelist."""
-    # If ALLOWED_USER_IDS is not set, we allow everyone temporarily just to catch the first binding
     if not config.ALLOWED_USER_IDS:
         return True
     return user_id in config.ALLOWED_USER_IDS
@@ -57,31 +59,26 @@ async def try_auto_bind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> b
     to interact with the bot gets automatically bound as the sole owner.
     """
     if config.ALLOWED_USER_IDS:
-         return False # Already configured
+         return False
 
     user_id = update.effective_user.id
     username = update.effective_user.username or "Unknown"
-    
-    # Update config.py in memory and on disk
+
     config.ALLOWED_USER_IDS = [user_id]
-    
+
     import re
     try:
-        with open("config.py", "r", encoding="utf-8") as f:
-            content = f.read()
-        
-        # We need to update the .env file instead as config reads from it
         with open(".env", "r", encoding="utf-8") as f:
             env_content = f.read()
-            
+
         if "ALLOWED_USER_IDS=" in env_content:
             env_content = re.sub(r"ALLOWED_USER_IDS=.*", f"ALLOWED_USER_IDS={user_id}", env_content)
         else:
             env_content += f"\nALLOWED_USER_IDS={user_id}\n"
-            
+
         with open(".env", "w", encoding="utf-8") as f:
             f.write(env_content)
-            
+
         logger.info(f"Auto-bound to first user: {user_id} (@{username})")
         await update.message.reply_text(
             f"🎉 **專屬綁定成功！**\n\n"
@@ -114,14 +111,12 @@ async def split_send(update: Update, text: str):
         try:
             await update.message.reply_text(chunk, parse_mode="Markdown")
         except Exception:
-            # Fallback without markdown if formatting fails
             await update.message.reply_text(chunk)
 
 
 # === Command Handlers ===
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Check for auto-bind first
     await try_auto_bind(update, context)
 
     if not is_authorized(update.effective_user.id):
@@ -134,11 +129,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for s in skills_info
     )
 
-    gemini_status = "✅" if gemini.is_available() else "❌ 未安裝"
-
     await update.message.reply_text(
         f"🤖 **Telegram AI Agent**\n\n"
-        f"Gemini CLI: {gemini_status}\n"
+        f"引擎: Google GenAI SDK ✅\n"
+        f"模型: `{config.DEFAULT_MODEL}`\n"
         f"Skills 已載入: {len(skills_info)}\n\n"
         f"📋 **可用指令:**\n{skills_list}\n\n"
         f"  /cwd <路徑> — 切換工作目錄\n"
@@ -160,10 +154,10 @@ async def cmd_cwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
         cwd = memory.get_setting(user_id, "cwd", config.DEFAULT_CWD)
-        await update.message.reply_text(f"📂 目前工作目錄: `{cwd}`", parse_mode="Markdown")
+        display_cwd = cwd.replace(os.path.expanduser("~"), "~")
+        await update.message.reply_text(f"📂 目前工作目錄: `{display_cwd}`", parse_mode="Markdown")
         return
 
-    import os
     new_cwd = " ".join(context.args)
 
     if not os.path.isdir(new_cwd):
@@ -203,10 +197,10 @@ async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle free-text messages — send to Gemini CLI."""
+    """Handle free-text messages — streaming response with live updates."""
     user_id = update.effective_user.id
 
-    if not is_authorized(update.effective_user.id):
+    if not is_authorized(user_id):
         await update.message.reply_text("🚫 此 Bot 已綁定為私人專屬，未授權。")
         return
 
@@ -215,26 +209,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     cwd = memory.get_setting(user_id, "cwd", config.DEFAULT_CWD)
-
-    # Mask home directory for privacy and cleaner UI
-    display_cwd = cwd.replace(config.os.path.expanduser("~"), "~") if hasattr(config, "os") else cwd
-    # Or more reliably:
-    import os
     display_cwd = cwd.replace(os.path.expanduser("~"), "~")
 
     # Show typing status
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    processing_msg = await update.message.reply_text(
-        f"🧠 Gemini 思考中...\n📂 `{display_cwd}`"
-    )
 
+    # First try Function Calling routing (fast path)
     try:
         result = await engine.handle_text(text, user_id, cwd)
-        await processing_msg.delete()
         await split_send(update, result)
     except Exception as e:
-        if processing_msg:
-            await processing_msg.delete()
+        logger.error(f"handle_message error: {e}")
         await update.message.reply_text(f"❌ 錯誤: {e}")
 
 
@@ -253,30 +238,25 @@ app_instance = None
 
 async def post_init(application: Application):
     """Actions to take after the application has initialized."""
-    # Register all skill commands in the Telegram menu
     try:
         commands = [
             BotCommand("start", "開始並顯示幫助"),
             BotCommand("help", "顯示指令說明"),
             BotCommand("cwd", "設定/查看工作目錄")
         ]
-        
-        # Add commands from skills
+
         skills_info = engine.get_all_skills_info()
         for s in skills_info:
             for cmd in s['commands']:
-                # Slash command menu doesn't support arguments in 'command' field, just name
                 cmd_name = cmd.lstrip("/")
                 desc = s['description']
-                # Telegram requires command to be lowercase alphanumeric
                 commands.append(BotCommand(cmd_name.lower(), desc[:100]))
-        
+
         await application.bot.set_my_commands(commands)
         logger.info(f"✅ Registered {len(commands)} commands to Telegram menu")
     except Exception as e:
         logger.error(f"Failed to register commands: {e}")
 
-    # Start the scheduler now that we have a running loop
     scheduler.start()
     logger.info("✅ Scheduler started in post_init hook")
 
@@ -295,7 +275,8 @@ def main():
         engine.register_skill(skill)
 
     print(f"🤖 Telegram AI Agent 啟動中...")
-    print(f"   Gemini CLI: {'✅' if gemini.is_available() else '❌ 未安裝'}")
+    print(f"   引擎: Google GenAI SDK ✅")
+    print(f"   模型: {config.DEFAULT_MODEL}")
     print(f"   Skills: {len(skills)} 個")
     print(f"   白名單: {config.ALLOWED_USER_IDS or '無（允許所有人）'}")
 

@@ -1,94 +1,170 @@
 """
-Gemini CLI wrapper — executes prompts via `gemini -p`.
+Gemini Client — Native Google GenAI SDK wrapper.
+
+Replaces the old CLI subprocess approach with a persistent,
+high-performance API client supporting:
+  - Persistent connection (no cold starts)
+  - Function Calling (native tool use)
+  - Streaming responses
+  - Precise token counting
 """
-import asyncio
-import shutil
 import logging
-from typing import Optional
+from typing import Optional, AsyncIterator
+
+from google import genai
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT = 300  # 5 minutes
 
+class GeminiClient:
+    """Persistent Google GenAI client with streaming and tool support."""
 
-class GeminiCLI:
-    """Wrapper for Gemini CLI non-interactive mode."""
+    def __init__(self, client: genai.Client, default_model: str = "gemini-2.0-flash"):
+        self.client = client
+        self.default_model = default_model
 
-    def __init__(self, timeout: int = DEFAULT_TIMEOUT):
-        self.timeout = timeout
-        self.command = "gemini"
-
-    def is_available(self) -> bool:
-        """Check if gemini CLI is installed."""
-        return shutil.which(self.command) is not None
-
-    async def execute(self, prompt: str, cwd: str, model: Optional[str] = None) -> tuple[str, dict]:
+    # ------------------------------------------------------------------
+    # Core: single-shot generation
+    # ------------------------------------------------------------------
+    async def generate(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+        tools: Optional[list] = None,
+        temperature: float = 0.7,
+    ) -> tuple[str, dict]:
         """
-        Execute a prompt via `gemini -p "prompt"`.
-
-        Args:
-            prompt: The user's prompt
-            cwd: Working directory
-            model: Optional model name (e.g. 'gemini-1.5-pro')
+        Generate content via the Gemini API.
 
         Returns:
-            A tuple of (output_text, usage_dict)
+            (response_text, usage_dict)
         """
-        if not self.is_available():
-            return (
-                "❌ Gemini CLI 未安裝。\n"
-                "安裝方法: `npm install -g @google/gemini-cli`\n",
-                {}
-            )
+        model_name = model or self.default_model
 
-        args = [self.command]
-        if model:
-            args.extend(["-m", model])
-        args.extend(["-p", prompt])
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+        )
+        if system_instruction:
+            config.system_instruction = system_instruction
+        if tools:
+            config.tools = tools
 
         try:
-            process = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
+            response = self.client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=config,
             )
 
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self.timeout,
-            )
+            text = response.text or "(無輸出)"
 
-            output = stdout.decode("utf-8", errors="replace").strip()
-            errors = stderr.decode("utf-8", errors="replace").strip()
+            # Extract precise token usage
+            usage = {"model": model_name}
+            if response.usage_metadata:
+                usage["prompt_tokens"] = response.usage_metadata.prompt_token_count or 0
+                usage["completion_tokens"] = response.usage_metadata.candidates_token_count or 0
+                usage["total_tokens"] = response.usage_metadata.total_token_count or 0
 
-            # Rough token estimation (1 token ≈ 4 chars or 0.75 words)
-            # This is a fallback if the CLI doesn't provide precise tokens
-            est_prompt = len(prompt) // 4
-            est_completion = len(output) // 4
-            usage = {
-                "prompt_tokens": est_prompt,
-                "completion_tokens": est_completion,
-                "model": model or "gemini-2.0-flash"
-            }
+            return text, usage
 
-            if process.returncode != 0 and errors:
-                return f"⚠️ Gemini 執行有錯誤:\n\n{errors}\n\n{output}", usage
-
-            return (output if output else "(無輸出)"), usage
-
-        except asyncio.TimeoutError:
-            try:
-                process.kill()
-            except Exception:
-                pass
-            return f"⏰ Gemini 執行超時（{self.timeout}s）", {}
-        except FileNotFoundError:
-            return "❌ 找不到 gemini CLI，請確認已安裝。", {}
         except Exception as e:
-            logger.error(f"Gemini CLI error: {e}")
-            return f"❌ 執行失敗: {e}", {}
+            logger.error(f"Gemini API error: {e}")
+            return f"❌ Gemini API 錯誤: {e}", {"model": model_name}
 
-    async def execute_in_project(self, prompt: str, project_path: str, model: Optional[str] = None) -> tuple[str, dict]:
-        """Execute a prompt in a specific project directory."""
-        return await self.execute(prompt, project_path, model=model)
+    # ------------------------------------------------------------------
+    # Streaming generation
+    # ------------------------------------------------------------------
+    async def generate_stream(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+    ) -> AsyncIterator[str]:
+        """
+        Stream content from Gemini, yielding text chunks.
+        """
+        model_name = model or self.default_model
+
+        config = types.GenerateContentConfig(
+            temperature=0.7,
+        )
+        if system_instruction:
+            config.system_instruction = system_instruction
+
+        try:
+            for chunk in self.client.models.generate_content_stream(
+                model=model_name,
+                contents=prompt,
+                config=config,
+            ):
+                if chunk.text:
+                    yield chunk.text
+        except Exception as e:
+            logger.error(f"Gemini streaming error: {e}")
+            yield f"\n\n❌ Streaming 錯誤: {e}"
+
+    # ------------------------------------------------------------------
+    # Function Calling generation
+    # ------------------------------------------------------------------
+    async def generate_with_tools(
+        self,
+        prompt: str,
+        tools: list,
+        model: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+    ) -> "genai.types.GenerateContentResponse":
+        """
+        Generate with function calling tools.
+        Returns the raw response for the caller to inspect
+        function_calls vs text.
+        """
+        model_name = model or self.default_model
+
+        config = types.GenerateContentConfig(
+            tools=tools,
+            temperature=0.4,
+        )
+        if system_instruction:
+            config.system_instruction = system_instruction
+
+        try:
+            response = self.client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=config,
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Gemini function calling error: {e}")
+            raise
+
+    # ------------------------------------------------------------------
+    # Model listing
+    # ------------------------------------------------------------------
+    def list_models(self) -> list[dict]:
+        """List all available Gemini models."""
+        try:
+            models = self.client.models.list()
+            result = []
+            for m in models:
+                result.append({
+                    "name": m.name,
+                    "display_name": m.display_name,
+                    "description": m.description,
+                })
+            return result
+        except Exception as e:
+            logger.error(f"Failed to list models: {e}")
+            return []
+
+    # ------------------------------------------------------------------
+    # Compatibility shim (for skills that call execute())
+    # ------------------------------------------------------------------
+    async def execute(self, prompt: str, cwd: str, model: Optional[str] = None) -> tuple[str, dict]:
+        """
+        Backward-compatible method for existing skills.
+        Maps old execute(prompt, cwd, model) to new generate().
+        """
+        return await self.generate(prompt, model=model)
