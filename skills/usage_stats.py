@@ -7,7 +7,7 @@ from .base_skill import BaseSkill
 class UsageStatsSkill(BaseSkill):
     name = "usage_stats"
     description = "使用統計 — 檢視精確的 Token 消耗紀錄與成本統計"
-    commands = ["/stats"]
+    commands = ["/stats", "/usage"]
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
         with sqlite3.connect(self.engine.memory.db_path) as conn:

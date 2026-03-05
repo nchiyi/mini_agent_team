@@ -216,10 +216,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cwd = memory.get_setting(user_id, "cwd", config.DEFAULT_CWD)
 
+    # Mask home directory for privacy and cleaner UI
+    display_cwd = cwd.replace(config.os.path.expanduser("~"), "~") if hasattr(config, "os") else cwd
+    # Or more reliably:
+    import os
+    display_cwd = cwd.replace(os.path.expanduser("~"), "~")
+
     # Show typing status
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     processing_msg = await update.message.reply_text(
-        f"🧠 Gemini 思考中...\n📂 `{cwd}`"
+        f"🧠 Gemini 思考中...\n📂 `{display_cwd}`"
     )
 
     try:

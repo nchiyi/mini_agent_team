@@ -87,8 +87,8 @@ read -p "是否安裝 「Browser Eye」瀏覽器擴展功能？(可讓 Agent 讀
 if [[ "$INSTALL_BROWSER" =~ ^[Yy]$ ]]; then
     echo "🌐 正在安裝瀏覽器引擎 (Chromium)..."
     python3 -m playwright install chromium
-    # Install system deps for playwright
-    python3 -m playwright install-deps chromium
+    # Install system deps for playwright using sudo to ensure interactive permission
+    sudo python3 -m playwright install-deps chromium
     echo "✅ 瀏覽器擴展安裝完成。"
 else
     echo "⏭️ 跳過瀏覽器擴展安裝。"

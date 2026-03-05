@@ -61,11 +61,10 @@ class Engine:
         for s in skills_info:
             routing_prompt += f"- {s['name']}: {s['description']} (Commands: {', '.join(s['commands'])})\n"
             
-        routing_prompt += (
             f"\nUser message: '{text}'\n"
+            f"If it's about checking usage or tokens, return '/stats'.\n"
             f"If the message clearly matches a skill's command, reply ONLY with the command and arguments.\n"
             f"If it's complex or general, return 'AUTONOMOUS'. Do not explain."
-        )
 
         try:
             # Get model setting
