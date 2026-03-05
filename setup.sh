@@ -24,62 +24,16 @@ echo ""
 
 # 3. Gemini CLI Login (Interactive)
 echo "[3/6] Gemini CLI 登入"
-echo "正在準備認證流程，這可能需要幾秒鐘..."
+echo "=========================================================="
+echo "💡 提示：如果登入網址被斷行或缺少字元（例如 /auth 變成 /aut）："
+echo "1. 請手動完整複製網址並在瀏覽器補上缺失的字母。"
+echo "2. 如果貼上驗證碼沒反應，請按 Ctrl+C 結束腳本，手動執行 'gemini login' 成功後再重新執行本腳本。"
+echo "=========================================================="
+echo "現在將啟動正式登入程序..."
+sleep 2
 
-python3 -c "
-import subprocess, re, sys, time, os
-
-def fix_url(text):
-    # 修復可能的網址斷行或字元缺失問題 (特別是 /auth/ 變成 /aut/)
-    url_match = re.search(r'(https://accounts\.google\.com/o/oauth2/v2/auth\?[^\s\n\r]+)', text)
-    if not url_match:
-        # 嘗試找不完全的網址並補上 h
-        url_match = re.search(r'(https://accounts\.google\.com/o/oauth2/v2/aut\?[^\s\n\r]+)', text)
-        if url_match:
-            return url_match.group(1).replace('/aut?', '/auth?')
-    return url_match.group(1) if url_match else None
-
-print('正在啟動 gemini login...')
-# 使用標準 subprocess 搭配串流讀取
-p = subprocess.Popen(['gemini', 'login'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=sys.stdin, text=True, bufsize=1)
-
-output = ''
-url_shown = False
-
-# 設置超時，避免無限等待
-start_time = time.time()
-
-while p.poll() is None:
-    # 讀取一行或部分輸出
-    line = p.stdout.readline()
-    if not line:
-        if time.time() - start_time > 30:
-            print('\n操作超時，請嘗試手動執行 gemini login。')
-            break
-        time.sleep(0.1)
-        continue
-    
-    output += line
-    # 我們不隱藏原本的輸出，讓使用者知道進度
-    sys.stdout.write(line)
-    sys.stdout.flush()
-    
-    if not url_shown and ('https://' in line or 'authorize' in line.lower()):
-        # 嘗試從累積的輸出中提取並修復網址
-        url = fix_url(output)
-        if url:
-            print('\n' + '='*80)
-            print('✨ 發現授權網址 (已自動修復可能存在的 h 缺失錯誤)：')
-            print('\n' + url)
-            print('\n' + '='*80 + '\n')
-            url_shown = True
-
-# 讓使用者完成後續手動輸入
-p.wait()
-" || {
-    echo "⚠️ 自動認證助手失敗，改用原始模式..."
-    gemini login
-}
+# 直接執行，不使用任何包裝以確保 TTY 正常運作
+gemini login
 
 echo "✅ Gemini 登入流程結束。"
 echo ""
