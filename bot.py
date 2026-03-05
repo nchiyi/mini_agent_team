@@ -24,11 +24,18 @@ from core.scheduler import Scheduler
 from skills import discover_skills
 
 # Logging
+log_level = logging.DEBUG if config.DEBUG_LOG else logging.INFO
 logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    level=logging.INFO,
+    level=log_level,
 )
 logger = logging.getLogger("bot")
+
+# If NOT in debug mode, suppress verbose third-party libraries
+if not config.DEBUG_LOG:
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("telegram").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 # Initialize core
 memory = Memory()

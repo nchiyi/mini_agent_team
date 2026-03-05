@@ -65,7 +65,8 @@ echo "✅ Python 套件安裝完成。"
 echo ""
 
 # 6. Systemd Service Setup
-echo "[6/6] 設定 Systemd 背景服務..."
+echo "[6/6] 設定 Systemd 背景服務與管理工具..."
+chmod +x agent
 SERVICE_FILE="/etc/systemd/system/telegram-agent.service"
 CURRENT_DIR=$(pwd)
 CURRENT_USER=$USER
@@ -96,6 +97,12 @@ echo "✅ Systemd 服務啟動完成！"
 echo ""
 echo "=========================================================="
 echo "🎉 安裝完成！您的 Telegram AI Agent 已在背景執行。"
-echo "👉 檢查狀態指令: sudo systemctl status telegram-agent"
-echo "👉 查看日誌指令: journalctl -u telegram-agent -f"
+echo ""
+echo "🚀 簡易管理指令 (在專案目錄下執行):"
+echo "👉 ./agent status  - 檢查執行狀態"
+echo "👉 ./agent logs    - 查看即時日誌"
+echo "👉 ./agent restart - 重啟服務"
+echo "👉 ./agent debug on/off - 切換詳細日誌模式"
+echo ""
+echo "💡 提示：若想在任何地方都能使用，請執行: sudo ln -s \$(pwd)/agent /usr/local/bin/agent"
 echo "=========================================================="
