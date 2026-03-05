@@ -24,46 +24,13 @@ echo ""
 
 # 3. Gemini CLI Login (Interactive)
 echo "[3/6] Gemini CLI 登入"
-echo "準備取得授權網址，請稍候..."
-
-python3 -c "
-import subprocess, re, sys
-
-p = subprocess.Popen(['gemini', 'login'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-output = ''
-url_found = False
-
-while True:
-    char = p.stdout.read(1)
-    if not char: break
-    output += char
-    
-    if not url_found and 'Enter the authorization code:' in output:
-        url_match = re.search(r'(https://accounts.google.com[^\s\x1b]+)', output)
-        if url_match:
-            print('\n' + '='*80)
-            print('💎 請完整複製以下網址，到瀏覽器打開並授權：\n')
-            print(url_match.group(1))
-            print('\n' + '='*80 + '\n')
-            url_found = True
-            
-            # 提示使用者輸入
-            code = input('請貼上您獲得的 Authorization code: ')
-            p.stdin.write(code + '\n')
-            p.stdin.flush()
-            
-            # 讀取剩餘輸出
-            print('\n⏳ 驗證中...')
-            remainder = p.stdout.read()
-            if 'Successfully logged in' in remainder or 'Welcome' in remainder or 'Token' in remainder or not 'Error' in remainder:
-                print('✅ 驗證完成！')
-            else:
-                print(remainder)
-            break
-
-p.wait()
-"
-echo "✅ Gemini 登入流程結束。"
+echo "=========================================================="
+echo "⚠️ 警告：請務必【完整複製】整段網址，不要漏掉任何一個字母！"
+echo "（先前有漏掉 https://www.googleapis.com/auth 裡的 'h' 導致錯誤的情況）"
+echo "=========================================================="
+echo "請照著下方的指示登入您的 Google 帳號："
+gemini login
+echo "✅ 假設 Gemini 登入完成。"
 echo ""
 
 # 4. Telegram Bot Token Setup
