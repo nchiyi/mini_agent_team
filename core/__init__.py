@@ -68,8 +68,20 @@ class Engine:
         )
 
         try:
-            route_decision = await self.gemini.execute(routing_prompt, cwd)
-            route_decision = route_decision.strip()
+            # Get model setting
+            model = self.memory.get_setting(user_id, "preferred_model", None)
+            
+            response, usage = await self.gemini.execute(routing_prompt, cwd, model=model)
+            
+            # Log usage
+            self.memory.log_usage(
+                user_id, 
+                usage.get("model", "unknown"),
+                usage.get("prompt_tokens", 0),
+                usage.get("completion_tokens", 0)
+            )
+
+            route_decision = response.strip()
             
             if route_decision == "AUTONOMOUS" or not route_decision.startswith("/"):
                 return None
@@ -135,7 +147,18 @@ class Engine:
             full_prompt = f"{system_prompt}\n\n{history}\n"
             
             # Use Gemini to think/act
-            response = await self.gemini.execute(full_prompt, cwd)
+            # Get model setting
+            model = self.memory.get_setting(user_id, "preferred_model", None)
+            response, usage = await self.gemini.execute(full_prompt, cwd, model=model)
+            
+            # Log usage
+            self.memory.log_usage(
+                user_id, 
+                usage.get("model", "unknown"),
+                usage.get("prompt_tokens", 0),
+                usage.get("completion_tokens", 0)
+            )
+            
             logger.debug(f"Loop step {i+1} response: {response}")
             
             # Parse response

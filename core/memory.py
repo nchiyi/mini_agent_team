@@ -41,13 +41,27 @@ class Memory:
                 )
             """)
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS projects (
-                    name TEXT PRIMARY KEY,
-                    path TEXT NOT NULL,
-                    description TEXT DEFAULT '',
-                    added_at TEXT NOT NULL
+                CREATE TABLE IF NOT EXISTS usage_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    model TEXT NOT NULL,
+                    prompt_tokens INTEGER DEFAULT 0,
+                    completion_tokens INTEGER DEFAULT 0,
+                    total_tokens INTEGER DEFAULT 0,
+                    estimated_cost REAL DEFAULT 0,
+                    timestamp TEXT NOT NULL
                 )
             """)
+            conn.commit()
+
+    def log_usage(self, user_id: int, model: str, prompt_tokens: int, completion_tokens: int, cost: float = 0.0):
+        """Record precise token usage for a conversation step."""
+        total = prompt_tokens + completion_tokens
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO usage_logs (user_id, model, prompt_tokens, completion_tokens, total_tokens, estimated_cost, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, model, prompt_tokens, completion_tokens, total, cost, datetime.now().isoformat()),
+            )
             conn.commit()
 
     def add_message(self, user_id: int, role: str, content: str):
