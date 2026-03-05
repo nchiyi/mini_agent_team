@@ -8,7 +8,7 @@ from .base_skill import BaseSkill
 
 class NewsFetcherSkill(BaseSkill):
     name = "news_fetcher"
-    description = "新聞搜尋與推播 — 搜尋最新新聞、定時推播"
+    description = "新聞推播 — 搜尋最新科技新聞與定時推播服務"
     commands = ["/news", "/subscribe", "/unsubscribe"]
     schedule = "0 9 * * *"  # Every day at 9 AM
 

@@ -7,7 +7,7 @@ from .base_skill import BaseSkill
 
 class SystemMonitorSkill(BaseSkill):
     name = "system_monitor"
-    description = "系統監控 — CPU、記憶體、磁碟使用量"
+    description = "系統監控 — 查看伺服器 CPU、記憶體與磁碟使用量"
     commands = ["/sys"]
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:

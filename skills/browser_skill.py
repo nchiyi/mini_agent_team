@@ -18,7 +18,7 @@ except ImportError:
 class BrowserSkill(BaseSkill):
     """A skill that provides web browsing capabilities."""
 
-    name = "Browser Eye"
+    name = "browser_eye"
     description = "瀏覽網頁與讀取內容 (需安裝 Playwright)"
     commands = ["/browse", "/search"]
     schedule = None
