@@ -50,70 +50,119 @@ class Engine:
             })
         return result
 
-    async def _route_by_nlu(self, text: str, user_id: int, cwd: str) -> str:
-        """Use Gemini to route natural language requests to the right skill."""
+    async def _route_by_nlu(self, text: str, user_id: int, cwd: str) -> Optional[str]:
+        """Use Gemini to route natural language requests to the right skill (Fast Path)."""
         skills_info = self.get_all_skills_info()
         
-        # Build prompt for Gemini to decide routing
         routing_prompt = (
             "You are a router. The user sent a natural language message.\n"
             "Here are the available skills and their commands:\n"
         )
         for s in skills_info:
-            if s['name'] == 'dev_agent': continue # Skip default
             routing_prompt += f"- {s['name']}: {s['description']} (Commands: {', '.join(s['commands'])})\n"
             
         routing_prompt += (
             f"\nUser message: '{text}'\n"
-            f"If the message clearly matches a skill's intent (e.g. checking system status, searching news, tracking git projects), "
-            f"reply ONLY with the corresponding command and any necessary arguments (e.g., '/sys', '/projects', '/news AI', '/install https://...').\n"
-            f"If it's a general coding question, coding task, conversation, or ambiguous, return EXACTLY 'DEV_AGENT'. Do not explain."
+            f"If the message clearly matches a skill's command, reply ONLY with the command and arguments.\n"
+            f"If it's complex or general, return 'AUTONOMOUS'. Do not explain."
         )
 
         try:
             route_decision = await self.gemini.execute(routing_prompt, cwd)
             route_decision = route_decision.strip()
             
-            # Stop condition if not clearly routed
-            if route_decision == "DEV_AGENT" or not route_decision.startswith("/"):
+            if route_decision == "AUTONOMOUS" or not route_decision.startswith("/"):
                 return None
                 
-            # Parse the simulated command
             parts = route_decision.split()
             simulated_cmd = parts[0]
             simulated_args = parts[1:]
             
-            skill = self.get_skill_for_command(simulated_cmd)
+            skill: any = self.get_skill_for_command(simulated_cmd)
             if skill:
-                logger.info(f"NLU Routed: '{text}' -> {route_decision}")
-                # Execute the matched skill
+                logger.info(f"NLU Fast-Routed: '{text}' -> {route_decision}")
                 return await skill.handle(simulated_cmd, simulated_args, user_id)
-                
         except Exception as e:
-            logger.error(f"NLU Routing failed: {e}")
+            logger.error(f"NLU Fast-Routing failed: {e}")
             
         return None
 
     async def handle_text(self, text: str, user_id: int, cwd: str) -> str:
-        """Handle free-text messages — route via NLU or send to dev agent."""
-        
-        # Try NLU routing first
+        """
+        Handle free-text messages with an autonomous reasoning loop (ReAct).
+        """
+        # 1. Try simple NLU routing first for exact command matches (Fast Path)
         routed_result = await self._route_by_nlu(text, user_id, cwd)
         if routed_result is not None:
              return routed_result
-             
-        # Fallback to general conversational Dev Agent
-        # Add context from memory
-        context = self.memory.get_context(user_id)
-        if context:
-            enhanced_prompt = f"Context:\n{context}\n\nUser request:\n{text}"
-        else:
-            enhanced_prompt = text
 
-        result = await self.gemini.execute(enhanced_prompt, cwd)
+        # 2. Enter Autonomous Reasoning Loop (Phase 2)
+        logger.info(f"Starting Autonomous Loop for user {user_id}: '{text[:50]}...'")
+        
+        # Prepare tool list
+        skills_info = self.get_all_skills_info()
+        skills_list = "\n".join([f"- {s['commands'][0]}: {s['description']}" for s in skills_info])
+        
+        # Build System Prompt
+        system_prompt = (
+            "You are an AI Agent platform. Solve the user's task using the available skills.\n"
+            "Format your reasoning in steps:\n"
+            "Thought: Your reasoning\n"
+            "Action: /command args\n"
+            "Final Answer: Final result for the user\n\n"
+            f"Current Directory: {cwd}\n"
+            f"Available Skills:\n{skills_list}\n\n"
+            "Rules:\n"
+            "1. Only use one Action at a time.\n"
+            "2. Wait for the Observation after an Action.\n"
+            "3. If no skills are needed, just give the Final Answer.\n"
+        )
 
-        # Save to memory
-        self.memory.add_message(user_id, "user", text)
-        self.memory.add_message(user_id, "assistant", result[:500])
+        history = f"User: {text}\n"
+        max_steps = 5
+        
+        for i in range(max_steps):
+            full_prompt = f"{system_prompt}\n\n{history}\n"
+            
+            # Use Gemini to think/act
+            response = await self.gemini.execute(full_prompt, cwd)
+            logger.debug(f"Loop step {i+1} response: {response}")
+            
+            # Parse response
+            if "Final Answer:" in response:
+                final_answer = response.split("Final Answer:")[1].strip()
+                # Save to memory and return
+                self.memory.add_message(user_id, "user", text)
+                self.memory.add_message(user_id, "assistant", final_answer[:500])
+                return final_answer
+            
+            if "Action:" in response:
+                action_line = [l for l in response.split("\n") if "Action:" in l][0]
+                action_text = action_line.split("Action:")[1].strip()
+                
+                # Execute action
+                parts = action_text.split()
+                command = parts[0]
+                args = parts[1:]
+                
+                logger.info(f"Agent Action: {command} {args}")
+                skill: any = self.get_skill_for_command(command)
+                
+                if skill:
+                    try:
+                        observation = await skill.handle(command, args, user_id)
+                    except Exception as e:
+                        observation = f"Error: {e}"
+                else:
+                    observation = f"Error: Unknown skill {command}"
+                
+                history += f"{response}\nObservation: {observation}\n"
+                continue
+            
+            # If Gemini didn't follow format but provided text, assume it's the answer
+            if i == 0 and not "Action:" in response:
+                 return response
+                 
+            history += f"{response}\n"
 
-        return result
+        return "⚠️任務超時或無法完成目標。"
