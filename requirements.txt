@@ -1,3 +1,6 @@
 python-telegram-bot>=21.0
 python-dotenv>=1.0.0
 apscheduler>=3.10.0
+# Browser Skill (Optional)
+playwright>=1.40.0
+html2text>=2020.1.16

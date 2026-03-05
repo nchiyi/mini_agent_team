@@ -1,0 +1,77 @@
+"""
+Browser Skill — Allows the agent to browse the web and read content.
+"""
+import asyncio
+import logging
+from .base_skill import BaseSkill
+
+logger = logging.getLogger(__name__)
+
+try:
+    from playwright.async_api import async_playwright
+    import html2text
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+
+
+class BrowserSkill(BaseSkill):
+    """A skill that provides web browsing capabilities."""
+
+    name = "Browser Eye"
+    description = "瀏覽網頁與讀取內容 (需安裝 Playwright)"
+    commands = ["/browse", "/search"]
+    schedule = None
+
+    async def handle(self, command: str, args: list[str], user_id: int) -> str:
+        if not PLAYWRIGHT_AVAILABLE:
+            return (
+                "❌ 瀏覽器功能未啟動（缺少相依套件）。\n"
+                "請在伺服器端執行 `pip install playwright html2text` 且 `playwright install chromium`。"
+            )
+
+        if not args:
+            return "💡 使用方式: `/browse <URL>` 或 `/search <關鍵字>`"
+
+        target = " ".join(args)
+        
+        if command == "/search":
+            url = f"https://www.google.com/search?q={target}"
+        else:
+            url = target if target.startswith("http") else f"https://{target}"
+
+        return await self._fetch_page(url)
+
+    async def _fetch_page(self, url: str) -> str:
+        """Fetch a page and convert to markdown."""
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                
+                logger.info(f"Browsing URL: {url}")
+                await page.goto(url, wait_until="networkidle", timeout=30000)
+                
+                # Get page title and content
+                title = await page.title()
+                content = await page.content()
+                
+                await browser.close()
+
+                # Convert HTML to Markdown for better LLM readability
+                h = html2text.HTML2Text()
+                h.ignore_links = False
+                h.ignore_images = True
+                markdown = h.handle(content)
+
+                # Truncate to avoid blowing up context (limit to 10k chars approx)
+                if len(markdown) > 8000:
+                    markdown = markdown[:8000] + "\n\n...(內容過長已截斷)"
+
+                return f"🌐 **[{title}]({url})**\n\n{markdown}"
+
+        except asyncio.TimeoutError:
+            return f"❌ 讀取網頁超時 (30s): {url}"
+        except Exception as e:
+            logger.error(f"Browser error: {e}")
+            return f"❌ 讀取網頁失敗: {e}"

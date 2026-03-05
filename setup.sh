@@ -80,6 +80,20 @@ echo "[5/6] 設定 Python 虛擬環境與安裝套件..."
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+
+# 5.1 Optional: Browser Eye (Playwright)
+echo ""
+read -p "是否安裝 「Browser Eye」瀏覽器擴展功能？(可讓 Agent 讀取網頁內容) [y/N]: " INSTALL_BROWSER
+if [[ "$INSTALL_BROWSER" =~ ^[Yy]$ ]]; then
+    echo "🌐 正在安裝瀏覽器引擎 (Chromium)..."
+    python3 -m playwright install chromium
+    # Install system deps for playwright
+    python3 -m playwright install-deps chromium
+    echo "✅ 瀏覽器擴展安裝完成。"
+else
+    echo "⏭️ 跳過瀏覽器擴展安裝。"
+fi
+
 echo "✅ Python 套件安裝完成。"
 echo ""
 
