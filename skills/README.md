@@ -46,6 +46,7 @@ class MySkill(BaseSkill):
 | :--- | :--- | :--- | :--- |
 | `/browse`, `/search` | `browser_skill.py` | 網頁瀏覽與搜尋 | `playwright`, `html2text` |
 | `/sys` | `system_monitor.py` | 系統狀態監控 | 無 |
+| `/usage` | `usage_monitor.py` | API 用量與成本監控 | 無 |
 | `/news`, `/subscribe` | `news_fetcher.py` | 新聞搜尋與訂閱 | 無 |
 | `/projects`, `/status` | `project_tracker.py` | Git 專案進度追蹤 | `git` (CLI) |
 | `/deploy`, `/logs` | `deployer.py` | 專案部署與日誌查看 | 無 |
