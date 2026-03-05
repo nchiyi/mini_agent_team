@@ -232,6 +232,16 @@ async def send_notification(user_id: int, message: str):
 app_instance = None
 
 
+async def post_init(application: Application):
+    """Actions to take after the application has initialized."""
+    # Register all skill commands here to ensure they show up in the menu properly
+    # (Optional, but good practice for newer PTB versions)
+    
+    # Start the scheduler now that we have a running loop
+    scheduler.start()
+    logger.info("✅ Scheduler started in post_init hook")
+
+
 def main():
     global app_instance
 
@@ -250,12 +260,12 @@ def main():
     print(f"   Skills: {len(skills)} 個")
     print(f"   白名單: {config.ALLOWED_USER_IDS or '無（允許所有人）'}")
 
-    app = Application.builder().token(config.BOT_TOKEN).build()
+    # Build application with post_init hook
+    app = Application.builder().token(config.BOT_TOKEN).post_init(post_init).build()
     app_instance = app
 
     # Set up scheduler notification callback
     scheduler.set_notify_callback(send_notification)
-    scheduler.start()
 
     # Register built-in commands
     app.add_handler(CommandHandler("start", cmd_start))
