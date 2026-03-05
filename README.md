@@ -1,84 +1,62 @@
-# 🤖 Telegram-to-Control
+# 🤖 Telegram-to-Control (Agentic Edition)
 
-透過 Telegram 遠端操控電腦上的 AI Coding Agent（Gemini CLI / Claude Code CLI）。
-
-> 在任何地方用手機發 Telegram 訊息，就能讓電腦上的 AI agent 幫你寫 code、改 bug、分析專案。
+這是一個進化版的 Telegram AI Agent 平台，透過 Gemini CLI 與高度模組化的技能系統，將你的 Telegram 變成一個強大的遠端指令中心與自主 AI 助手。
 
 ---
 
-## ✨ 功能
+## 🚀 核心黑科技 (Core Intelligence)
 
-- 🤖 **多 Agent 支援** — Gemini CLI 和 Claude Code CLI 即時切換
-- 🔒 **白名單驗證** — 只有授權的 Telegram User ID 能使用
-- 📂 **工作目錄切換** — 指定 Agent 在哪個專案目錄下執行
-- 📨 **自動分段** — 超長回覆自動分段發送
-- ⏱️ **超時保護** — 預設 5 分鐘超時自動中止
+### 1. 自主思考引擎 (Autonomous Reasoning / ReAct)
+Agent 不再只是回答問題，而是具備 **Reason + Act** 循環。它會自動拆解任務、選擇工具、觀察結果，最後給出答案。
 
-## 📋 前置需求
+### 2. 語義記憶 (Semantic Memory / RAG)
+整合 **FAISS 向量資料庫**，Agent 具備長短期記憶能力：
+- **長期事實**：自動記住你的喜好與專案背景。
+- **智慧檢索**：在回答前自動搜尋相關歷史文獻，提供更精準的 context。
 
-| 項目 | 說明 |
-|------|------|
-| **Python** | 3.10+ |
-| **Telegram Bot** | 從 [@BotFather](https://t.me/BotFather) 建立 |
-| **AI CLI** | 至少安裝一個：Gemini CLI 或 Claude Code CLI |
+### 3. 瀏覽器眼睛 (Browser Eye)
+透過 **Playwright**，Agent 可以開啟瀏覽器看網頁、抓取內容並總結資訊。
 
-### 安裝 AI CLI
+---
+
+## 🛠️ 技能與工具 (Skills & Tools)
+
+你可以透過自然語言觸發以下技能，或使用具體的指令：
+
+| 技能名稱 | 指令 (Tools) | 說明 |
+| :--- | :--- | :--- |
+| **Browser Eye** | `/browse`, `/search` | 瀏覽網頁、Google 搜尋、網頁轉 Markdown。 |
+| **Dev Agent** | `/dev` | 核心 Coding 助手，處理開發任務。 |
+| **System Monitor** | `/sys` | 查看伺服器 CPU、記憶體、硬碟狀態。 |
+| **News Fetcher** | `/news` | 抓取全球即時科技與新聞。 |
+| **Project Tracker** | `/projects` | 掃描本地 Git 專案狀態。 |
+| **Deployer** | `/deploy`, `/install` | 自動部署本地專案或從 GitHub 安裝新東西。 |
+| **Installer** | `/install_skill` | 動態下載並載入新的 Python 技能模組。 |
+
+---
+
+## 📦 安裝與啟動
+
+### 1. 快速部署 (互動式腳本)
+最簡單的方式是使用我們提供的 `setup.sh`，它會引導你完成連網、認證以及選擇性功能（瀏覽器、向量資料庫）的安裝：
 
 ```bash
-# Gemini CLI
-npm install -g @anthropic-ai/gemini-cli
-
-# Claude Code CLI
-npm install -g @anthropic-ai/claude-code
-```
-
-## 🚀 快速開始
-
-```bash
-# 1. Clone
-git clone git@github.com:nchiyi/telegram-to-control.git
+git clone https://github.com/nchiyi/telegram-to-control.git
 cd telegram-to-control
-
-# 2. 安裝依賴
-pip install -r requirements.txt
-
-# 3. 設定
-cp .env.example .env
-# 編輯 .env，填入你的 Bot Token 和 User ID
-
-# 4. 啟動
-python bot.py
+bash setup.sh
 ```
 
-## 📱 使用方式
+---
 
-在 Telegram 中：
+## 📱 管理指令 (CLI Admin)
 
-| 指令 | 說明 |
-|------|------|
-| `/start` | 顯示歡迎訊息 |
-| `/agent gemini\|claude` | 切換 AI Agent |
-| `/cwd <路徑>` | 切換工作目錄 |
-| `/status` | 查看目前設定 |
-| `/agents` | 列出可用 Agent |
-| 直接發文字 | 送給 Agent 執行 |
+專案目錄內附帶 `agent` 腳本，方便你管理背景服務：
+- `./agent status` - 檢查 Bot 狀態
+- `./agent logs` - 查看即時日誌
+- `./agent restart` - 重啟服務
+- `./agent debug on/off` - 切換詳細除錯日誌
 
-## 📂 專案結構
-
-```
-telegram-to-control/
-├── bot.py                    # Telegram Bot 主程式
-├── config.py                 # 設定管理
-├── agents/
-│   ├── __init__.py           # Agent 註冊
-│   ├── base.py               # 基底類別
-│   ├── gemini_agent.py       # Gemini CLI 串接
-│   └── claude_agent.py       # Claude Code CLI 串接
-├── requirements.txt
-├── .env.example
-└── .gitignore
-```
+---
 
 ## 📄 License
-
 MIT
