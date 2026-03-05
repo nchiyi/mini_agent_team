@@ -106,6 +106,12 @@ class Memory:
             lines.append(f"{prefix}: {content}")
         return "\n".join(lines)
 
+    def clear_context(self, user_id: int):
+        """Clear the conversation history for a user."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
+            conn.commit()
+            
     # Settings
     def set_setting(self, user_id: int, key: str, value: str):
         with sqlite3.connect(self.db_path) as conn:

@@ -136,6 +136,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Skills 已載入: {len(skills_info)}\n\n"
         f"📋 **可用指令:**\n{skills_list}\n\n"
         f"  /cwd <路徑> — 切換工作目錄\n"
+        f"  /clear — 清除您的對話歷史\n"
         f"  /help — 顯示此訊息\n\n"
         f"💬 直接發送文字訊息即可與 Gemini 對話。",
         parse_mode="Markdown",
@@ -167,6 +168,18 @@ async def cmd_cwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     memory.set_setting(user_id, "cwd", new_cwd)
     await update.message.reply_text(f"✅ 工作目錄: `{new_cwd}`", parse_mode="Markdown")
 
+async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Clear conversation history for the user."""
+    if not is_authorized(update.effective_user.id):
+        return
+
+    user_id = update.effective_user.id
+    memory.clear_context(user_id)
+    # Also notify the SubAgents to clear their history if any
+    for name, agent in engine.agents.items():
+        agent.reset()
+        
+    await update.message.reply_text("🧹 已清除您的對話歷史（幫助節省 Token 消耗）。")
 
 async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Route /command to the appropriate skill."""
@@ -242,7 +255,8 @@ async def post_init(application: Application):
         commands = [
             BotCommand("start", "開始並顯示幫助"),
             BotCommand("help", "顯示指令說明"),
-            BotCommand("cwd", "設定/查看工作目錄")
+            BotCommand("cwd", "設定/查看工作目錄"),
+            BotCommand("clear", "清除對話歷史以節省 Token")
         ]
 
         skills_info = engine.get_all_skills_info()
@@ -291,6 +305,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("cwd", cmd_cwd))
+    app.add_handler(CommandHandler("clear", cmd_clear))
 
     # Register all skill commands
     for skill_name, skill in engine.skills.items():
