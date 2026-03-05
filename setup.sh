@@ -24,13 +24,95 @@ echo ""
 
 # 3. Gemini CLI Login (Interactive)
 echo "[3/6] Gemini CLI 登入"
-echo "=========================================================="
-echo "⚠️ 警告：請務必【完整複製】整段網址，不要漏掉任何一個字母！"
-echo "（先前有漏掉 https://www.googleapis.com/auth 裡的 'h' 導致錯誤的情況）"
-echo "=========================================================="
-echo "請照著下方的指示登入您的 Google 帳號："
-gemini login
-echo "✅ 假設 Gemini 登入完成。"
+echo "正在啟動免干擾認證模式..."
+
+cat << 'EOF' > /tmp/gemini_auth.py
+import pty, os, sys, select, re, time
+
+def main():
+    master, slave = pty.openpty()
+    pid = os.fork()
+    if pid == 0:
+        os.close(master)
+        os.dup2(slave, 0)
+        os.dup2(slave, 1)
+        os.dup2(slave, 2)
+        os.close(slave)
+        # 欺騙終端機寬度，防止它自己換行切斷網址
+        os.system("stty cols 1000")
+        os.execlp("gemini", "gemini", "login")
+
+    os.close(slave)
+    output = ""
+    url_found = False
+    
+    try:
+        while True:
+            r, _, _ = select.select([master], [], [], 0.5)
+            if master in r:
+                data = os.read(master, 1024)
+                if not data: break
+                
+                # Decode and clean
+                text = data.decode('utf-8', 'ignore')
+                output += text
+                
+                if not url_found and "Enter the authorization code:" in output:
+                    url_found = True
+                    
+                    # 強制清除 TUI 的游標控制碼與斷行
+                    clean = re.sub(r'\x1b\[.*?m', '', output)
+                    clean = re.sub(r'\x1b\[.*?H', '', clean)
+                    clean = re.sub(r'\x1b\[.*?J', '', clean)
+                    clean = clean.replace('\r', '').replace('\n', '')
+                    
+                    m = re.search(r'(https://accounts\.google\.com/o/oauth2/v2/auth\?[^\s\x1b]+)', clean)
+                    if m:
+                        url = m.group(1)
+                        # 🔥 終極殺招：強制修補網址錯誤，確保不管怎樣 h 都在
+                        url = url.replace('/aut/cloud', '/auth/cloud')
+                        
+                        print("\n" + "="*80)
+                        print("💎 請完整複製以下網址，到瀏覽器打開並授權：\n")
+                        print(url)
+                        print("\n" + "="*80 + "\n")
+                        
+                        # 避免環境的 Bracketed Paste Mode 干擾，用標準 input 單獨讀取
+                        try:
+                            code = input("📥 請貼上您的 Authorization code: ").strip()
+                            os.write(master, (code + "\n").encode('utf-8'))
+                            print("\n⏳ 驗證中，請稍候...")
+                        except EOFError:
+                            print("輸入中斷。")
+                            sys.exit(1)
+                            
+                        # 把剩下的結果讀完
+                        time.sleep(1)
+                        while True:
+                            r2, _, _ = select.select([master], [], [], 1.0)
+                            if master in r2:
+                                data2 = os.read(master, 1024)
+                                if not data2: break
+                            else:
+                                break
+                        print("✅ Gemini 登入完成。")
+                        break
+            else:
+                if url_found: break
+    except OSError:
+        pass
+    finally:
+        try:
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+
+if __name__ == "__main__":
+    main()
+EOF
+
+python3 /tmp/gemini_auth.py
+rm -f /tmp/gemini_auth.py
 echo ""
 
 # 4. Telegram Bot Token Setup
