@@ -8,7 +8,7 @@ from .base_skill import BaseSkill
 
 class ProjectTrackerSkill(BaseSkill):
     name = "project_tracker"
-    description = "專案進度追蹤 — 查看 Git 狀態、提交紀錄、改動"
+    description = "專案進度追蹤 — 當使用者想要「檢查專案情況」、「看 Git 狀態」、「檢查 code 改動」時使用"
     commands = ["/projects", "/status", "/diff", "/addproject", "/rmproject"]
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:

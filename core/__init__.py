@@ -62,7 +62,6 @@ class Engine:
             routing_prompt += f"- {s['name']}: {s['description']} (Commands: {', '.join(s['commands'])})\n"
             
             f"\nUser message: '{text}'\n"
-            f"If the user asks to check project status, git, or code modifications, return '/projects'.\n"
             f"If it's about checking usage or tokens, return '/stats'.\n"
             f"If the message clearly matches a skill's command, reply ONLY with the command and arguments.\n"
             f"If it's complex or general, return 'AUTONOMOUS'. Do not explain."
