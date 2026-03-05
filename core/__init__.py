@@ -4,6 +4,7 @@ Core Engine — Central dispatcher for the Telegram AI Agent.
 import logging
 import importlib
 import pkgutil
+import json
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,59 @@ class Engine:
             })
         return result
 
+    async def _route_by_nlu(self, text: str, user_id: int, cwd: str) -> str:
+        """Use Gemini to route natural language requests to the right skill."""
+        skills_info = self.get_all_skills_info()
+        
+        # Build prompt for Gemini to decide routing
+        routing_prompt = (
+            "You are a router. The user sent a natural language message.\n"
+            "Here are the available skills and their commands:\n"
+        )
+        for s in skills_info:
+            if s['name'] == 'dev_agent': continue # Skip default
+            routing_prompt += f"- {s['name']}: {s['description']} (Commands: {', '.join(s['commands'])})\n"
+            
+        routing_prompt += (
+            f"\nUser message: '{text}'\n"
+            f"If the message clearly matches a skill's intent (e.g. checking system status, searching news, tracking git projects), "
+            f"reply ONLY with the corresponding command and any necessary arguments (e.g., '/sys', '/projects', '/news AI', '/install https://...').\n"
+            f"If it's a general coding question, coding task, conversation, or ambiguous, return EXACTLY 'DEV_AGENT'. Do not explain."
+        )
+
+        try:
+            route_decision = await self.gemini.execute(routing_prompt, cwd)
+            route_decision = route_decision.strip()
+            
+            # Stop condition if not clearly routed
+            if route_decision == "DEV_AGENT" or not route_decision.startswith("/"):
+                return None
+                
+            # Parse the simulated command
+            parts = route_decision.split()
+            simulated_cmd = parts[0]
+            simulated_args = parts[1:]
+            
+            skill = self.get_skill_for_command(simulated_cmd)
+            if skill:
+                logger.info(f"NLU Routed: '{text}' -> {route_decision}")
+                # Execute the matched skill
+                return await skill.handle(simulated_cmd, simulated_args, user_id)
+                
+        except Exception as e:
+            logger.error(f"NLU Routing failed: {e}")
+            
+        return None
+
     async def handle_text(self, text: str, user_id: int, cwd: str) -> str:
-        """Handle free-text messages — send to Gemini CLI."""
+        """Handle free-text messages — route via NLU or send to dev agent."""
+        
+        # Try NLU routing first
+        routed_result = await self._route_by_nlu(text, user_id, cwd)
+        if routed_result is not None:
+             return routed_result
+             
+        # Fallback to general conversational Dev Agent
         # Add context from memory
         context = self.memory.get_context(user_id)
         if context:
