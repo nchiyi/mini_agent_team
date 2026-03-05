@@ -25,16 +25,19 @@ echo ""
 # 3. Gemini CLI Login (Interactive)
 echo "[3/6] Gemini CLI 登入"
 echo "=========================================================="
-echo "💡 提示：如果登入網址被斷行或缺少字元（例如 /auth 變成 /aut）："
-echo "1. 請手動完整複製網址並在瀏覽器補上缺失的字母。"
-echo "2. 如果貼上驗證碼沒反應，請按 Ctrl+C 結束腳本，手動執行 'gemini login' 成功後再重新執行本腳本。"
+echo "🚀 正在啟動「遠端穩定認證模式」..."
+echo "💡 提示："
+echo "   1. 終端機會顯示一段長網址，請【完整複製】並在瀏覽器中開啟。"
+echo "   2. 授權後，Google 會給你一串「Authorization code」，請複製它。"
+echo "   3. 回到終端機，貼上程式碼並按 Enter。"
 echo "=========================================================="
-echo "現在將啟動正式登入程序..."
-sleep 2
+echo ""
+sleep 1
 
-# 直接執行，不使用任何包裝以確保 TTY 正常運作
-gemini login
+# 使用 TERM=dumb 強制進入 OOB (Out-of-band) 模式，這對遠端主機最穩定
+TERM=dumb gemini login
 
+echo ""
 echo "✅ Gemini 登入流程結束。"
 echo ""
 
