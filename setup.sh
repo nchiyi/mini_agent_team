@@ -22,38 +22,57 @@ sudo npm install -g @google/gemini-cli
 echo "✅ Gemini CLI 安裝完成。"
 echo ""
 
-# 3. Gemini CLI Login (Interactive)
-echo "[3/6] Gemini CLI 登入"
-echo "=========================================================="
-echo "🚀 正在啟動「遠端穩定認證模式」..."
-echo "💡 提示："
-echo "   1. 終端機會顯示一段長網址，請【完整複製】並在瀏覽器中開啟。"
-echo "   2. 授權後，Google 會給你一串「Authorization code」，請複製它。"
-echo "   3. 回到終端機，貼上程式碼並按 Enter。"
-echo "=========================================================="
-echo ""
-sleep 1
-
-# 使用 TERM=dumb 強制進入 OOB (Out-of-band) 模式，這對遠端主機最穩定
-TERM=dumb gemini login
-
-echo ""
-echo "✅ Gemini 登入流程結束。"
+# 3. Gemini CLI Login (Check and Login)
+echo "[3/6] Gemini CLI 認證檢查..."
+# 檢查是否已經登入 (透過 gemini --list-sessions 測試)
+if gemini --list-sessions 2>/dev/null | grep -q "Session"; then
+    echo "✅ 偵測到已登入的 Gemini 帳號，跳過登入步驟。"
+else
+    echo "=========================================================="
+    echo "🚀 正在啟動「遠端穩定認證模式」..."
+    echo "💡 提示："
+    echo "   1. 終端機會顯示一段長網址，請【完整複製】並在瀏覽器中開啟。"
+    echo "   2. 授權後，Google 會給你一串「Authorization code」，請複製它。"
+    echo "   3. 回到終端機，貼上程式碼並按 Enter。"
+    echo "=========================================================="
+    echo ""
+    sleep 1
+    # 使用 TERM=dumb 強制進入 OOB 模式，並在登入後嘗試退出 shell (如果有的話)
+    TERM=dumb gemini login
+    echo "✅ Gemini 登錄流程已觸發。"
+fi
 echo ""
 
 # 4. Telegram Bot Token Setup
 echo "[4/6] 設定 Telegram Bot"
-read -p "請輸入您的 Telegram Bot Token (從 @BotFather 取得): " BOT_TOKEN
-read -p "請輸入您的 Telegram User ID (留空表示允許所有人使用): " ALLOWED_IDS
+# 讀取現有的 .env
+if [ -f .env ]; then
+    source .env 2>/dev/null
+    echo "💡 偵測到現有的 .env 設定。"
+fi
 
-echo "正在建立 .env 設定檔..."
+# 提示輸入，如果有舊值則顯示為預設
+read -p "請輸入 Telegram Bot Token [目前: ${TELEGRAM_BOT_TOKEN:-無}]: " NEW_TOKEN
+BOT_TOKEN=${NEW_TOKEN:-$TELEGRAM_BOT_TOKEN}
+
+read -p "請輸入 Telegram User ID [目前: ${ALLOWED_USER_IDS:-允許所有人}]: " NEW_IDS
+ALLOWED_IDS=${NEW_IDS:-$ALLOWED_USER_IDS}
+
+# 如果兩者都空白，提示警告
+if [ -z "$BOT_TOKEN" ]; then
+    echo "❌ 錯誤: 必須提供 Bot Token 才能運作！"
+    exit 1
+fi
+
+echo "正在更新 .env 設定檔..."
 cat <<EOF > .env
 # telegram-to-control
 TELEGRAM_BOT_TOKEN=$BOT_TOKEN
 ALLOWED_USER_IDS=$ALLOWED_IDS
-DEFAULT_CWD=$HOME
+DEFAULT_CWD=${DEFAULT_CWD:-$HOME}
+DEBUG_LOG=${DEBUG_LOG:-false}
 EOF
-echo "✅ .env 檔建立完成。"
+echo "✅ .env 檔更新完成。"
 echo ""
 
 # 5. Python Environment
