@@ -9,7 +9,10 @@ echo ""
 # 1. System Requirements
 echo "[1/6] 檢查系統環境與安裝依賴..."
 sudo apt update
-sudo apt install -y python3 python3-pip python3-venv nodejs npm git curl
+sudo apt install -y python3 python3-pip python3-venv git curl
+# Install Node.js 20.x (required by Gemini CLI)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
 echo "✅ 系統環境準備完成。"
 echo ""
 
