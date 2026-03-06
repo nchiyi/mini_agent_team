@@ -77,10 +77,11 @@ case "$1" in
             echo -e "${GREEN}✓ Cloud API Key updated.${NC}"
         fi
 
-        # Show available models before asking
-        echo -e "${YELLOW}Fetching available models...${NC}"
-        python3 -c "
-import urllib.request, json, os
+        # Show interactive selection menu
+        echo -e "${YELLOW}Fetching accessible models for interactive menu...${NC}"
+        
+        python3 - << 'EOF'
+import urllib.request, json, os, curses
 
 local_models = []
 cloud_models = []
@@ -106,29 +107,129 @@ if cloud_key:
     try:
         req = urllib.request.Request('https://api.ollama.com/v1/models', headers={'Authorization': f'Bearer {cloud_key}'})
         res = urllib.request.urlopen(req, timeout=3).read().decode()
-        cloud_models = [m['id'] for m in json.loads(res).get('data', [])]
+        cloud_models = [('cloud:' + m['id']) for m in json.loads(res).get('data', [])]
     except:
         pass
 
-if local_models:
-    print('\n🏠 [本地 Local 模型]')
-    for m in local_models[:15]: print(f'  - {m}')
-if cloud_models:
-    print('\n☁️  [雲端 Cloud 模型]')
-    for m in cloud_models[:15]: print(f'  - cloud:{m}')
-print('')
-"
+all_models = local_models + cloud_models
 
-        # Ask for Default Model
-        read -p "Enter Default Model (leave blank to skip): " input_model
-        if [ ! -z "$input_model" ]; then
-            if grep -q "^DEFAULT_MODEL=" .env; then
-                sed -i "s/^DEFAULT_MODEL=.*/DEFAULT_MODEL=$input_model/" .env
-            else
-                echo "DEFAULT_MODEL=$input_model" >> .env
-            fi
-            echo -e "${GREEN}✓ Default Model updated.${NC}"
-        fi
+if not all_models:
+    print("❌ No models found locally or on the cloud. Please check your API keys and services.")
+    exit(0)
+
+def curses_menu(stdscr):
+    curses.curs_set(0)
+    stdscr.keypad(True)
+    curses.use_default_colors()
+
+    selected_indices = set()
+    current_row = 0
+
+    while True:
+        stdscr.clear()
+        stdscr.addstr(0, 0, "Select Allowed Models for Telegram (Whitespace to toggle, UP/DOWN to move, ENTER to confirm)", curses.A_BOLD)
+
+        for idx, model in enumerate(all_models):
+            y = idx + 2
+            if y > curses.LINES - 2:
+                # Naive scroll clipping for large lists
+                break
+            
+            # Draw checkbox
+            check = "[X]" if idx in selected_indices else "[ ]"
+            
+            if idx == current_row:
+                stdscr.attron(curses.A_REVERSE)
+                stdscr.addstr(y, 2, f"{check} {model}")
+                stdscr.attroff(curses.A_REVERSE)
+            else:
+                stdscr.addstr(y, 2, f"{check} {model}")
+
+        key = stdscr.getch()
+
+        if key == curses.KEY_UP and current_row > 0:
+            current_row -= 1
+        elif key == curses.KEY_DOWN and current_row < len(all_models) - 1:
+            current_row += 1
+        elif key == ord(' '):
+            if current_row in selected_indices:
+                selected_indices.remove(current_row)
+            else:
+                selected_indices.add(current_row)
+        elif key in [10, 13]:  # Enter
+            break
+
+    return [all_models[i] for i in selected_indices]
+
+def get_default_model(stdscr, allowed_list):
+    curses.curs_set(0)
+    stdscr.keypad(True)
+    curses.use_default_colors()
+
+    current_row = 0
+
+    while True:
+        stdscr.clear()
+        stdscr.addstr(0, 0, "Select the DEFAULT Model (UP/DOWN to move, ENTER to confirm)", curses.A_BOLD)
+
+        for idx, model in enumerate(allowed_list):
+            y = idx + 2
+            if y > curses.LINES - 2:
+                break
+            
+            if idx == current_row:
+                stdscr.attron(curses.A_REVERSE)
+                stdscr.addstr(y, 4, model)
+                stdscr.attroff(curses.A_REVERSE)
+            else:
+                stdscr.addstr(y, 4, model)
+
+        key = stdscr.getch()
+
+        if key == curses.KEY_UP and current_row > 0:
+            current_row -= 1
+        elif key == curses.KEY_DOWN and current_row < len(allowed_list) - 1:
+            current_row += 1
+        elif key in [10, 13]:  # Enter
+            break
+
+    return allowed_list[current_row]
+
+try:
+    allowed_models = curses.wrapper(curses_menu)
+    if allowed_models:
+        default_model = curses.wrapper(get_default_model, allowed_models)
+        
+        # Write back to .env
+        env_lines = []
+        try:
+            with open('.env', 'r') as f:
+                env_lines = f.readlines()
+        except:
+            pass
+            
+        new_env_lines = []
+        for line in env_lines:
+            if not line.startswith("DEFAULT_MODEL=") and not line.startswith("ALLOWED_MODELS="):
+                new_env_lines.append(line)
+                
+        # Remove trailing newlines to append correctly
+        if new_env_lines and not new_env_lines[-1].endswith("\n"):
+            new_env_lines[-1] += "\n"
+            
+        new_env_lines.append(f"ALLOWED_MODELS={','.join(allowed_models)}\n")
+        new_env_lines.append(f"DEFAULT_MODEL={default_model}\n")
+        
+        with open('.env', 'w') as f:
+            f.writelines(new_env_lines)
+            
+        print(f"\n✅ Created whitelist with {len(allowed_models)} models.")
+        print(f"✅ Set DEFAULT_MODEL to {default_model}.")
+    else:
+        print("\n⚠️ No models selected. Skipping model configuration.")
+except Exception as e:
+    print(f"\n⚠️ Interactive menu failed: {e}")
+EOF
 
         echo -e "${GREEN}✅ Configuration saved to .env! Restart the agent to apply changes: ./agent restart${NC}"
         ;;
