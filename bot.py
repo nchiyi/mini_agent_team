@@ -225,6 +225,40 @@ async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Skill 錯誤: {e}")
 
 
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle incoming photos — save and pass to VisionSkill if requested."""
+    user_id = update.effective_user.id
+    if not is_authorized(user_id):
+        return
+
+    photo_file = await update.message.photo[-1].get_file()
+    
+    # Save to a temporary location
+    temp_dir = "data/temp_photos"
+    os.makedirs(temp_dir, exist_ok=True)
+    file_path = os.path.join(temp_dir, f"{user_id}_{photo_file.file_unique_id}.jpg")
+    await photo_file.download_to_drive(file_path)
+    
+    logger.info(f"Photo received from {user_id}: {file_path}")
+    
+    # Store the last photo path in memory for context
+    memory.set_setting(user_id, "last_photo", file_path)
+    
+    caption = update.message.caption or ""
+    if caption:
+        # If there's a caption, treat it as a command/query for the photo
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        
+        vision_skill = engine.skills.get("vision")
+        if vision_skill:
+            result = await vision_skill.handle("/describe", [file_path, caption], user_id)
+            await split_send(update, result)
+        else:
+            await update.message.reply_text("📸 收到照片！但尚未開發影像分析功能或是 Skill 未載入。")
+    else:
+        await update.message.reply_text("📸 **收到照片！**\n您可以對這張照片「回覆」 `/describe` 或是直接輸入您的問題。")
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle free-text messages — streaming response with live updates."""
     user_id = update.effective_user.id
@@ -233,9 +267,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🚫 此 Bot 已綁定為私人專屬，未授權。")
         return
 
-    text = update.message.text.strip()
+    text = update.message.text.strip() if update.message.text else ""
     if not text:
+        # Check if it was a reply to a photo with a command
+        if update.message.reply_to_message and update.message.reply_to_message.photo:
+             # This part might be handled by CommandHandler if it's /describe
+             pass
         return
+
+    # Check if this is a follow-up question for a photo
+    last_photo = memory.get_setting(user_id, "last_photo")
+    if last_photo and update.message.reply_to_message and update.message.reply_to_message.photo:
+         # User is replying to the photo with a query
+         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+         vision_skill = engine.skills.get("vision")
+         if vision_skill:
+             result = await vision_skill.handle("/describe", [last_photo, text], user_id)
+             await split_send(update, result)
+             return
 
     # Check if we are in onboarding mode
     if memory.get_setting(user_id, "awaiting_onboarding") == "true":
@@ -366,6 +415,7 @@ def main():
             app.add_handler(CommandHandler(cmd_name, cmd_skill))
 
     # Free-text handler (must be last)
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Bot 已啟動，等待訊息...")
