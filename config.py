@@ -21,6 +21,7 @@ DEFAULT_CWD = os.getenv("DEFAULT_CWD", os.path.expanduser("~"))
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_CLOUD_API_KEY = os.getenv("OLLAMA_CLOUD_API_KEY", "")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "llama3.1")
+ALLOWED_MODELS = os.getenv("ALLOWED_MODELS", "")
 
 # Limits
 MAX_MESSAGE_LENGTH = 4096  # Telegram max

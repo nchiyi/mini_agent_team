@@ -3,6 +3,7 @@ Model Manager Skill — Switch between different Gemini models.
 Now with dynamic model listing from Google API.
 """
 from .base_skill import BaseSkill
+import config
 
 
 class ModelManagerSkill(BaseSkill):
@@ -57,6 +58,13 @@ class ModelManagerSkill(BaseSkill):
             # We use the custom list_models on OllamaClient
             models = await self.engine.gemini.list_models()
             
+            allowed = [m.strip() for m in config.ALLOWED_MODELS.split(",") if m.strip()]
+            
+            # Filter based on ALLOWED_MODELS
+            if allowed:
+                models["local"] = [m for m in models["local"] if m in allowed]
+                models["cloud"] = [m for m in models["cloud"] if f"cloud:{m}" in allowed]
+            
             if not models["local"] and not models["cloud"]:
                 return "❌ 找不到可用的模型，請確定您已安裝或設定正確的 API Key。"
 
@@ -80,8 +88,12 @@ class ModelManagerSkill(BaseSkill):
             return f"❌ 查詢模型時發生錯誤: {e}"
 
     async def _validate_model(self, model_name: str) -> bool:
-        """Check if an Ollama model name is valid."""
+        """Check if an Ollama model name is valid and allowed."""
         try:
+            allowed = [m.strip() for m in config.ALLOWED_MODELS.split(",") if m.strip()]
+            if allowed and model_name not in allowed:
+                return False
+
             models = await self.engine.gemini.list_models()
             if model_name.startswith("cloud:"):
                 return model_name[6:] in models["cloud"]
