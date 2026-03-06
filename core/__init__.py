@@ -112,23 +112,8 @@ class Engine:
         """Convert all skills into OpenAI JSON Schema tools format."""
         tools = []
         for name, skill in self.skills.items():
-            cmd = skill.commands[0].lstrip("/") if skill.commands else name
-            tools.append({
-                "type": "function",
-                "function": {
-                    "name": cmd,
-                    "description": skill.description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "args": {
-                                "type": "string",
-                                "description": "空格分隔的參數字串（可為空）"
-                            }
-                        }
-                    }
-                }
-            })
+            if hasattr(skill, "get_tool_spec"):
+                tools.append(skill.get_tool_spec())
         return tools
 
     # ------------------------------------------------------------------

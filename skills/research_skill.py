@@ -14,8 +14,27 @@ class ResearchSkill(BaseSkill):
     """
 
     name = "researcher"
-    description = "深度研究 — 整合搜尋與多網頁分析，生成綜合研究報告"
+    description = "深度研究 — 整合搜尋與多網頁分析，生成綜合研究報告。當使用者需要深入暸解某個主題、撰寫報告或需要多方對比資訊時使用此工具。"
     commands = ["/research"]
+
+    def get_tool_spec(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": "researcher",
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "args": {
+                            "type": "string",
+                            "description": "研究主題（例如：2024 AI 趨勢分析、半導體產業報告）"
+                        }
+                    },
+                    "required": ["args"]
+                }
+            }
+        }
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
         if not args:

@@ -39,3 +39,27 @@ class BaseSkill(ABC):
         """Return help text for this skill."""
         cmds = ", ".join(f"`{c}`" for c in self.commands)
         return f"**{self.name}** — {self.description}\n指令: {cmds}"
+
+    def get_tool_spec(self) -> dict:
+        """
+        Return the OpenAI-compatible function calling spec for this skill.
+        Default implementation uses a single 'args' string.
+        """
+        cmd = self.commands[0].lstrip("/") if self.commands else self.name
+        return {
+            "type": "function",
+            "function": {
+                "name": cmd,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "args": {
+                            "type": "string",
+                            "description": "參數字串（例如搜尋關鍵字或 URL）"
+                        }
+                    },
+                    "required": ["args"] if self.name not in ["usage_stats", "system_monitor"] else []
+                }
+            }
+        }
