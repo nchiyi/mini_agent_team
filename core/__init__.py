@@ -6,8 +6,8 @@ intelligent routing and multi-step reasoning.
 """
 import logging
 import config
-from typing import Optional
-
+from typing import Optional, List
+from datetime import datetime
 import json
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,40 @@ class Engine:
         return self.agents.get(name)
 
     # ------------------------------------------------------------------
+    # Memory Distillation (Phase 6)
+    # ------------------------------------------------------------------
+    async def _distill_history(self, user_id: int, model: str):
+        """
+        Summarize the current history and prune old messages.
+        Triggered when history exceeds a certain threshold.
+        """
+        history = self.memory.get_context(user_id, limit=30)
+        previous_summary = self.memory.get_summary(user_id)
+        
+        prompt = (
+            "你是一個記憶整理專家。以下是使用者與 AI 助理之前的對話歷史與舊的摘要：\n\n"
+            f"【舊摘要】：\n{previous_summary if previous_summary else '無'}\n\n"
+            f"【最新對話歷史】：\n{history}\n\n"
+            "請將以上資訊聚合為一段精簡的「對話背景摘要」。\n"
+            "重點包含：使用者是誰、目前正在討論的主題、已經達成的共識或是待辦事項。\n"
+            "這段摘要未來會作為 AI 思考時的長期記憶。請用繁體中文回覆，長度控制在 500 字以內。"
+        )
+        
+        try:
+            logger.info(f"Distilling history for user {user_id}...")
+            messages = [{"role": "user", "content": prompt}]
+            response = await self.llm.generate(messages=messages, model=model)
+            new_summary = response.choices[0].message.content or ""
+            
+            if new_summary:
+                self.memory.set_summary(user_id, new_summary)
+                # Keep only the very last 5 messages as "immediate context"
+                self.memory.prune_old_messages(user_id, keep_last_n=5)
+                logger.info(f"Successfully distilled memory for user {user_id}.")
+        except Exception as e:
+            logger.error(f"Memory distillation failed: {e}")
+
+    # ------------------------------------------------------------------
     # Function Calling tools builder
     # ------------------------------------------------------------------
     def _build_tools(self) -> list:
@@ -105,12 +139,19 @@ class Engine:
         tools = self._build_tools()
         
         personality = self.memory.get_personality(user_id)
+        summary = self.memory.get_summary(user_id)
+        summary_block = f"\n【前情提要/對話背景】：\n{summary}\n" if summary else ""
+
+        model_for_distill = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
+        
         system_instruction = (
             f"{personality}\n"
+            f"{summary_block}"
             "你是一個路由器。分析使用者的訊息，判斷是否需要呼叫某個工具。\n"
             "如果需要，就呼叫對應的函式。如果不需要工具，直接回答使用者。\n"
             "請用繁體中文回答。"
         ) if personality else (
+            f"{summary_block}"
             "你是一個路由器。分析使用者的訊息，判斷是否需要呼叫某個工具。\n"
             "如果需要，就呼叫對應的函式。如果不需要工具，直接回答使用者。\n"
             "請用繁體中文回答。"
@@ -161,7 +202,20 @@ class Engine:
                         skill = self.get_skill_for_command(cmd)
                         if skill:
                             logger.info(f"Function Call Routed: '{text}' -> {cmd} {args}")
-                            return await skill.handle(cmd, args, user_id)
+                            
+                            # Add user message before skill execution
+                            self.memory.add_message(user_id, "user", text)
+                            
+                            result = await skill.handle(cmd, args, user_id)
+                            
+                            # Add assistant message after skill execution
+                            self.memory.add_message(user_id, "assistant", result[:500])
+                            
+                            # Check for distillation after skill
+                            if self.memory.get_message_count(user_id) > 20:
+                                await self._distill_history(user_id, model_for_distill)
+                                
+                            return result
 
             # If no function call, return the text response
             if message.content:
@@ -201,12 +255,17 @@ class Engine:
         conversation_history = self.memory.get_context(user_id, limit=10)
 
         personality = self.memory.get_personality(user_id)
+        summary = self.memory.get_summary(user_id)
+        summary_block = f"\n【前情提提要/對話背景】：\n{summary}\n" if summary else ""
+
         system_instruction = (
             f"{personality}\n"
+            f"{summary_block}"
             "你是一個強大的個人 AI 助手，透過 Telegram 與使用者互動。\n"
             "請用繁體中文回答，語氣友善專業。\n"
             f"{context_block}"
         ) if personality else (
+            f"{summary_block}"
             "你是一個強大的個人 AI 助手，透過 Telegram 與使用者互動。\n"
             "請用繁體中文回答，語氣友善專業。\n"
             f"{context_block}"
@@ -241,6 +300,10 @@ class Engine:
         # Save to memory
         self.memory.add_message(user_id, "user", text)
         self.memory.add_message(user_id, "assistant", message_content[:500])
+
+        # Phase 6: Check for distillation
+        if self.memory.get_message_count(user_id) > 20:
+             await self._distill_history(user_id, model)
 
         return message_content
 
@@ -290,3 +353,7 @@ class Engine:
 
         # Save to memory after streaming completes
         self.memory.add_message(user_id, "user", text)
+        
+        # Phase 6: Check for distillation
+        if self.memory.get_message_count(user_id) > 20:
+             await self._distill_history(user_id, model)

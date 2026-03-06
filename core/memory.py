@@ -107,9 +107,10 @@ class Memory:
         return "\n".join(lines)
 
     def clear_context(self, user_id: int):
-        """Clear the conversation history for a user."""
+        """Clear the conversation history and summary for a user."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM settings WHERE user_id = ? AND key = 'summary'", (user_id,))
             conn.commit()
             
     # Settings
@@ -144,6 +145,33 @@ class Memory:
     def set_onboarded(self, user_id: int, status: bool = True):
         """Mark onboarding as complete."""
         self.set_setting(user_id, "onboarded", "true" if status else "false")
+
+    def get_summary(self, user_id: int) -> str:
+        """Get the distilled conversation summary."""
+        return self.get_setting(user_id, "summary", "")
+
+    def set_summary(self, user_id: int, text: str):
+        """Store a new distilled summary."""
+        self.set_setting(user_id, "summary", text)
+
+    def get_message_count(self, user_id: int) -> int:
+        """Count messages for a specific user to decide when to distill."""
+        with sqlite3.connect(self.db_path) as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE user_id = ?", (user_id,)
+            ).fetchone()[0]
+        return count
+
+    def prune_old_messages(self, user_id: int, keep_last_n: int = 5):
+        """Delete old messages, keeping only the most recent ones (after distillation)."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                DELETE FROM messages WHERE id NOT IN (
+                    SELECT id FROM messages WHERE user_id = ?
+                    ORDER BY id DESC LIMIT ?
+                ) AND user_id = ?
+            """, (user_id, keep_last_n, user_id))
+            conn.commit()
 
     # Projects
     def add_project(self, name: str, path: str, description: str = ""):
