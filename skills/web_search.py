@@ -76,7 +76,7 @@ class WebSearchSkill(BaseSkill):
         ]
         
         try:
-            response = await self.engine.llm.generate(messages=messages, temperature=0.1)
+            response = await self.engine.llm.generate(messages=messages)
             content = response.choices[0].message.content.strip()
             if content.startswith("```json"): content = content[7:]
             if content.startswith("```"): content = content[3:]
@@ -173,7 +173,7 @@ class WebSearchSkill(BaseSkill):
             {"role": "user", "content": f"使用者的疑問：{original_query}\n\n抓取到的參考資料：\n{context_str}"}
         ]
         
-        response = await self.engine.llm.generate(messages=messages, temperature=0.2)
+        response = await self.engine.llm.generate(messages=messages)
         answer = response.choices[0].message.content
         
         return answer
