@@ -197,6 +197,18 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await update.message.reply_text("🧹 已清除您的對話歷史（幫助節省 Token 消耗）。")
 
+async def cmd_reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reload configuration and re-initialize LLM client."""
+    if not is_authorized(update.effective_user.id):
+        return
+
+    try:
+        config.reload()
+        ollama_client.reinitialize()
+        await update.message.reply_text("🔄 **設定已重新載入！**\n包含 `.env` 變數與 LLM 客戶端已更新。")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 重載失敗: {e}")
+
 async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Route /command to the appropriate skill."""
     if not is_authorized(update.effective_user.id):
@@ -420,6 +432,7 @@ def main():
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("cwd", cmd_cwd))
     app.add_handler(CommandHandler("clear", cmd_clear))
+    app.add_handler(CommandHandler("reload", cmd_reload))
 
     # Register all skill commands
     for skill_name, skill in engine.skills.items():

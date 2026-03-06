@@ -9,17 +9,28 @@ class OllamaClient:
     OpenAI-compatible client for Ollama local endpoints.
     Provides async streaming and synchronous tool invocation.
     """
-    def __init__(self, base_url=OLLAMA_BASE_URL, cloud_api_key=OLLAMA_CLOUD_API_KEY):
-        logger.info(f"Initialize OllamaClient with local: {base_url}, cloud: {'ENABLED' if cloud_api_key else 'DISABLED'}")
+    def __init__(self, base_url=None, cloud_api_key=None):
+        self.reinitialize(base_url, cloud_api_key)
+
+    def reinitialize(self, base_url=None, cloud_api_key=None):
+        """(Re)initialize the local and cloud OpenAI clients."""
+        # Use provided or latest from config
+        from config import OLLAMA_BASE_URL, OLLAMA_CLOUD_API_KEY
+        
+        url = base_url or OLLAMA_BASE_URL
+        key = cloud_api_key or OLLAMA_CLOUD_API_KEY
+        
+        logger.info(f"Initialize OllamaClient with local: {url}, cloud: {'ENABLED' if key else 'DISABLED'}")
+        
         self.local_client = AsyncOpenAI(
-            base_url=base_url,
-            api_key="ollama" # api key is strictly required by the SDK but not verified by Ollama
+            base_url=url,
+            api_key="ollama"
         )
         self.cloud_client = None
-        if cloud_api_key:
+        if key:
             self.cloud_client = AsyncOpenAI(
                 base_url="https://ollama.com/v1",
-                api_key=cloud_api_key
+                api_key=key
             )
 
     def _get_client_and_model(self, model_name: str):
