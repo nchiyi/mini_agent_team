@@ -68,8 +68,10 @@ class WebSearchSkill(BaseSkill):
 
     async def _formulate_queries(self, original_query: str) -> list[str]:
         """Use LLM to generate 2-3 optimal search queries based on user intent."""
+        import datetime
+        current_date = datetime.date.today().strftime("%Y-%m-%d")
         messages = [
-            {"role": "system", "content": "You are a professional research assistant. Your task is to analyze the user's request and formulate 2 to 3 optimal DuckDuckGo search queries. Return ONLY a valid JSON array of strings representing the queries. Do not include markdown formatting like ```json. Example: [\"TSMC 3nm process latest news\", \"Intel vs TSMC 2024 comparison\"]"},
+            {"role": "system", "content": f"You are a professional research assistant. Today is {current_date}. Analyze the user's request and formulate 2 to 3 optimal web search queries. If the user asks for current events, prices, or news, MAKE SURE to include the current year/month (e.g. '{current_date[:4]}') in the queries to fetch the latest data. Return ONLY a valid JSON array of strings representing the queries. Example: [\"TSMC stock price {current_date[:4]}\", \"Taiwan weighted index today\"]"},
             {"role": "user", "content": f"User Request: {original_query}"}
         ]
         
@@ -87,7 +89,7 @@ class WebSearchSkill(BaseSkill):
             queries = json.loads(content.strip())
             if isinstance(queries, list) and len(queries) > 0:
                 logger.debug(f"Formulated queries: {queries}")
-                return queries[:3] # Limit to max 3 queries
+                return [str(q) for q in queries][:3] # Limit to max 3 queries
             return [original_query]
         except Exception as e:
             logger.warning(f"Failed to formulate queries, fallback to original: {e}")
@@ -102,8 +104,8 @@ class WebSearchSkill(BaseSkill):
             results = []
             try:
                 with DDGS() as ddgs:
-                    # Fetch top 3 results per query
-                    for r in ddgs.text(q, max_results=3):
+                    # Fetch top 4 results per query, favor the past year to avoid ancient garbage like 2004
+                    for r in ddgs.text(q, max_results=4, timelimit='y', region='wt-wt'):
                         results.append(r)
             except Exception as e:
                 logger.warning(f"Search failed for query '{q}': {e}")
