@@ -80,7 +80,7 @@ case "$1" in
         # Show interactive selection menu
         echo -e "${YELLOW}Fetching accessible models for interactive menu...${NC}"
         
-        python3 - << 'EOF'
+        cat << 'EOF' > .temp_menu.py
 import urllib.request, json, os, curses
 
 local_models = []
@@ -230,6 +230,9 @@ try:
 except Exception as e:
     print(f"\n⚠️ Interactive menu failed: {e}")
 EOF
+        
+        python3 .temp_menu.py
+        rm -f .temp_menu.py
 
         echo -e "${GREEN}✅ Configuration saved to .env! Restart the agent to apply changes: ./agent restart${NC}"
         ;;
