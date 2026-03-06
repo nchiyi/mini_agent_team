@@ -42,7 +42,7 @@ if not config.DEBUG_LOG:
 memory = Memory()
 ollama_client = OllamaClient()
 scheduler = Scheduler()
-engine = Engine(gemini=ollama_client, memory=memory, scheduler=scheduler)
+engine = Engine(llm=ollama_client, memory=memory, scheduler=scheduler)
 
 
 def is_authorized(user_id: int) -> bool:

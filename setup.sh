@@ -7,44 +7,25 @@ echo "=========================================================="
 echo ""
 
 # 1. System Requirements
-echo "[1/6] 檢查系統環境與安裝依賴..."
+echo "[1/4] 檢查系統環境與安裝依賴..."
 sudo apt update
 sudo apt install -y python3 python3-pip python3-venv git curl
-# Install Node.js 20.x (required by Gemini CLI)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
 echo "✅ 系統環境準備完成。"
 echo ""
 
-# 2. Install Gemini CLI
-echo "[2/6] 安裝 Gemini CLI..."
-sudo npm install -g @google/gemini-cli
-echo "✅ Gemini CLI 安裝完成。"
-echo ""
-
-# 3. Gemini CLI Login (Check and Login)
-echo "[3/6] Gemini CLI 認證檢查..."
-# 檢查是否已經登入 (透過 gemini --list-sessions 測試)
-if gemini --list-sessions 2>/dev/null | grep -q "Session"; then
-    echo "✅ 偵測到已登入的 Gemini 帳號，跳過登入步驟。"
-else
-    echo "=========================================================="
-    echo "🚀 正在啟動「遠端穩定認證模式」..."
-    echo "💡 提示："
-    echo "   1. 終端機會顯示一段長網址，請【完整複製】並在瀏覽器中開啟。"
-    echo "   2. 授權後，Google 會給你一串「Authorization code」，請複製它。"
-    echo "   3. 回到終端機，貼上程式碼並按 Enter。"
-    echo "=========================================================="
-    echo ""
-    sleep 1
-    # 使用 TERM=dumb 強制進入 OOB 模式，並在登入後嘗試退出 shell (如果有的話)
-    TERM=dumb gemini login
-    echo "✅ Gemini 登錄流程已觸發。"
+# 2. Python Environment Setup
+echo "[2/4] 設定 Python 虛擬環境與安裝套件..."
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+    echo "✅ 虛擬環境 (venv) 建立完成。"
 fi
+source venv/bin/activate
+pip install -r requirements.txt
+echo "✅ Python 相依套件安裝完成。"
 echo ""
 
-# 4. Telegram Bot Token Setup
-echo "[4/6] 設定 Telegram Bot"
+# 3. Telegram Bot Token Setup
+echo "[3/4] 設定 Telegram Bot"
 # 讀取現有的 .env
 if [ -f .env ]; then
     source .env 2>/dev/null
@@ -75,13 +56,8 @@ EOF
 echo "✅ .env 檔更新完成。"
 echo ""
 
-# 5. Python Environment
-echo "[5/6] 設定 Python 虛擬環境與安裝套件..."
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 5.1 Optional: Browser Eye (Playwright)
+# 4. Optional Skills Setup
+echo "[4/4] 選擇性安裝進階模組"
 echo ""
 read -p "是否安裝 「Browser Eye」瀏覽器擴展功能？(可讓 Agent 讀取網頁內容) [y/N]: " INSTALL_BROWSER
 if [[ "$INSTALL_BROWSER" =~ ^[Yy]$ ]]; then

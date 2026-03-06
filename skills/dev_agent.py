@@ -7,14 +7,14 @@ from .base_skill import BaseSkill
 
 class DevAgentSkill(BaseSkill):
     name = "dev_agent"
-    description = "AI 開發助手 — 透過 Gemini 進行程式開發、除錯、分析"
+    description = "AI 開發助手 — 透過 AI 進行程式開發、除錯、分析"
     commands = ["/dev"]
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
         if not args:
             return (
                 "💻 **Dev Agent**\n\n"
-                "直接發送文字訊息即可與 Gemini 對話。\n"
+                "直接發送文字訊息即可與 AI 對話。\n"
                 "或使用 `/dev <指令>` 明確指定開發任務。\n\n"
                 "😊 範例:\n"
                 "• `/dev 分析 server.py 有什麼可以優化`\n"
@@ -31,18 +31,25 @@ class DevAgentSkill(BaseSkill):
             "如果提供程式碼，請使用 markdown code block 格式。"
         )
 
-        response, usage = await self.engine.gemini.generate(
-            prompt,
+        messages = [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": prompt}
+        ]
+
+        response = await self.engine.llm.generate(
+            messages=messages,
             model=model,
-            system_instruction=system_instruction,
         )
+
+        message_content = response.choices[0].message.content or ""
 
         # Log usage
-        self.engine.memory.log_usage(
-            user_id,
-            usage.get("model", "unknown"),
-            usage.get("prompt_tokens", 0),
-            usage.get("completion_tokens", 0),
-        )
+        if hasattr(response, 'usage') and response.usage:
+            self.engine.memory.log_usage(
+                user_id,
+                model or "unknown",
+                response.usage.prompt_tokens or 0,
+                response.usage.completion_tokens or 0,
+            )
 
-        return response
+        return message_content

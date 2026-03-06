@@ -1,62 +1,87 @@
-# 🤖 Telegram-to-Control (Agentic Edition)
+# 🤖 Telegram-to-Control (Ollama Dual Engine)
 
-這是一個進化版的 Telegram AI Agent 平台，透過 Gemini CLI 與高度模組化的技能系統，將你的 Telegram 變成一個強大的遠端指令中心與自主 AI 助手。
+這是一個進化版的 Telegram AI Agent 平台，徹底拋棄了舊有的 Gemini CLI。核心完全基於 **Python 與 Ollama (支援 Local 與 Cloud API)**。
 
----
-
-## 🚀 核心黑科技 (Core Intelligence)
-
-### 1. 自主思考引擎 (Autonomous Reasoning / ReAct)
-Agent 不再只是回答問題，而是具備 **Reason + Act** 循環。它會自動拆解任務、選擇工具、觀察結果，最後給出答案。
-
-### 2. 語義記憶 (Semantic Memory / RAG)
-整合 **FAISS 向量資料庫**，Agent 具備長短期記憶能力：
-- **長期事實**：自動記住你的喜好與專案背景。
-- **智慧檢索**：在回答前自動搜尋相關歷史文獻，提供更精準的 context。
-
-### 3. 瀏覽器眼睛 (Browser Eye)
-透過 **Playwright**，Agent 可以開啟瀏覽器看網頁、抓取內容並總結資訊。
+這不只是一個聊天機器人，而是一個具備「思考、觀察、工具選擇」能力的 **Autonomous Agent**。
 
 ---
 
-## 🛠️ 技能與工具 (Skills & Tools)
+## 🏗️ 系統架構圖 (Architecture)
 
-你可以透過自然語言觸發以下技能，或使用具體的指令：
+```mermaid
+graph TD
+    User((使用者)) <--> Telegram[Telegram Bot API]
+    Telegram <--> BotPy[bot.py: 介面與事件處理]
+    BotPy <--> Engine[core/Engine: 中控核心]
+    
+    subgraph "核心大腦 (Brain)"
+        Engine <--> LLM[core/OllamaClient: AI 雙引擎]
+        Engine <--> Memory[core/Memory: SQLite + FAISS]
+        LLM <--> Config[config.py: 權限與白名單]
+    end
 
-| 技能名稱 | 指令 (Tools) | 說明 |
-| :--- | :--- | :--- |
-| **Browser Eye** | `/browse`, `/search` | 瀏覽網頁、Google 搜尋、網頁轉 Markdown。 |
-| **Dev Agent** | `/dev` | 核心 Coding 助手，處理開發任務。 |
-| **System Monitor** | `/sys` | 查看伺服器 CPU、記憶體、硬碟狀態。 |
-| **Usage Monitor** | `/usage`, `/stats` | 查看 API 總用量或詳細對話 Token 紀錄。 |
-| **Model Manager** | `/model` | 即時切換 Gemini 模型版本。 |
-| **News Fetcher** | `/news` | 抓取全球即時科技與新聞。 |
-| **Project Tracker** | `/projects` | 掃描本地 Git 專案狀態。 |
-| **Deployer** | `/deploy`, `/install` | 自動部署本地專案或從 GitHub 安裝新東西。 |
-| **Installer** | `/install_skill` | 動態下載並載入新的 Python 技能模組。 |
+    subgraph "擴充技能 (Skills/Tools)"
+        Engine <--> Skill1[Dev Agent: 開發助手]
+        Engine <--> Skill2[Browser: Playwright 網頁眼]
+        Engine <--> Skill3[News: 原生爬蟲新聞]
+        Engine <--> Skill4[Monitor: 系統監控]
+    end
+
+    LLM <--> LocalOllama[本地端 Ollama Server]
+    LLM <--> CloudOllama[Ollama Cloud API Server]
+```
 
 ---
 
-## 📦 安裝與啟動
+## 🧩 各元件功能深度解析
 
-### 1. 快速部署 (互動式腳本)
-最簡單的方式是使用我們提供的 `setup.sh`，它會引導你完成連網、認證以及選擇性功能（瀏覽器、向量資料庫）的安裝：
+### 1. 核心大腦 (Core Engine)
+這是系統的神經中樞，負責協調所有元件：
+- **`Engine` (core/__init__.py)**: 實作了 **ReAct (Reason + Act)** 流程。它會將使用者的文字傳給 LLM，讓模型決定是要「直接回答」還是「呼叫工具 (Tool Calling)」。
+- **`OllamaClient` (core/ollama_client.py)**: 雙模融合層。它會優先檢查 `cloud:` 前綴。如果是雲端請求，會帶上 API Key 往 `api.ollama.com` 發送；否則直接與本機 11434 埠連線。
+- **`Memory` (core/memory.py)**: 
+    - **SQLite**: 存放長期的對話 Token 統計、用戶設定、專案列表。
+    - **Semantic (FAISS)**: 語義向量記憶。它會把過往的重要對話向量化，當你問相似問題時，會自動把「過去的記憶」撈出來當作 Context。
 
+### 2. 交互配置層 (Interactivity)
+- **`agent config` (CLI)**: 專為人類設計的交互式選單。它會自動抓取你本地與雲端所有的可用模型，讓你在終端機裡按方向鍵「勾選」你的白名單，並自動寫入 `.env`。
+- **`Model Manager` (Skills)**: 讓使用者在手機端用 `/model` 查看自訂的白名單，並即時切換模型，切換結果會持久化到資料庫。
+
+### 3. 特色代理技能 (AI Agents)
+- **Dev Agent (`/dev`)**: 具備 OpenAI 格式的對話能力，適合處理開發建議、Code 改寫與除錯。
+- **Browser Eye (`/browser`)**: 內建 Playwright。當它覺得需要查資料時，會自動開啟隱藏瀏覽器進行網頁渲染，提取文字回傳給大語言模型。
+- **News Fetcher (`/news`)**: 擺脫 Google 聯網限制。採用原生 `urllib` 爬取新聞原始片段，再交由 AI 總結為繁體中文精選日報。
+
+---
+
+## ⚡ 快速開始 (Quick Start)
+
+### 1️⃣ 初始化環境
 ```bash
 git clone https://github.com/nchiyi/telegram-to-control.git
 cd telegram-to-control
 bash setup.sh
 ```
+此腳本會配置 **Python 虛擬環境 (venv)** 並安裝所有相依套件。
+
+### 2️⃣ 互動式配置 (白名單與 Token)
+```bash
+./agent config
+```
+在選單中勾選您想要使用的模型。這會決定 Telegram 裡 `/model list` 顯示的內容。
+
+### 3️⃣ 啟動
+```bash
+./agent restart
+```
 
 ---
 
-## 📱 管理指令 (CLI Admin)
-
-專案目錄內附帶 `agent` 腳本，方便你管理背景服務：
-- `./agent status` - 檢查 Bot 狀態
-- `./agent logs` - 查看即時日誌
-- `./agent restart` - 重啟服務
-- `./agent debug on/off` - 切換詳細除錯日誌
+## 📱 管理工具 (`./agent`)
+- `./agent start / stop / restart`: 服務生命週期管理。
+- `./agent config`: 配置環境與模型白名單。
+- `./agent status`: 查看運行 PID 與連線狀況。
+- `./agent logs`: 即時滾動查看運行日誌。
 
 ---
 

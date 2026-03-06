@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 class Engine:
-    """Central engine that manages skills, Gemini client, and routing."""
+    """Central engine that manages skills, LLM client, and routing."""
 
-    def __init__(self, gemini, memory, scheduler=None):
-        self.gemini = gemini
+    def __init__(self, llm, memory, scheduler=None):
+        self.llm = llm
         self.memory = memory
         self.scheduler = scheduler
         self.skills: dict = {}
@@ -117,7 +117,7 @@ class Engine:
         ]
 
         try:
-            response = await self.gemini.generate(
+            response = await self.llm.generate(
                 messages=messages,
                 tools=tools,
                 model=model,
@@ -210,7 +210,7 @@ class Engine:
             {"role": "user", "content": full_prompt}
         ]
         
-        response = await self.gemini.generate(
+        response = await self.llm.generate(
             messages=messages,
             model=model,
         )
@@ -264,7 +264,7 @@ class Engine:
             {"role": "user", "content": full_prompt}
         ]
 
-        async for chunk in self.gemini.stream(
+        async for chunk in self.llm.stream(
             messages=messages,
             model=model,
         ):

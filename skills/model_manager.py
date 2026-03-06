@@ -8,7 +8,7 @@ import config
 
 class ModelManagerSkill(BaseSkill):
     name = "model_manager"
-    description = "模型管理 — 切換 Gemini 模型、查看可用模型清單"
+    description = "模型管理 — 切換 AI 模型、查看可用模型清單"
     commands = ["/model"]
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
