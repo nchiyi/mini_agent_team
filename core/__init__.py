@@ -147,14 +147,20 @@ class Engine:
         system_instruction = (
             f"{personality}\n"
             f"{summary_block}"
-            "你是一個路由器。分析使用者的訊息，判斷是否需要呼叫某個工具。\n"
-            "如果需要，就呼叫對應的函式。如果不需要工具，直接回答使用者。\n"
-            "請用繁體中文回答。"
+            "【決策路由器規範】\n"
+            "1. 你是一個精準的決策引擎。你的任務是判斷使用者的需求是否需要呼叫工具。\n"
+            "2. **嚴禁幻覺**：如果使用者的需求不明確，或者現有工具無法達成，請直接回答使用者，不要嘗試胡亂調用工具。\n"
+            "3. **邏輯優先**：在決定調用前，請先在心中確認該工具的參數（如路徑、參數名）是否符合邏輯。\n"
+            "4. 如果需要工具，就呼叫對應的函式。如果不需要工具或不確定，直接以文字回覆。\n"
+            "5. 請用繁體中文回答。"
         ) if personality else (
             f"{summary_block}"
-            "你是一個路由器。分析使用者的訊息，判斷是否需要呼叫某個工具。\n"
-            "如果需要，就呼叫對應的函式。如果不需要工具，直接回答使用者。\n"
-            "請用繁體中文回答。"
+            "【決策路由器規範】\n"
+            "1. 你是一個精準的決策引擎。判斷是否需要呼叫工具。\n"
+            "2. 如果不確定使用者意圖，請不要冒險調用工具，改為詢問使用者詳情。\n"
+            "3. 嚴禁為不存在的檔案或路徑生成虛假參數。\n"
+            "4. 如果需要工具，就呼叫對應的函式。如果不需要工具，直接回答使用者。\n"
+            "5. 請用繁體中文回答。"
         )
 
         model = self.memory.get_setting(user_id, "preferred_model", None) or "llama3.1"
@@ -256,18 +262,24 @@ class Engine:
 
         personality = self.memory.get_personality(user_id)
         summary = self.memory.get_summary(user_id)
-        summary_block = f"\n【前情提提要/對話背景】：\n{summary}\n" if summary else ""
+        summary_block = f"\n【前情提要/對話背景】：\n{summary}\n" if summary else ""
 
         system_instruction = (
             f"{personality}\n"
             f"{summary_block}"
-            "你是一個強大的個人 AI 助手，透過 Telegram 與使用者互動。\n"
+            "【行為準則】\n"
+            "1. 你是一個強大的個人 AI 助手。你的回答必須基於事實。\n"
+            "2. **誠實原則**：如果你不知道答案，或者缺乏足夠的上下文來回答，請直接承認，不要編造事實（避免幻覺）。\n"
+            "3. **安全執行**：不要執行可能損害系統安全的危險建議。\n"
+            "4. **精簡有效**：回答應直擊重點，應對及時。\n"
             "請用繁體中文回答，語氣友善專業。\n"
             f"{context_block}"
         ) if personality else (
             f"{summary_block}"
-            "你是一個強大的個人 AI 助手，透過 Telegram 與使用者互動。\n"
-            "請用繁體中文回答，語氣友善專業。\n"
+            "【行為準則】\n"
+            "1. 你是一個強大的個人 AI 助手。請用繁體中文回答，語氣友善專業。\n"
+            "2. **避免幻覺**：若不確定事實，請誠實告知使用者「我不知道」或「我需要更多資訊」。\n"
+            "3. 確保你的回答不包含虛假的代碼示例或不存在的 API 調用。\n"
             f"{context_block}"
         )
 
@@ -324,14 +336,25 @@ class Engine:
         conversation_history = self.memory.get_context(user_id, limit=10)
 
         personality = self.memory.get_personality(user_id)
+        summary = self.memory.get_summary(user_id)
+        summary_block = f"\n【前情提要/對話背景】：\n{summary}\n" if summary else ""
+
         system_instruction = (
             f"{personality}\n"
-            "你是一個強大的個人 AI 助手，透過 Telegram 與使用者互動。\n"
+            f"{summary_block}"
+            "【行為準則】\n"
+            "1. 你是一個強大的個人 AI 助手。你的回答必須基於事實。\n"
+            "2. **誠實原則**：如果你不知道答案，或者缺乏足夠的上下文來回答，請直接承認，不要編造事實（避免幻覺）。\n"
+            "3. **安全執行**：不要執行可能損害系統安全的危險建議。\n"
+            "4. **精簡有效**：回答應直擊重點，應對及時。\n"
             "請用繁體中文回答，語氣友善專業。\n"
             f"{context_block}"
         ) if personality else (
-            "你是一個強大的個人 AI 助手，透過 Telegram 與使用者互動。\n"
-            "請用繁體中文回答，語氣友善專業。\n"
+            f"{summary_block}"
+            "【行為準則】\n"
+            "1. 你是一個強大的個人 AI 助手。請用繁體中文回答，語氣友善專業。\n"
+            "2. **避免幻覺**：若不確定事實，請誠實告知使用者「我不知道」或「我需要更多資訊」。\n"
+            "3. 確保你的回答不包含虛假的代碼示例或不存在的 API 調用。\n"
             f"{context_block}"
         )
 
