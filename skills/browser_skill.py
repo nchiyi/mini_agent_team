@@ -54,16 +54,18 @@ class BrowserSkill(BaseSkill):
             content_to_analyze = raw_markdown.split("\n\n", 1)[1]
 
         prompt = (
-            "你是一個專業的網頁內容剖析專家。以下是從網頁中提取的原始資料：\n\n"
+            "你是一個資深的網頁情報分析專家。以下是從網頁中提取的原始內容：\n\n"
             f"【網址】：{url}\n\n"
-            f"【原始內容】：\n{content_to_analyze[:4000]}\n\n"
+            f"【原始內容】：\n{content_to_analyze[:12000]}\n\n"
             "--- \n"
-            "請針對以上內容進行深入分析與總結。要求：\n"
-            "1. 使用繁體中文。\n"
-            "2. 清晰說明該網頁的主題與目的。\n"
-            "3. 列出 3-5 個核心價值或關鍵資訊點。\n"
-            "4. 如果是 GitHub 專案，請說明其功能與安裝/使用要點。\n"
-            "5. 提供一個簡短、專業的總結性結論。"
+            "請針對以上內容進行「深度分析」。你的目標是讓讀者在不點開原文的情況下，掌握該網頁的所有精華。\n\n"
+            "要求格式如下：\n"
+            "1. **🔍 核心意圖**：一句話總結該網頁存在的目的。\n"
+            "2. **💡 關鍵洞察**：列出 5 個最重要的資訊點或技術細節，每個點請帶有簡短說明。\n"
+            "3. **🛠️ 實用價值**（若適用）：如果是工具或專案，列出安裝、使用方式或具體解決了什麼問題。\n"
+            "4. **🚩 專家點評**：從專業角度給予這份內容的評價或後續建議。\n"
+            "5. **📝 總結**：一段話的結論。\n\n"
+            "注意：請使用「繁體中文」，語氣精鍊專業，避免廢話。"
         )
 
         messages = [{"role": "user", "content": prompt}]
@@ -75,7 +77,7 @@ class BrowserSkill(BaseSkill):
         try:
             response = await self.engine.llm.generate(messages=messages, model=model)
             analysis = response.choices[0].message.content or "無法生成分析。"
-            return f"🔍 **網頁深度分析**\n\n{analysis}\n\n🔗 [原文連結]({url})"
+            return f"🔬 **網頁深度情報分析**\n\n{analysis}\n\n🔗 [原文連結]({url})"
         except Exception as e:
             logger.error(f"Page analysis failed: {e}")
             return f"❌ 分析失敗：{e}\n\n以下是原始抓取的內容：\n\n{raw_markdown}"
@@ -112,9 +114,9 @@ class BrowserSkill(BaseSkill):
                 h.ignore_images = True
                 markdown = h.handle(content)
 
-                # Truncate to avoid blowing up context (limit to 8k chars approx)
-                if len(markdown) > 8000:
-                    markdown = markdown[:8000] + "\n\n...(內容過長已截斷)"
+                # Truncate to avoid blowing up context (increased to 12k chars)
+                if len(markdown) > 12000:
+                    markdown = markdown[:12000] + "\n\n...(內容過長已截斷)"
 
                 return f"🌐 **[{title}]({url})**\n\n{markdown}"
 
