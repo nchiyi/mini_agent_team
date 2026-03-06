@@ -26,7 +26,12 @@ def reload():
     # Re-load .env file
     load_dotenv(override=True)
     
-    BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    import re
+    
+    raw_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    # Remove any ANSI escape sequences or control characters (e.g., from copy-pasting terminal output)
+    BOT_TOKEN = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', raw_token).strip()
+
     
     allowed_str = os.getenv("ALLOWED_USER_IDS", "")
     ALLOWED_USER_IDS = [
