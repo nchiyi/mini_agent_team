@@ -19,8 +19,7 @@ from telegram.ext import (
 
 import config
 from core import Engine
-from core.auth import create_genai_client
-from core.gemini import GeminiClient
+from core.ollama_client import OllamaClient
 from core.memory import Memory
 from core.scheduler import Scheduler
 from skills import discover_skills
@@ -41,10 +40,9 @@ if not config.DEBUG_LOG:
 
 # Initialize core
 memory = Memory()
-genai_client = create_genai_client()
-gemini = GeminiClient(client=genai_client, default_model=config.DEFAULT_MODEL)
+ollama_client = OllamaClient()
 scheduler = Scheduler()
-engine = Engine(gemini=gemini, memory=memory, scheduler=scheduler)
+engine = Engine(gemini=ollama_client, memory=memory, scheduler=scheduler)
 
 
 def is_authorized(user_id: int) -> bool:
@@ -131,14 +129,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"🤖 **Telegram AI Agent**\n\n"
-        f"引擎: Google GenAI SDK ✅\n"
-        f"模型: `{config.DEFAULT_MODEL}`\n"
+        f"引擎: Ollama (OpenAI SDK) ✅\n"
+        f"伺服器: `{config.OLLAMA_BASE_URL}`\n"
+        f"雲端支援 (api.ollama.com): `{'開啟' if config.OLLAMA_CLOUD_API_KEY else '關閉'}`\n"
+        f"預設模型: `{config.DEFAULT_MODEL}`\n"
         f"Skills 已載入: {len(skills_info)}\n\n"
         f"📋 **可用指令:**\n{skills_list}\n\n"
         f"  /cwd <路徑> — 切換工作目錄\n"
         f"  /clear — 清除您的對話歷史\n"
         f"  /help — 顯示此訊息\n\n"
-        f"💬 直接發送文字訊息即可與 Gemini 對話。",
+        f"💬 直接發送文字訊息即可與 Ollama 對話。",
         parse_mode="Markdown",
     )
 
@@ -289,8 +289,10 @@ def main():
         engine.register_skill(skill)
 
     print(f"🤖 Telegram AI Agent 啟動中...")
-    print(f"   引擎: Google GenAI SDK ✅")
-    print(f"   模型: {config.DEFAULT_MODEL}")
+    print(f"   引擎: Ollama (OpenAI SDK) ✅")
+    print(f"   伺服器: {config.OLLAMA_BASE_URL}")
+    print(f"   雲端支援: {'開啟' if config.OLLAMA_CLOUD_API_KEY else '關閉'}")
+    print(f"   預設模型: {config.DEFAULT_MODEL}")
     print(f"   Skills: {len(skills)} 個")
     print(f"   白名單: {config.ALLOWED_USER_IDS or '無（允許所有人）'}")
 

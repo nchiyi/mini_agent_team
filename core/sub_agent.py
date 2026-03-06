@@ -17,37 +17,37 @@ class SubAgent:
     """An independent AI agent with its own conversation state."""
 
     def __init__(self, name: str, system_prompt: str,
-                 model: Optional[str], gemini_client):
+                 model: Optional[str], ollama_client):
         self.name = name
         self.system_prompt = system_prompt
-        self.model = model
-        self.gemini = gemini_client
+        self.model = model or "llama3.1"
+        self.client = ollama_client
         self.history: list[dict] = []  # Simple in-memory history
 
     async def send(self, message: str) -> str:
         """Send a message to this sub-agent and get a response."""
         # Build context from history
-        context_lines = []
+        messages = [{"role": "system", "content": self.system_prompt}]
+        
         for entry in self.history[-10:]:  # Keep last 10 turns
-            context_lines.append(f"{entry['role']}: {entry['content']}")
+            messages.append({"role": entry['role'], "content": entry['content']})
 
-        if context_lines:
-            full_prompt = "\n".join(context_lines) + f"\nUser: {message}"
-        else:
-            full_prompt = message
+        messages.append({"role": "user", "content": message})
 
-        response, usage = await self.gemini.generate(
-            full_prompt,
+        response = await self.client.generate(
+            messages=messages,
             model=self.model,
-            system_instruction=self.system_prompt,
         )
+        
+        message_content = response.choices[0].message.content or ""
 
         # Store in history
-        self.history.append({"role": "User", "content": message})
-        self.history.append({"role": "Assistant", "content": response[:500]})
+        self.history.append({"role": "user", "content": message})
+        self.history.append({"role": "assistant", "content": message_content[:500]})
 
-        logger.info(f"SubAgent[{self.name}] responded ({usage.get('total_tokens', '?')} tokens)")
-        return response
+        usage_tokens = response.usage.total_tokens if hasattr(response, 'usage') and response.usage else '?'
+        logger.info(f"SubAgent[{self.name}] responded ({usage_tokens} tokens)")
+        return message_content
 
     def reset(self):
         """Clear conversation history."""

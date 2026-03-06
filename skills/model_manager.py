@@ -14,19 +14,21 @@ class ModelManagerSkill(BaseSkill):
         if not args:
             current = self.engine.memory.get_setting(
                 user_id, "preferred_model",
-                f"{self.engine.gemini.default_model} (預設)"
+                ""
             )
+            default = "llama3.1 (預設)"
+            display_current = current if current else default
             return (
                 f"🤖 **模型管理**\n\n"
-                f"目前設定: `{current}`\n\n"
+                f"目前設定: `{display_current}`\n\n"
                 f"用法:\n"
-                f"• `/model list` — 查看所有可用模型\n"
+                f"• `/model list` — 查看 Ollama 所有可用模型\n"
                 f"• `/model <模型名稱>` — 切換模型\n"
                 f"• `/model reset` — 恢復預設\n\n"
-                f"常用模型:\n"
-                f"• `gemini-2.0-flash` (速度快、便宜)\n"
-                f"• `gemini-2.5-pro` (強大推理)\n"
-                f"• `gemini-2.5-flash` (平衡)"
+                f"可用範例:\n"
+                f"• `llama3.1`\n"
+                f"• `qwen2.5`\n"
+                f"• `mistral`"
             )
 
         action = args[0].lower()
@@ -35,8 +37,7 @@ class ModelManagerSkill(BaseSkill):
             return await self._list_models()
         elif action == "reset":
             self.engine.memory.set_setting(user_id, "preferred_model", "")
-            default = self.engine.gemini.default_model
-            return f"✅ 已恢復預設模型: `{default}`"
+            return f"✅ 已恢復預設模型"
         else:
             new_model = args[0]
             # Validate model exists
@@ -51,34 +52,39 @@ class ModelManagerSkill(BaseSkill):
             return f"✅ 已將模型切換為: `{new_model}`\n接下來的對話將使用此模型。"
 
     async def _list_models(self) -> str:
-        """Dynamically list all available models from Google API."""
+        """Dynamically list all available models from Ollama API."""
         try:
-            models = self.engine.gemini.list_models()
-            if not models:
-                return "❌ 無法取得模型清單"
+            # We use the custom list_models on OllamaClient
+            models = await self.engine.gemini.list_models()
+            
+            if not models["local"] and not models["cloud"]:
+                return "❌ 找不到可用的模型，請確定您已安裝或設定正確的 API Key。"
 
-            # Filter for gemini models only
-            gemini_models = [m for m in models if "gemini" in m["name"].lower()]
+            lines = ["📋 **目前可用的 Ollama 模型:**\n"]
+            
+            if models["local"]:
+                lines.append("🏠 **[本地 Local]**")
+                for m in models["local"][:15]:  # Limit display
+                    lines.append(f"• `{m}`")
+                lines.append("")
 
-            if not gemini_models:
-                return "❌ 找不到可用的 Gemini 模型"
+            if models["cloud"]:
+                lines.append("☁️ **[雲端 Cloud]**")
+                for m in models["cloud"][:15]:  # Limit display
+                    lines.append(f"• `cloud:{m}`")
+                lines.append("")
 
-            lines = ["📋 **目前可用的 Gemini 模型:**\n"]
-            for m in gemini_models[:15]:  # Limit display
-                name = m["name"].replace("models/", "")
-                display = m.get("display_name", name)
-                lines.append(f"• `{name}`  —  {display}")
-
-            lines.append(f"\n\n使用 `/model <名稱>` 來切換模型")
+            lines.append(f"使用 `/model <名稱>` 來切換模型")
             return "\n".join(lines)
         except Exception as e:
             return f"❌ 查詢模型時發生錯誤: {e}"
 
     async def _validate_model(self, model_name: str) -> bool:
-        """Check if a model name is valid."""
+        """Check if an Ollama model name is valid."""
         try:
-            models = self.engine.gemini.list_models()
-            names = [m["name"].replace("models/", "") for m in models]
-            return model_name in names
+            models = await self.engine.gemini.list_models()
+            if model_name.startswith("cloud:"):
+                return model_name[6:] in models["cloud"]
+            return model_name in models["local"]
         except Exception:
             return True  # If we can't validate, allow it anyway

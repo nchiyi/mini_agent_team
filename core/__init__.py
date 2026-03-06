@@ -7,7 +7,7 @@ intelligent routing and multi-step reasoning.
 import logging
 from typing import Optional
 
-from google.genai import types
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -73,69 +73,82 @@ class Engine:
     # ------------------------------------------------------------------
     # Function Calling tools builder
     # ------------------------------------------------------------------
-    def _build_function_declarations(self) -> list:
-        """Convert all skills into Gemini Function Calling declarations."""
-        declarations = []
+    def _build_tools(self) -> list:
+        """Convert all skills into OpenAI JSON Schema tools format."""
+        tools = []
         for name, skill in self.skills.items():
             cmd = skill.commands[0].lstrip("/") if skill.commands else name
-            declarations.append(
-                types.FunctionDeclaration(
-                    name=cmd,
-                    description=skill.description,
-                    parameters=types.Schema(
-                        type="OBJECT",
-                        properties={
-                            "args": types.Schema(
-                                type="STRING",
-                                description="空格分隔的參數字串（可為空）",
-                            )
-                        },
-                    ),
-                )
-            )
-        return declarations
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": cmd,
+                    "description": skill.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "args": {
+                                "type": "string",
+                                "description": "空格分隔的參數字串（可為空）"
+                            }
+                        }
+                    }
+                }
+            })
+        return tools
 
     # ------------------------------------------------------------------
     # NLU routing via Function Calling (Fast Path)
     # ------------------------------------------------------------------
     async def _route_by_function_calling(self, text: str, user_id: int) -> Optional[str]:
-        """Use Gemini Function Calling to route to the right skill."""
-        tools = [types.Tool(function_declarations=self._build_function_declarations())]
-
+        """Use OpenAI Function Calling to route to the right skill."""
+        tools = self._build_tools()
+        
         system_instruction = (
             "你是一個路由器。分析使用者的訊息，判斷是否需要呼叫某個工具。\n"
             "如果需要，就呼叫對應的函式。如果不需要工具，直接回答使用者。\n"
             "請用繁體中文回答。"
         )
 
-        model = self.memory.get_setting(user_id, "preferred_model", None)
+        model = self.memory.get_setting(user_id, "preferred_model", None) or "llama3.1"
+        messages = [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": text}
+        ]
 
         try:
-            response = await self.gemini.generate_with_tools(
-                prompt=text,
+            response = await self.gemini.generate(
+                messages=messages,
                 tools=tools,
                 model=model,
-                system_instruction=system_instruction,
             )
 
-            # Log usage
-            if response.usage_metadata:
+            message = response.choices[0].message
+            
+            # Log usage if available
+            if hasattr(response, 'usage') and response.usage:
                 self.memory.log_usage(
                     user_id,
-                    model or self.gemini.default_model,
-                    response.usage_metadata.prompt_token_count or 0,
-                    response.usage_metadata.candidates_token_count or 0,
+                    model,
+                    response.usage.prompt_tokens or 0,
+                    response.usage.completion_tokens or 0,
                 )
 
-            # Check if Gemini decided to call a function
-            if (response.candidates
-                    and response.candidates[0].content
-                    and response.candidates[0].content.parts):
-                for part in response.candidates[0].content.parts:
-                    if part.function_call:
-                        fc = part.function_call
+            # Check if model decided to call a function
+            if message.tool_calls:
+                for tool_call in message.tool_calls:
+                    if tool_call.type == "function":
+                        fc = tool_call.function
                         cmd = f"/{fc.name}"
-                        args_str = fc.args.get("args", "") if fc.args else ""
+                        
+                        # Parse JSON arguments
+                        args_dict = {}
+                        if fc.arguments:
+                            try:
+                                args_dict = json.loads(fc.arguments)
+                            except json.JSONDecodeError:
+                                pass
+                                
+                        args_str = args_dict.get("args", "")
                         args = args_str.split() if args_str else []
 
                         skill = self.get_skill_for_command(cmd)
@@ -143,13 +156,12 @@ class Engine:
                             logger.info(f"Function Call Routed: '{text}' -> {cmd} {args}")
                             return await skill.handle(cmd, args, user_id)
 
-                # If no function call, return the text response
-                if response.text:
-                    # Gemini answered directly without tool use — that's valid
-                    text_response = response.text
-                    self.memory.add_message(user_id, "user", text)
-                    self.memory.add_message(user_id, "assistant", text_response[:500])
-                    return text_response
+            # If no function call, return the text response
+            if message.content:
+                text_response = message.content
+                self.memory.add_message(user_id, "user", text)
+                self.memory.add_message(user_id, "assistant", text_response[:500])
+                return text_response
 
         except Exception as e:
             logger.error(f"Function Calling routing failed: {e}")
@@ -191,26 +203,33 @@ class Engine:
         if conversation_history:
             full_prompt = f"對話歷史:\n{conversation_history}\n\n使用者: {text}"
 
-        model = self.memory.get_setting(user_id, "preferred_model", None)
-        response, usage = await self.gemini.generate(
-            full_prompt,
+        model = self.memory.get_setting(user_id, "preferred_model", None) or "llama3.1"
+        messages = [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": full_prompt}
+        ]
+        
+        response = await self.gemini.generate(
+            messages=messages,
             model=model,
-            system_instruction=system_instruction,
         )
+        
+        message_content = response.choices[0].message.content or ""
 
         # Log usage
-        self.memory.log_usage(
-            user_id,
-            usage.get("model", "unknown"),
-            usage.get("prompt_tokens", 0),
-            usage.get("completion_tokens", 0),
-        )
+        if hasattr(response, 'usage') and response.usage:
+            self.memory.log_usage(
+                user_id,
+                model,
+                response.usage.prompt_tokens or 0,
+                response.usage.completion_tokens or 0,
+            )
 
         # Save to memory
         self.memory.add_message(user_id, "user", text)
-        self.memory.add_message(user_id, "assistant", response[:500])
+        self.memory.add_message(user_id, "assistant", message_content[:500])
 
-        return response
+        return message_content
 
     # ------------------------------------------------------------------
     # Streaming handler for bot.py
@@ -238,12 +257,15 @@ class Engine:
         if conversation_history:
             full_prompt = f"對話歷史:\n{conversation_history}\n\n使用者: {text}"
 
-        model = self.memory.get_setting(user_id, "preferred_model", None)
+        model = self.memory.get_setting(user_id, "preferred_model", None) or "llama3.1"
+        messages = [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": full_prompt}
+        ]
 
-        async for chunk in self.gemini.generate_stream(
-            full_prompt,
+        async for chunk in self.gemini.stream(
+            messages=messages,
             model=model,
-            system_instruction=system_instruction,
         ):
             yield chunk
 

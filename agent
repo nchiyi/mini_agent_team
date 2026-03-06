@@ -43,8 +43,55 @@ case "$1" in
             echo -e "Usage: agent debug [on|off]"
         fi
         ;;
+    config)
+        echo -e "${GREEN}⚙️ Interactive Configuration${NC}"
+        
+        # Ensure .env exists
+        if [ ! -f .env ]; then
+            if [ -f .env.example ]; then
+                cp .env.example .env
+            else
+                touch .env
+            fi
+        fi
+
+        # Ask for Telegram Bot Token
+        read -p "Enter Telegram Bot Token (leave blank to skip): " input_token
+        if [ ! -z "$input_token" ]; then
+            if grep -q "^TELEGRAM_BOT_TOKEN=" .env; then
+                sed -i "s/^TELEGRAM_BOT_TOKEN=.*/TELEGRAM_BOT_TOKEN=$input_token/" .env
+            else
+                echo "TELEGRAM_BOT_TOKEN=$input_token" >> .env
+            fi
+            echo -e "${GREEN}✓ Token updated.${NC}"
+        fi
+
+        # Ask for Ollama Cloud API Key
+        read -p "Enter Ollama Cloud API Key (leave blank to skip): " input_key
+        if [ ! -z "$input_key" ]; then
+            if grep -q "^OLLAMA_CLOUD_API_KEY=" .env; then
+                sed -i "s/^OLLAMA_CLOUD_API_KEY=.*/OLLAMA_CLOUD_API_KEY=$input_key/" .env
+            else
+                echo "OLLAMA_CLOUD_API_KEY=$input_key" >> .env
+            fi
+            echo -e "${GREEN}✓ Cloud API Key updated.${NC}"
+        fi
+
+        # Ask for Default Model
+        read -p "Enter Default Model [e.g. llama3.1, cloud:gpt-oss:120b] (leave blank to skip): " input_model
+        if [ ! -z "$input_model" ]; then
+            if grep -q "^DEFAULT_MODEL=" .env; then
+                sed -i "s/^DEFAULT_MODEL=.*/DEFAULT_MODEL=$input_model/" .env
+            else
+                echo "DEFAULT_MODEL=$input_model" >> .env
+            fi
+            echo -e "${GREEN}✓ Default Model updated.${NC}"
+        fi
+
+        echo -e "${GREEN}✅ Configuration saved to .env! Restart the agent to apply changes: ./agent restart${NC}"
+        ;;
     *)
-        echo "Usage: agent {start|stop|restart|status|logs|debug}"
+        echo "Usage: agent {start|stop|restart|status|logs|debug|config}"
         exit 1
 esac
 
