@@ -127,7 +127,7 @@ def curses_menu(stdscr):
 
     while True:
         stdscr.clear()
-        stdscr.addstr(0, 0, "Select Allowed Models for Telegram (Whitespace to toggle, UP/DOWN to move, ENTER to confirm)", curses.A_BOLD)
+        stdscr.addstr(0, 0, "Select Allowed Models for Telegram (Whitespace to toggle, UP/DOWN/j/k to move, ENTER to confirm)", curses.A_BOLD)
 
         for idx, model in enumerate(all_models):
             y = idx + 2
@@ -147,9 +147,9 @@ def curses_menu(stdscr):
 
         key = stdscr.getch()
 
-        if key == curses.KEY_UP and current_row > 0:
+        if (key == curses.KEY_UP or key == ord('k')) and current_row > 0:
             current_row -= 1
-        elif key == curses.KEY_DOWN and current_row < len(all_models) - 1:
+        elif (key == curses.KEY_DOWN or key == ord('j')) and current_row < len(all_models) - 1:
             current_row += 1
         elif key == ord(' '):
             if current_row in selected_indices:
@@ -170,7 +170,7 @@ def get_default_model(stdscr, allowed_list):
 
     while True:
         stdscr.clear()
-        stdscr.addstr(0, 0, "Select the DEFAULT Model (UP/DOWN to move, ENTER to confirm)", curses.A_BOLD)
+        stdscr.addstr(0, 0, "Select the DEFAULT Model (UP/DOWN/j/k to move, ENTER to confirm)", curses.A_BOLD)
 
         for idx, model in enumerate(allowed_list):
             y = idx + 2
@@ -186,9 +186,9 @@ def get_default_model(stdscr, allowed_list):
 
         key = stdscr.getch()
 
-        if key == curses.KEY_UP and current_row > 0:
+        if (key == curses.KEY_UP or key == ord('k')) and current_row > 0:
             current_row -= 1
-        elif key == curses.KEY_DOWN and current_row < len(allowed_list) - 1:
+        elif (key == curses.KEY_DOWN or key == ord('j')) and current_row < len(allowed_list) - 1:
             current_row += 1
         elif key in [10, 13]:  # Enter
             break
