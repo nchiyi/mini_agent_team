@@ -127,6 +127,21 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for s in skills_info
     )
 
+    # Check for Soul Onboarding
+    if not memory.is_onboarded(update.effective_user.id):
+        await update.message.reply_text(
+            "👋 **您好！我是您的 AI 個人助理。**\n\n"
+            "在我們開始正式合作之前，我想先請教您幾個問題，好讓我能更貼合您的需求：\n\n"
+            "1️⃣ **個性風格**：您希望我表現得幽默風趣、嚴肅專業、還是溫柔優雅？\n"
+            "2️⃣ **互動規範**：有什麼是我絕對不能做的（例如：不准說笑話、回答要簡短）？\n"
+            "3️⃣ **彼此稱呼**：您希望我怎麼稱呼您？而我該自稱為您的什麼？\n\n"
+            "請「一次回答」以上三個問題，我會以此為您打造專屬的靈魂！✨",
+            parse_mode="Markdown"
+        )
+        # Store a temp state that we are waiting for onboarding response
+        memory.set_setting(update.effective_user.id, "awaiting_onboarding", "true")
+        return
+
     await update.message.reply_text(
         f"🤖 **Telegram AI Agent**\n\n"
         f"引擎: Ollama (OpenAI SDK) ✅\n"
@@ -135,6 +150,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"預設模型: `{config.DEFAULT_MODEL}`\n"
         f"Skills 已載入: {len(skills_info)}\n\n"
         f"📋 **可用指令:**\n{skills_list}\n\n"
+        f"  /soul <描述> — 調整我的個性靈魂\n"
         f"  /cwd <路徑> — 切換工作目錄\n"
         f"  /clear — 清除您的對話歷史\n"
         f"  /help — 顯示此訊息\n\n"
@@ -221,9 +237,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
+    # Check if we are in onboarding mode
+    if memory.get_setting(user_id, "awaiting_onboarding") == "true":
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        
+        # Synthesis Personality using LLM
+        synthesis_prompt = (
+            "使用者提供了關於 AI 助理的個性設定、規範與稱呼：\n\n"
+            f"「{text}」\n\n"
+            "請將以上資訊聚合為一段精簡但完整的「系統指令 (System Instruction)」，"
+            "這段指令將用來定義 AI 的靈魂。格式請以『你是一個...』開頭，"
+            "包含語氣、禁忌與稱呼方式。請用繁體中文回覆。"
+        )
+        
+        try:
+            messages = [{"role": "user", "content": synthesis_prompt}]
+            response = await ollama_client.generate(messages=messages)
+            new_soul = response.choices[0].message.content or ""
+            
+            memory.set_personality(user_id, new_soul)
+            memory.set_onboarded(user_id, True)
+            memory.set_setting(user_id, "awaiting_onboarding", "false")
+            
+            await update.message.reply_text(
+                "🔮 **靈魂聚合完成！**\n\n"
+                f"我現在的設定是：\n\"{new_soul}\"\n\n"
+                "如果您之後想調整，隨時可以使用 `/soul` 指令。現在我們可以開始對話了！",
+                parse_mode="Markdown"
+            )
+            return
+        except Exception as e:
+            logger.error(f"Personality synthesis failed: {e}")
+            await update.message.reply_text("❌ 靈魂聚合過程中發生錯誤，請稍後再試或使用 /start 重新開始。")
+            return
+
     cwd = memory.get_setting(user_id, "cwd", config.DEFAULT_CWD)
     display_cwd = cwd.replace(os.path.expanduser("~"), "~")
-
+    
     # Show typing status
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 

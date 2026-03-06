@@ -137,6 +137,14 @@ class Memory:
         """Set the custom personality soul for a user."""
         self.set_setting(user_id, "personality", text)
 
+    def is_onboarded(self, user_id: int) -> bool:
+        """Check if user has completed the personality onboarding."""
+        return self.get_setting(user_id, "onboarded", "false") == "true"
+
+    def set_onboarded(self, user_id: int, status: bool = True):
+        """Mark onboarding as complete."""
+        self.set_setting(user_id, "onboarded", "true" if status else "false")
+
     # Projects
     def add_project(self, name: str, path: str, description: str = ""):
         with sqlite3.connect(self.db_path) as conn:
