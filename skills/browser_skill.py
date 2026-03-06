@@ -20,7 +20,7 @@ class BrowserSkill(BaseSkill):
 
     name = "browser_eye"
     description = "瀏覽網頁與讀取內容 (需安裝 Playwright)"
-    commands = ["/browse", "/search"]
+    commands = ["/browse"]
     schedule = None
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
@@ -31,14 +31,10 @@ class BrowserSkill(BaseSkill):
             )
 
         if not args:
-            return "💡 使用方式: `/browse <URL>` 或 `/search <關鍵字>`"
+            return "💡 使用方式: `/browse <URL>`"
 
         target = " ".join(args)
-        
-        if command == "/search":
-            url = f"https://www.google.com/search?q={target}"
-        else:
-            url = target if target.startswith("http") else f"https://{target}"
+        url = target if target.startswith("http") else f"https://{target}"
 
         return await self._fetch_page(url)
 

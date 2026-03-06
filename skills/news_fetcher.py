@@ -1,9 +1,12 @@
 """
 News Fetcher Skill — Search and push news via web search.
 """
-import asyncio
 import json
+import logging
+from duckduckgo_search import DDGS
 from .base_skill import BaseSkill
+
+logger = logging.getLogger(__name__)
 
 
 class NewsFetcherSkill(BaseSkill):
@@ -33,56 +36,32 @@ class NewsFetcherSkill(BaseSkill):
             )
 
         query = " ".join(args)
-        
-        # Make a simple web search using DuckDuckGo Html
-        import urllib.request
-        import urllib.parse
-        from html.parser import HTMLParser
-
-        class DDGParser(HTMLParser):
-            def __init__(self):
-                super().__init__()
-                self.results = []
-                self.in_result = False
-                self.current_text = ""
-
-            def handle_starttag(self, tag, attrs):
-                if tag == "a" and ("class", "result__url") in attrs:
-                    self.in_result = True
-
-            def handle_data(self, data):
-                if self.in_result:
-                    self.current_text += data.strip() + " "
-
-            def handle_endtag(self, tag):
-                if tag == "a" and self.in_result:
-                    if self.current_text.strip():
-                        self.results.append(self.current_text.strip())
-                    self.current_text = ""
-                    self.in_result = False
 
         try:
-            url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query + ' news')}"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            res = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
-            
-            parser = DDGParser()
-            parser.feed(res)
-            
-            # Take top 10 raw snippets
-            snippets = "\\n".join(parser.results[:10])
-            
+            # Use duckduckgo-search for reliable results
+            results = []
+            with DDGS() as ddgs:
+                news_gen = ddgs.news(query, region='wt-wt', safesearch='moderate', timelimit='w', max_results=8)
+                for r in news_gen:
+                    results.append(f"• {r['title']} ({r.get('source', '未知')})\n  {r.get('body', '')[:100]}")
+
+            if not results:
+                return f"📰 搜尋「{query}」沒有找到最新新聞。"
+
+            snippets = "\n".join(results)
+
             messages = [
-                {"role": "system", "content": "你是一個專業的新聞主編。請閱讀以下搜尋結果片段，整理出 3-5 點最重要的新聞，並以繁體中文列表呈現。如果資訊不足，請照實回答。"},
-                {"role": "user", "content": f"搜尋關鍵字: {query}\\n\\n搜尋結果:\\n{snippets}"}
+                {"role": "system", "content": "你是一個專業的新聞主編。請閱讀以下新聞搜尋結果，整理出 3-5 點最重要的新聞，並以繁體中文列表呈現。如果資訊不足，請照實回答。"},
+                {"role": "user", "content": f"搜尋關鍵字: {query}\n\n搜尋結果:\n{snippets}"}
             ]
-            
+
             response = await self.engine.llm.generate(messages=messages)
             ai_summary = response.choices[0].message.content or "無法總結新聞內容。"
-            
+
             return f"📰 **「{query}」最新新聞:**\n\n{ai_summary}"
 
         except Exception as e:
+            logger.error(f"News search failed: {e}")
             return f"❌ 搜尋新聞時發生錯誤: {e}"
 
     def _subscribe(self, args: list[str], user_id: int) -> str:
@@ -115,13 +94,9 @@ class NewsFetcherSkill(BaseSkill):
 
     async def scheduled_task(self):
         """Daily news push for all subscribed users."""
-        # This gets called by the scheduler
-        # We need the scheduler's notify callback to send messages
         if not self.engine or not self.engine.scheduler:
             return
 
-        # Get all users with subscriptions
-        # For simplicity, check all settings for news_subs
         import sqlite3
         try:
             with sqlite3.connect(self.engine.memory.db_path) as conn:

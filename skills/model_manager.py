@@ -56,7 +56,7 @@ class ModelManagerSkill(BaseSkill):
         """Dynamically list all available models from Ollama API."""
         try:
             # We use the custom list_models on OllamaClient
-            models = await self.engine.gemini.list_models()
+            models = await self.engine.llm.list_models()
             
             allowed = [m.strip() for m in config.ALLOWED_MODELS.split(",") if m.strip()]
             
@@ -94,7 +94,7 @@ class ModelManagerSkill(BaseSkill):
             if allowed and model_name not in allowed:
                 return False
 
-            models = await self.engine.gemini.list_models()
+            models = await self.engine.llm.list_models()
             if model_name.startswith("cloud:"):
                 return model_name[6:] in models["cloud"]
             return model_name in models["local"]

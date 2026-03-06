@@ -1,8 +1,9 @@
 """
-Dev Agent Skill — Direct AI development via Gemini SDK.
+Dev Agent Skill — AI development assistant.
 This is the handler for explicit /dev commands.
 """
 from .base_skill import BaseSkill
+import config
 
 
 class DevAgentSkill(BaseSkill):
@@ -23,7 +24,7 @@ class DevAgentSkill(BaseSkill):
             )
 
         prompt = " ".join(args)
-        model = self.engine.memory.get_setting(user_id, "preferred_model", None)
+        model = self.engine.memory.get_setting(user_id, "preferred_model", "") or config.DEFAULT_MODEL
 
         system_instruction = (
             "你是一個專業的軟體工程師 AI 助手。\n"

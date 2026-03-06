@@ -211,6 +211,19 @@ async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ 未知指令: {command}")
         return
 
+    # Fix #10: If this is a vision command replying to a photo, inject photo path
+    if command in ("/describe", "/ocr"):
+        # Check if replying to a photo message
+        if update.message.reply_to_message and update.message.reply_to_message.photo:
+            last_photo = memory.get_setting(update.effective_user.id, "last_photo")
+            if last_photo:
+                args = [last_photo] + args
+        elif not args:
+            # Not replying to a photo and no args — try last_photo from memory
+            last_photo = memory.get_setting(update.effective_user.id, "last_photo")
+            if last_photo:
+                args = [last_photo] + args
+
     # Show typing status
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     processing_msg = await update.message.reply_text(f"⏳ {skill.name} 執行中...")

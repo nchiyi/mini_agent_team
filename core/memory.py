@@ -55,6 +55,14 @@ class Memory:
                     timestamp TEXT NOT NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS projects (
+                    name TEXT PRIMARY KEY,
+                    path TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    added_at TEXT NOT NULL
+                )
+            """)
             conn.commit()
 
     def log_usage(self, user_id: int, model: str, prompt_tokens: int, completion_tokens: int, cost: float = 0.0):
@@ -214,6 +222,7 @@ class SemanticMemory:
         self.metadata = []  # List of dicts mapping to FAISS IDs
         
         self._initialized = False
+        self._unsaved_count = 0  # Track unsaved additions for batch saving
 
     def _lazy_init(self):
         """Lazy load heavy models and index."""
@@ -261,8 +270,11 @@ class SemanticMemory:
                 "timestamp": datetime.now().isoformat()
             })
             
-            # Save periodicially
-            self.save()
+            # Batch save: only persist every 10 additions to reduce I/O
+            self._unsaved_count += 1
+            if self._unsaved_count >= 10:
+                self.save()
+                self._unsaved_count = 0
         except Exception as e:
             logger.error(f"Failed to add fact: {e}")
 

@@ -5,8 +5,16 @@ import asyncio
 import os
 import aiohttp
 import importlib
+from urllib.parse import urlparse
 from .base_skill import BaseSkill
 from skills import discover_skills
+
+# Trusted domains for skill downloads
+TRUSTED_DOMAINS = [
+    "raw.githubusercontent.com",
+    "gist.githubusercontent.com",
+    "gitlab.com",
+]
 
 
 class SkillInstallerSkill(BaseSkill):
@@ -26,6 +34,16 @@ class SkillInstallerSkill(BaseSkill):
         url = args[0]
         if not url.startswith("http"):
             return "❌ 請提供有效的 HTTP/HTTPS 網址。"
+
+        # Security: Check trusted domain
+        parsed = urlparse(url)
+        if parsed.hostname not in TRUSTED_DOMAINS:
+            allowed = ", ".join(f"`{d}`" for d in TRUSTED_DOMAINS)
+            return (
+                f"🚫 **安全限制：**不信任的來源域名 `{parsed.hostname}`。\n\n"
+                f"僅允許以下受信任來源：\n{allowed}\n\n"
+                f"如需新增受信任域名，請修改 `skill_installer.py` 中的 `TRUSTED_DOMAINS`。"
+            )
 
         # Generate filename from URL
         filename = url.split("/")[-1]

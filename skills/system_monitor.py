@@ -1,8 +1,17 @@
 """
 System Monitor Skill — Check CPU, memory, disk usage.
+Cross-platform support using psutil.
 """
-import asyncio
+import logging
 from .base_skill import BaseSkill
+
+logger = logging.getLogger(__name__)
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
 
 class SystemMonitorSkill(BaseSkill):
@@ -11,62 +20,55 @@ class SystemMonitorSkill(BaseSkill):
     commands = ["/sys"]
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
-        info = await self._get_system_info()
-        return info
-
-    async def _get_system_info(self) -> str:
-        """Gather system info using standard Linux tools."""
-        try:
-            # CPU & Memory
-            proc = await asyncio.create_subprocess_exec(
-                "bash", "-c",
-                "echo '=CPU='; top -bn1 | head -5; "
-                "echo '=MEM='; free -h; "
-                "echo '=DISK='; df -h / /home 2>/dev/null; "
-                "echo '=UPTIME='; uptime",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+        if not PSUTIL_AVAILABLE:
+            return (
+                "❌ 系統監控功能未啟動（缺少 `psutil`）。\n"
+                "請在伺服器端執行 `pip install psutil`。"
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-            raw = stdout.decode("utf-8", errors="replace")
+        return self._get_system_info()
 
-            # Parse sections
-            lines = raw.strip().split("\n")
-            cpu_lines = []
-            mem_lines = []
-            disk_lines = []
-            uptime_line = ""
-            section = ""
+    def _get_system_info(self) -> str:
+        """Gather system info using psutil (cross-platform)."""
+        try:
+            import datetime
 
-            for line in lines:
-                if line.startswith("=CPU="):
-                    section = "cpu"
-                    continue
-                elif line.startswith("=MEM="):
-                    section = "mem"
-                    continue
-                elif line.startswith("=DISK="):
-                    section = "disk"
-                    continue
-                elif line.startswith("=UPTIME="):
-                    section = "uptime"
-                    continue
+            # CPU
+            cpu_percent = psutil.cpu_percent(interval=1)
+            cpu_count = psutil.cpu_count()
 
-                if section == "cpu":
-                    cpu_lines.append(line)
-                elif section == "mem":
-                    mem_lines.append(line)
-                elif section == "disk":
-                    disk_lines.append(line)
-                elif section == "uptime":
-                    uptime_line = line.strip()
+            # Memory
+            mem = psutil.virtual_memory()
+            mem_total_gb = mem.total / (1024 ** 3)
+            mem_used_gb = mem.used / (1024 ** 3)
+            mem_percent = mem.percent
+
+            # Disk
+            disk = psutil.disk_usage('/')
+            disk_total_gb = disk.total / (1024 ** 3)
+            disk_used_gb = disk.used / (1024 ** 3)
+            disk_percent = disk.percent
+
+            # Uptime
+            boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
+            uptime = datetime.datetime.now() - boot_time
+            uptime_str = str(uptime).split('.')[0]  # Remove microseconds
+
+            # Progress bars
+            def bar(pct: float) -> str:
+                filled = int(pct / 10)
+                return "█" * filled + "░" * (10 - filled)
 
             return (
                 f"🖥️ **系統狀態**\n\n"
-                f"⏱ **Uptime:** {uptime_line}\n\n"
-                f"🧠 **記憶體:**\n```\n" + "\n".join(mem_lines) + "\n```\n\n"
-                f"💾 **磁碟:**\n```\n" + "\n".join(disk_lines) + "\n```"
+                f"⏱ **Uptime:** {uptime_str}\n\n"
+                f"⚡ **CPU:** {cpu_percent}% ({cpu_count} cores)\n"
+                f"  [{bar(cpu_percent)}]\n\n"
+                f"🧠 **記憶體:** {mem_used_gb:.1f} / {mem_total_gb:.1f} GB ({mem_percent}%)\n"
+                f"  [{bar(mem_percent)}]\n\n"
+                f"💾 **磁碟 (/):** {disk_used_gb:.1f} / {disk_total_gb:.1f} GB ({disk_percent}%)\n"
+                f"  [{bar(disk_percent)}]"
             )
 
         except Exception as e:
+            logger.error(f"System monitor error: {e}")
             return f"❌ 無法取得系統資訊: {e}"

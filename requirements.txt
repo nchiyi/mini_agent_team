@@ -9,3 +9,12 @@ html2text>=2020.1.16
 faiss-cpu>=1.7.4
 sentence-transformers>=2.2.2
 numpy>=1.24.0
+# Web Search & Summarizer
+duckduckgo-search>=4.0
+trafilatura>=1.6.0
+# Image Processing
+pillow>=10.0.0
+# Skill Installer
+aiohttp>=3.9.0
+# Cross-platform System Monitor
+psutil>=5.9.0

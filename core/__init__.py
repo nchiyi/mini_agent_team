@@ -163,7 +163,7 @@ class Engine:
             "5. 請用繁體中文回答。"
         )
 
-        model = self.memory.get_setting(user_id, "preferred_model", None) or "llama3.1"
+        model = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
         messages = [
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": text}
@@ -362,7 +362,7 @@ class Engine:
         if conversation_history:
             full_prompt = f"對話歷史:\n{conversation_history}\n\n使用者: {text}"
 
-        model = self.memory.get_setting(user_id, "preferred_model", None) or "llama3.1"
+        model = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
         messages = [
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": full_prompt}
