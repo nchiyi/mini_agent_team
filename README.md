@@ -34,25 +34,32 @@ graph TD
 
 ---
 
-## 🧩 各元件功能深度解析
+## 🧩 核心功能亮點 (Core Features)
 
-### 1. 核心大腦 (Core Engine)
-這是系統的神經中樞，負責協調所有元件：
-- **`Engine` (core/__init__.py)**: 實作了 **ReAct (Reason + Act)** 流程。它會將使用者的文字傳給 LLM，讓模型決定是要「直接回答」還是「呼叫工具 (Tool Calling)」。
-- **`OllamaClient` (core/ollama_client.py)**: 雙模融合層。它會優先檢查 `cloud:` 前綴。如果是雲端請求，會帶上 API Key 往 `api.ollama.com` 發送；否則直接與本機 11434 埠連線。
-- **`Memory` (core/memory.py)**: 
-    - **SQLite**: 存放長期的對話 Token 統計、用戶設定、專案列表。
-    - **Semantic (FAISS)**: 語義向量記憶。它會把過往的重要對話向量化，當你問相似問題時，會自動把「過去的記憶」撈出來當作 Context。
+### 1. 🌈 靈魂引導流程 (Soul Onboarding)
+這是系統最人性化的設計。當您第一次啟動 Bot 時，Agent 會主動向您發起「靈魂初始化問卷」，詢問您的個性偏好、互動規範與稱呼方式。這讓您的 AI 助理從第一秒起就真正「認主」。
 
-### 2. 交互配置層 (Interactivity)
-- **`agent config` (CLI)**: 專為人類設計的交互式選單。它會自動抓取你本地與雲端所有的可用模型，讓你在終端機裡按方向鍵「勾選」你的白名單，並自動寫入 `.env`。
-- **`Model Manager` (Skills)**: 讓使用者在手機端用 `/model` 查看自訂的白名單，並即時切換模型，切換結果會持久化到資料庫。
+### 2. 🎭 個性自定義 (Soul Customization)
+透過 `/soul` 指令，您可以隨時調整或洗滌 Agent 的靈魂。您可以讓它是傲嬌的助理、專業的導師，或是機智的脫口秀演員。
 
-### 3. 特色代理技能 (AI Agents)
-- **Dev Agent (`/dev`)**: 具備 OpenAI 格式的對話能力，適合處理開發建議、Code 改寫與除錯。
-- **Browser Eye (`/browser`)**: 內建 Playwright。當它覺得需要查資料時，會自動開啟隱藏瀏覽器進行網頁渲染，提取文字回傳給大語言模型。
-- **News Fetcher (`/news`)**: 擺脫 Google 聯網限制。採用原生 `urllib` 爬取新聞原始片段，再交由 AI 總結為繁體中文精選日報。
-- **Soul Keeper (`/soul`)**: **[NEW]** 自定義 AI 的個性靈魂、語氣與行為準則。讓你隨時更換 Agent 的靈魂（例如：傲嬌助理、專業導師、或是貓娘喵）。
+### 3. 🧠 記憶蒸餾系統 (Memory Distillation)
+為了解決長對話導致的 Token 爆炸問題，系統具備自動化記憶蒸餾功能：
+- **自動總結**：對話超過 20 輪時，自動聚合舊歷史為「Session Summary」。
+- **滾動清理**：刪除冗長舊訊息，只保留精華摘要注入系統提示，平衡 Token 消耗與記憶深度。
+
+### 4. 🛡️ 執行安全與防幻覺 (Safety & Truthfulness)
+內建 ReAct 思考規範。Agent 在呼叫工具前會進行內部推理，如果不確定事實或缺乏上下文，會選擇承認「我不知道」而不是編造虛假指令，確保執行安全。
+
+### 5. 🚀 Ollama 雙引擎 (Dual Engine)
+支援本地運算的 Ollama 與雲端的 Ollama Cloud API。透過 `agent config` 即可一鍵切換與配置模型白名單。
+
+---
+
+## 🧩 各元件技術解析
+
+- **`Engine` (core/__init__.py)**: 實作了雙層路由機制（Function Calling + Text Path），協調各項技能。
+- **`Memory` (core/memory.py)**: 整合 SQLite（持久化設定）與 FAISS（語義檢索）。
+- **`OllamaClient` (core/ollama_client.py)**: 統一封裝 OpenAI 相容 API，支援串流輸出。
 
 ---
 
@@ -60,30 +67,26 @@ graph TD
 
 ### 1️⃣ 初始化環境
 ```bash
-git clone https://github.com/nchiyi/telegram-to-control.git
-cd telegram-to-control
 bash setup.sh
 ```
-此腳本會配置 **Python 虛擬環境 (venv)** 並安裝所有相依套件。
 
-### 2️⃣ 互動式配置 (白名單與 Token)
+### 2️⃣ 互動式配置
 ```bash
 ./agent config
 ```
-在選單中勾選您想要使用的模型。這會決定 Telegram 裡 `/model list` 顯示的內容。
 
 ### 3️⃣ 啟動
 ```bash
-./agent restart
+./agent start
 ```
 
 ---
 
 ## 📱 管理工具 (`./agent`)
-- `./agent start / stop / restart`: 服務生命週期管理。
-- `./agent config`: 配置環境與模型白名單。
-- `./agent status`: 查看運行 PID 與連線狀況。
-- `./agent logs`: 即時滾動查看運行日誌。
+- `./agent start / stop / restart`: 服務管理。
+- `./agent config`: 模型與環境配置。
+- `./agent status`: 狀態檢查。
+- `./agent logs`: 查看日誌。
 
 ---
 

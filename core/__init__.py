@@ -63,7 +63,7 @@ class Engine:
     def create_agent(self, name: str, system_prompt: str, model: str = None):
         """Create a named sub-agent with its own session."""
         from core.sub_agent import SubAgent
-        agent = SubAgent(name, system_prompt, model, self.gemini)
+        agent = SubAgent(name, system_prompt, model, self.llm)
         self.agents[name] = agent
         logger.info(f"Created sub-agent: {name}")
         return agent
