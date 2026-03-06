@@ -12,33 +12,33 @@ SERVICE_NAME="telegram-agent"
 case "$1" in
     start)
         echo -e "${GREEN}🚀 Starting $SERVICE_NAME...${NC}"
-        sudo systemctl start $SERVICE_NAME
+        systemctl --user start $SERVICE_NAME
         ;;
     stop)
         echo -e "${YELLOW}🛑 Stopping $SERVICE_NAME...${NC}"
-        sudo systemctl stop $SERVICE_NAME
+        systemctl --user stop $SERVICE_NAME
         ;;
     restart)
         echo -e "${GREEN}🔄 Restarting $SERVICE_NAME...${NC}"
-        sudo systemctl restart $SERVICE_NAME
+        systemctl --user restart $SERVICE_NAME
         ;;
     status)
         echo -e "${YELLOW}📊 Status of $SERVICE_NAME:${NC}"
-        sudo systemctl status $SERVICE_NAME
+        systemctl --user status $SERVICE_NAME
         ;;
     logs)
         echo -e "${YELLOW}📜 Showing logs (Ctrl+C to stop):${NC}"
-        sudo journalctl -u $SERVICE_NAME -f
+        journalctl --user -u $SERVICE_NAME -f
         ;;
     debug)
         if [ "$2" == "on" ]; then
             echo -e "${GREEN}🐞 Turning Debug Logs ON...${NC}"
             sed -i 's/DEBUG_LOG=false/DEBUG_LOG=true/' .env
-            sudo systemctl restart $SERVICE_NAME
+            systemctl --user restart $SERVICE_NAME
         elif [ "$2" == "off" ]; then
             echo -e "${GREEN}🤐 Turning Debug Logs OFF...${NC}"
             sed -i 's/DEBUG_LOG=true/DEBUG_LOG=false/' .env
-            sudo systemctl restart $SERVICE_NAME
+            systemctl --user restart $SERVICE_NAME
         else
             echo -e "Usage: agent debug [on|off]"
         fi

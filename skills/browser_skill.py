@@ -19,9 +19,28 @@ class BrowserSkill(BaseSkill):
     """A skill that provides web browsing capabilities."""
 
     name = "browser_eye"
-    description = "瀏覽、讀取與分析網頁內容 (需安裝 Playwright)"
+    description = "直接網頁瀏覽功能。僅當使用者提供明確的 URL 網址時使用。如果你需要搜尋資訊、新聞或研究主題，請優先使用 search、news 或 researcher 工具。"
     commands = ["/browse", "/analyze"]
     schedule = None
+
+    def get_tool_spec(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": "browse",
+                "description": "瀏覽或分析特定網址的內容。僅適用於明確的 URL。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "args": {
+                            "type": "string",
+                            "description": "目標網頁的完整網址 (例如：https://github.com/nchiyi/bot)"
+                        }
+                    },
+                    "required": ["args"]
+                }
+            }
+        }
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
         if not PLAYWRIGHT_AVAILABLE:
@@ -33,7 +52,13 @@ class BrowserSkill(BaseSkill):
         if not args:
             return "💡 使用方式: `/browse <URL>` 或 `/analyze <URL>`"
 
-        target = " ".join(args)
+        target = " ".join(args).strip()
+        
+        # Basic URL validation: if it contains spaces and doesn't look like a domain, it's probably a search
+        # Simple check: if there are spaces and no dot, or many words without http, it's a query
+        if " " in target and not target.startswith("http"):
+             return f"⚠️ 偵測到疑似搜尋字串：「{target}」。\n瀏覽功能僅支援直接輸入網址。建議您改用 `/search {target}` 或 `/research {target}`。"
+
         url = target if target.startswith("http") else f"https://{target}"
 
         if command == "/analyze":

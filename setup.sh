@@ -85,36 +85,51 @@ fi
 echo "✅ Python 套件處理完成。"
 echo ""
 
-# 6. Systemd Service Setup
-echo "[6/6] 設定 Systemd 背景服務與管理工具..."
+# 6. Systemd User Service Setup
+echo "[6/6] 設定 Systemd 用戶服務與管理工具..."
 chmod +x agent
-SERVICE_FILE="/etc/systemd/system/telegram-agent.service"
-CURRENT_DIR=$(pwd)
-CURRENT_USER=$USER
 
-sudo bash -c "cat <<EOF > $SERVICE_FILE
+# Migration: Shutdown old system-level service if it exists (requires sudo once during migration)
+if systemctl is-active --quiet telegram-agent; then
+    echo "⚠️ 偵測到舊版系統服務，正在遷移..."
+    sudo systemctl stop telegram-agent
+    sudo systemctl disable telegram-agent
+    sudo rm -f /etc/systemd/system/telegram-agent.service
+    sudo systemctl daemon-reload
+fi
+
+SERVICE_DIR="$HOME/.config/systemd/user"
+mkdir -p "$SERVICE_DIR"
+SERVICE_FILE="$SERVICE_DIR/telegram-agent.service"
+CURRENT_DIR=$(pwd)
+
+cat <<EOF > "$SERVICE_FILE"
 [Unit]
 Description=Telegram AI Agent Platform
 After=network.target
 
 [Service]
-User=$CURRENT_USER
 WorkingDirectory=$CURRENT_DIR
 ExecStart=$CURRENT_DIR/venv/bin/python3 bot.py
 Restart=always
 RestartSec=5
-# Ensure environment variables like PATH are passed correctly for node/npm
-Environment=\"PATH=$CURRENT_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"
+# Ensure environment variables like PATH are passed correctly
+Environment="PATH=$CURRENT_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 [Install]
-WantedBy=multi-user.target
-EOF"
+WantedBy=default.target
+EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable telegram-agent
-sudo systemctl start telegram-agent
+# Use systemctl --user
+systemctl --user daemon-reload
+systemctl --user enable telegram-agent
+systemctl --user start telegram-agent
 
-echo "✅ Systemd 服務啟動完成！"
+# Enable linger so services run when user is logged out
+echo "🔓 啟用 Linger 模式 (確保登出後 Bot 持續執行)..."
+sudo loginctl enable-linger $USER
+
+echo "✅ Systemd 用戶服務啟動完成！"
 echo ""
 echo "=========================================================="
 echo "🎉 安裝完成！您的 Telegram AI Agent 已在背景執行。"
