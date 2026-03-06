@@ -18,7 +18,7 @@ class OllamaClient:
         self.cloud_client = None
         if cloud_api_key:
             self.cloud_client = AsyncOpenAI(
-                base_url="https://api.ollama.com/v1",
+                base_url="https://ollama.com/v1",
                 api_key=cloud_api_key
             )
 
