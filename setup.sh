@@ -6,6 +6,14 @@ echo "🤖 Telegram AI Agent Platform - Installation & Setup"
 echo "=========================================================="
 echo ""
 
+if [ "$EUID" -eq 0 ]; then
+    echo "❌ 錯誤：請不要使用 sudo 執行此腳本！"
+    echo "💡 正確用法：請直接執行 ./setup.sh (安裝過程中若需權限會自動提示密碼)"
+    echo "⚠️ 使用 sudo 會導致 Systemd 用戶服務 (User Service) 無法正確綁定到你的帳號。"
+    exit 1
+fi
+
+
 # 1. System Requirements
 echo "[1/4] 檢查系統環境與安裝依賴..."
 sudo apt update
@@ -59,28 +67,28 @@ echo ""
 # 4. Optional Skills Setup
 echo "[4/4] 選擇性安裝進階模組"
 echo ""
-read -p "是否安裝 「Browser Eye」瀏覽器擴展功能？(可讓 Agent 讀取網頁內容) [y/N]: " INSTALL_BROWSER
-if [[ "$INSTALL_BROWSER" =~ ^[Yy]$ ]]; then
-    echo "🌐 正在安裝瀏覽器引擎 (Chromium)..."
-    python3 -m playwright install chromium
-    # Install system deps for playwright using sudo to ensure interactive permission
-    sudo python3 -m playwright install-deps chromium
-    echo "✅ 瀏覽器擴展安裝完成。"
+
+if [ -d "$HOME/.cache/ms-playwright" ] && ls -1d "$HOME/.cache/ms-playwright/chromium-"* >/dev/null 2>&1; then
+    echo "✅ 偵測到已安裝 Browser Eye 核心組件 (Chromium)，跳過安裝。"
 else
-    echo "⏭️ 跳過瀏覽器擴展安裝。"
+    read -p "是否安裝 「Browser Eye」瀏覽器擴展功能？(可讓 Agent 讀取網頁內容) [y/N]: " INSTALL_BROWSER
+    if [[ "$INSTALL_BROWSER" =~ ^[Yy]$ ]]; then
+        echo "🌐 正在安裝瀏覽器引擎 (Chromium)..."
+        python3 -m playwright install chromium
+        # Install system deps for playwright using sudo to ensure interactive permission
+        sudo python3 -m playwright install-deps chromium
+        echo "✅ 瀏覽器擴展安裝完成。"
+    else
+        echo "⏭️ 跳過瀏覽器擴展安裝。"
+    fi
 fi
 
 # 5.2 Optional: Semantic Memory (Phase 3 - Intelligence Upgrade)
 echo ""
-read -p "是否安裝 「Semantic Memory」語義記憶擴展？(提供語義搜尋與長期記憶，需額外下載 400MB 模型) [y/N]: " INSTALL_SEMANTIC
-if [[ "$INSTALL_SEMANTIC" =~ ^[Yy]$ ]]; then
-    echo "🧠 正在準備語義記憶引擎..."
-    # Dependencies are already in requirements.txt, but we might want to trigger a pre-download
-    # or just let it happen on first start.
-    echo "✅ 語義記憶組件已就緒。"
-else
-    echo "⏭️ 跳過語義記憶安裝。"
-fi
+# Since dependencies are in requirements.txt, we already have them. 
+# We can just inform the user instead of prompting.
+echo "✅ 語義記憶組件已就緒 (套件已隨 requirements.txt 安裝)。"
+
 
 echo "✅ Python 套件處理完成。"
 echo ""
