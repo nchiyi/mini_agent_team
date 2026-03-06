@@ -71,7 +71,7 @@ class WebSearchSkill(BaseSkill):
         """Use LLM to generate 2 optimal search queries based on user intent."""
         current_date = datetime.date.today().strftime("%Y-%m-%d")
         messages = [
-            {"role": "system", "content": f"You are a professional research assistant. Today is {current_date}. Analyze the user's request and formulate 1 to 2 optimal web search queries. For live data (stocks, weather, news), include words like '今天', '{current_date}', or specific indicators to force fresh results. Return ONLY a valid JSON array of strings representing the queries. Example: [\"台灣加權指數 收盤 今天\", \"yahoo finance twii\"]"},
+            {"role": "system", "content": f"You are a professional research assistant. Today is {current_date}. Analyze the user's request and formulate 1 to 2 optimal web search queries. IMPORTANT: Use concise, specific keywords (not full sentences). For live data (e.g. stock index), use terms like 'Yahoo 股市', '今日收盤', '{current_date}'. Return ONLY a valid JSON array of strings. Example: [\"台灣加權指數 {current_date} 收盤\", \"TWII Yahoo Finance\"]"},
             {"role": "user", "content": f"User Request: {original_query}"}
         ]
         
@@ -100,7 +100,7 @@ class WebSearchSkill(BaseSkill):
             results = []
             try:
                 with DDGS() as ddgs:
-                    for r in ddgs.text(q, max_results=3, timelimit='d', region='wt-wt'):
+                    for r in ddgs.text(q, max_results=3, region='tw-tz'):
                         results.append(r)
             except Exception as e:
                 logger.warning(f"DDGS failed for query '{q}': {e}")
