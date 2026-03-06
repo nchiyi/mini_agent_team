@@ -19,8 +19,8 @@ class BrowserSkill(BaseSkill):
     """A skill that provides web browsing capabilities."""
 
     name = "browser_eye"
-    description = "瀏覽網頁與讀取內容 (需安裝 Playwright)"
-    commands = ["/browse"]
+    description = "瀏覽、讀取與分析網頁內容 (需安裝 Playwright)"
+    commands = ["/browse", "/analyze"]
     schedule = None
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
@@ -31,12 +31,54 @@ class BrowserSkill(BaseSkill):
             )
 
         if not args:
-            return "💡 使用方式: `/browse <URL>`"
+            return "💡 使用方式: `/browse <URL>` 或 `/analyze <URL>`"
 
         target = " ".join(args)
         url = target if target.startswith("http") else f"https://{target}"
 
+        if command == "/analyze":
+            return await self._analyze_page(url, user_id)
+        
         return await self._fetch_page(url)
+
+    async def _analyze_page(self, url: str, user_id: int) -> str:
+        """Fetch a page and use LLM to analyze/summarize it."""
+        raw_markdown = await self._fetch_page(url)
+        
+        if raw_markdown.startswith("❌"):
+            return raw_markdown
+
+        # Extract only the body if it's formatted as '🌐 **[title](url)**\n\ncontent'
+        content_to_analyze = raw_markdown
+        if "\n\n" in raw_markdown:
+            content_to_analyze = raw_markdown.split("\n\n", 1)[1]
+
+        prompt = (
+            "你是一個專業的網頁內容剖析專家。以下是從網頁中提取的原始資料：\n\n"
+            f"【網址】：{url}\n\n"
+            f"【原始內容】：\n{content_to_analyze[:4000]}\n\n"
+            "--- \n"
+            "請針對以上內容進行深入分析與總結。要求：\n"
+            "1. 使用繁體中文。\n"
+            "2. 清晰說明該網頁的主題與目的。\n"
+            "3. 列出 3-5 個核心價值或關鍵資訊點。\n"
+            "4. 如果是 GitHub 專案，請說明其功能與安裝/使用要點。\n"
+            "5. 提供一個簡短、專業的總結性結論。"
+        )
+
+        messages = [{"role": "user", "content": prompt}]
+        
+        # Get preferred model or default
+        import config
+        model = self.engine.memory.get_setting(user_id, "preferred_model", "") or config.DEFAULT_MODEL
+
+        try:
+            response = await self.engine.llm.generate(messages=messages, model=model)
+            analysis = response.choices[0].message.content or "無法生成分析。"
+            return f"🔍 **網頁深度分析**\n\n{analysis}\n\n🔗 [原文連結]({url})"
+        except Exception as e:
+            logger.error(f"Page analysis failed: {e}")
+            return f"❌ 分析失敗：{e}\n\n以下是原始抓取的內容：\n\n{raw_markdown}"
 
     async def _fetch_page(self, url: str) -> str:
         """Fetch a page and convert to markdown."""
