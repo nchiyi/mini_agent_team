@@ -77,8 +77,50 @@ case "$1" in
             echo -e "${GREEN}✓ Cloud API Key updated.${NC}"
         fi
 
+        # Show available models before asking
+        echo -e "${YELLOW}Fetching available models...${NC}"
+        python3 -c "
+import urllib.request, json, os
+
+local_models = []
+cloud_models = []
+
+try:
+    req = urllib.request.Request('http://localhost:11434/api/tags')
+    res = urllib.request.urlopen(req, timeout=2).read().decode()
+    local_models = [m['name'] for m in json.loads(res).get('models', [])]
+except:
+    pass
+
+cloud_key = ''
+try:
+    with open('.env') as f:
+        for line in f:
+            if line.startswith('OLLAMA_CLOUD_API_KEY='):
+                cloud_key = line.strip().split('=', 1)[1]
+                break
+except:
+    pass
+
+if cloud_key:
+    try:
+        req = urllib.request.Request('https://api.ollama.com/v1/models', headers={'Authorization': f'Bearer {cloud_key}'})
+        res = urllib.request.urlopen(req, timeout=3).read().decode()
+        cloud_models = [m['id'] for m in json.loads(res).get('data', [])]
+    except:
+        pass
+
+if local_models:
+    print('\n🏠 [本地 Local 模型]')
+    for m in local_models[:15]: print(f'  - {m}')
+if cloud_models:
+    print('\n☁️  [雲端 Cloud 模型]')
+    for m in cloud_models[:15]: print(f'  - cloud:{m}')
+print('')
+"
+
         # Ask for Default Model
-        read -p "Enter Default Model [e.g. llama3.1, cloud:gpt-oss:120b] (leave blank to skip): " input_model
+        read -p "Enter Default Model (leave blank to skip): " input_model
         if [ ! -z "$input_model" ]; then
             if grep -q "^DEFAULT_MODEL=" .env; then
                 sed -i "s/^DEFAULT_MODEL=.*/DEFAULT_MODEL=$input_model/" .env
