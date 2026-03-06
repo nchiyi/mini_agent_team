@@ -24,7 +24,8 @@ graph TD
         Engine <--> Skill1[Dev Agent: 開發助手]
         Engine <--> Skill2[Browser: Playwright 網頁眼]
         Engine <--> Skill3[News: 原生爬蟲新聞]
-        Engine <--> Skill4[Monitor: 系統監控]
+        Engine <--> Skill4[Soul: 個性靈魂設定]
+        Engine <--> Skill5[Monitor: 系統監控]
     end
 
     LLM <--> LocalOllama[本地端 Ollama Server]
@@ -51,6 +52,7 @@ graph TD
 - **Dev Agent (`/dev`)**: 具備 OpenAI 格式的對話能力，適合處理開發建議、Code 改寫與除錯。
 - **Browser Eye (`/browser`)**: 內建 Playwright。當它覺得需要查資料時，會自動開啟隱藏瀏覽器進行網頁渲染，提取文字回傳給大語言模型。
 - **News Fetcher (`/news`)**: 擺脫 Google 聯網限制。採用原生 `urllib` 爬取新聞原始片段，再交由 AI 總結為繁體中文精選日報。
+- **Soul Keeper (`/soul`)**: **[NEW]** 自定義 AI 的個性靈魂、語氣與行為準則。讓你隨時更換 Agent 的靈魂（例如：傲嬌助理、專業導師、或是貓娘喵）。
 
 ---
 

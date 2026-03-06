@@ -104,7 +104,13 @@ class Engine:
         """Use OpenAI Function Calling to route to the right skill."""
         tools = self._build_tools()
         
+        personality = self.memory.get_personality(user_id)
         system_instruction = (
+            f"{personality}\n"
+            "你是一個路由器。分析使用者的訊息，判斷是否需要呼叫某個工具。\n"
+            "如果需要，就呼叫對應的函式。如果不需要工具，直接回答使用者。\n"
+            "請用繁體中文回答。"
+        ) if personality else (
             "你是一個路由器。分析使用者的訊息，判斷是否需要呼叫某個工具。\n"
             "如果需要，就呼叫對應的函式。如果不需要工具，直接回答使用者。\n"
             "請用繁體中文回答。"
@@ -194,7 +200,13 @@ class Engine:
 
         conversation_history = self.memory.get_context(user_id, limit=10)
 
+        personality = self.memory.get_personality(user_id)
         system_instruction = (
+            f"{personality}\n"
+            "你是一個強大的個人 AI 助手，透過 Telegram 與使用者互動。\n"
+            "請用繁體中文回答，語氣友善專業。\n"
+            f"{context_block}"
+        ) if personality else (
             "你是一個強大的個人 AI 助手，透過 Telegram 與使用者互動。\n"
             "請用繁體中文回答，語氣友善專業。\n"
             f"{context_block}"
@@ -248,7 +260,13 @@ class Engine:
 
         conversation_history = self.memory.get_context(user_id, limit=10)
 
+        personality = self.memory.get_personality(user_id)
         system_instruction = (
+            f"{personality}\n"
+            "你是一個強大的個人 AI 助手，透過 Telegram 與使用者互動。\n"
+            "請用繁體中文回答，語氣友善專業。\n"
+            f"{context_block}"
+        ) if personality else (
             "你是一個強大的個人 AI 助手，透過 Telegram 與使用者互動。\n"
             "請用繁體中文回答，語氣友善專業。\n"
             f"{context_block}"

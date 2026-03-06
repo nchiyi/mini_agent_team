@@ -129,6 +129,14 @@ class Memory:
             ).fetchone()
         return row[0] if row else default
 
+    def get_personality(self, user_id: int) -> str:
+        """Retrieve the custom personality soul for a user."""
+        return self.get_setting(user_id, "personality", "")
+
+    def set_personality(self, user_id: int, text: str):
+        """Set the custom personality soul for a user."""
+        self.set_setting(user_id, "personality", text)
+
     # Projects
     def add_project(self, name: str, path: str, description: str = ""):
         with sqlite3.connect(self.db_path) as conn:
