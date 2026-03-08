@@ -8,7 +8,7 @@ class SearchSkill(BaseSkill):
     """Skill to perform web searches using DuckDuckGo."""
 
     name = "search"
-    description = "網路搜尋功能。當使用者詢問即時資訊、天氣、新聞或需要進行一般性網頁檢索時使用此工具。它會回傳前 5 個相關結果的摘要。"
+    description = "網路搜尋功能。當使用者詢問即時資訊、天氣、新聞或需要進行一般性網頁檢索時使用此工具。它會回傳前幾筆相關結果的摘要。⚠️重要：請務必在回應使用者時，附上這些搜尋結果的『來源連結』，讓使用者可以點擊查看。"
     commands = ["/search"]
 
     def get_tool_spec(self) -> dict:
@@ -22,7 +22,7 @@ class SearchSkill(BaseSkill):
                     "properties": {
                         "args": {
                             "type": "string",
-                            "description": "搜尋關鍵字（例如：台北天氣、最新 AI 新聞）"
+                            "description": "搜尋關鍵字（例如：台北天氣、最新 AI 新聞）。回傳的結果會包含網址連結，請務必將連結提供給使用者。"
                         }
                     },
                     "required": ["args"]
@@ -48,7 +48,7 @@ class SearchSkill(BaseSkill):
                 if web_results:
                     results.append("🌐 **網頁搜尋結果：**")
                     for r in web_results:
-                        results.append(f"🔹 **[{r.get('title', '無標題')}]({r.get('href', '')})**\n{r.get('body', '')}\n")
+                        results.append(f"🔹 **標題：** {r.get('title', '無標題')}\n**摘要：** {r.get('body', '')}\n**連結：** {r.get('href', '')}\n")
 
                 # 2. Get top 3 news results
                 news_gen = ddgs.news(query, region='wt-wt', safesearch='moderate', timelimit='y', max_results=3)
@@ -59,7 +59,7 @@ class SearchSkill(BaseSkill):
                     for r in news_results:
                         # body could be 'body' or sometimes 'abstract' depending on ddgs version, standardizing fallback mapping
                         body_text = r.get('body') or r.get('abstract', '') 
-                        results.append(f"🔸 **[{r.get('title', '無標題')}]({r.get('url', '')})**\n{body_text}\n")
+                        results.append(f"🔸 **標題：** {r.get('title', '無標題')}\n**摘要：** {body_text}\n**連結：** {r.get('url', '')}\n")
 
             if not results:
                 return f"🔍 搜尋「{query}」沒有找到相關結果。"
