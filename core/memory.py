@@ -118,7 +118,7 @@ class Memory:
         """Clear the conversation history and summary for a user."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
-            conn.execute("DELETE FROM settings WHERE user_id = ? AND key = 'summary'", (user_id,))
+            conn.execute("DELETE FROM settings WHERE user_id = ? AND key IN ('summary', 'user_facts', 'session_context')", (user_id,))
             conn.commit()
             
     # Settings
@@ -155,12 +155,24 @@ class Memory:
         self.set_setting(user_id, "onboarded", "true" if status else "false")
 
     def get_summary(self, user_id: int) -> str:
-        """Get the distilled conversation summary."""
+        """[DEPRECATED] Get the old distilled conversation summary. Kept for migration."""
         return self.get_setting(user_id, "summary", "")
 
-    def set_summary(self, user_id: int, text: str):
-        """Store a new distilled summary."""
-        self.set_setting(user_id, "summary", text)
+    def get_user_facts(self, user_id: int) -> str:
+        """Get the long-term stable facts about the user."""
+        return self.get_setting(user_id, "user_facts", "")
+
+    def set_user_facts(self, user_id: int, text: str):
+        """Store long-term stable facts about the user."""
+        self.set_setting(user_id, "user_facts", text)
+
+    def get_session_context(self, user_id: int) -> str:
+        """Get the short-term context of the current session/task."""
+        return self.get_setting(user_id, "session_context", "")
+
+    def set_session_context(self, user_id: int, text: str):
+        """Store the short-term context of the current session/task."""
+        self.set_setting(user_id, "session_context", text)
 
     def get_message_count(self, user_id: int) -> int:
         """Count messages for a specific user to decide when to distill."""

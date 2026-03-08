@@ -80,15 +80,25 @@ class Engine:
         Triggered when history exceeds a certain threshold.
         """
         history = self.memory.get_context(user_id, limit=30)
-        previous_summary = self.memory.get_summary(user_id)
+        previous_facts = self.memory.get_user_facts(user_id)
+        previous_context = self.memory.get_session_context(user_id)
+        
+        # Migrate old summary if it exists and new keys are empty
+        old_summary = self.memory.get_summary(user_id)
+        if old_summary and not previous_facts and not previous_context:
+            previous_context = old_summary
         
         prompt = (
-            "你是一個記憶整理專家。以下是使用者與 AI 助理之前的對話歷史與舊的摘要：\n\n"
-            f"【舊摘要】：\n{previous_summary if previous_summary else '無'}\n\n"
+            "你是一個記憶整理專家。以下是使用者與 AI 助理之前的對話歷史與舊的記憶：\n\n"
+            f"【舊的使用者長期事實】：\n{previous_facts if previous_facts else '無'}\n\n"
+            f"【舊的目前任務摘要】：\n{previous_context if previous_context else '無'}\n\n"
             f"【最新對話歷史】：\n{history}\n\n"
-            "請將以上資訊聚合為一段精簡的「對話背景摘要」。\n"
-            "重點包含：使用者是誰、目前正在討論的主題、已經達成的共識或是待辦事項。\n"
-            "這段摘要未來會作為 AI 思考時的長期記憶。請用繁體中文回覆，長度控制在 500 字以內。"
+            "請將以上資訊進行這**兩個獨立的區塊**的聚合與更新：\n"
+            "1. 【使用者長期事實】：整理出關於使用者不變的事實（如：職業、喜好、習慣、個人細節）。如果沒有新發現，請保留舊事實。\n"
+            "2. 【目前任務摘要】：整理出目前兩人正在討論的主題、待辦事項或是前情提要。如果話題已經切換，請專注於最新的任務。\n\n"
+            "請嚴格使用以下 XML 格式回覆，不要輸出其他廢話：\n"
+            "<facts>\n長期事實內容寫這裡...\n</facts>\n"
+            "<session>\n任務摘要寫這裡...\n</session>"
         )
         
         try:
@@ -97,8 +107,21 @@ class Engine:
             response = await self.llm.generate(messages=messages, model=model)
             new_summary = response.choices[0].message.content or ""
             
+            import re
+            
             if new_summary:
-                self.memory.set_summary(user_id, new_summary)
+                facts_match = re.search(r"<facts>(.*?)</facts>", new_summary, re.DOTALL)
+                session_match = re.search(r"<session>(.*?)</session>", new_summary, re.DOTALL)
+                
+                if facts_match:
+                    self.memory.set_user_facts(user_id, facts_match.group(1).strip())
+                if session_match:
+                    self.memory.set_session_context(user_id, session_match.group(1).strip())
+
+                # Fallback if the LLM didn't format it right
+                if not facts_match and not session_match:
+                    self.memory.set_session_context(user_id, new_summary)
+                    
                 # Keep only the very last 5 messages as "immediate context"
                 self.memory.prune_old_messages(user_id, keep_last_n=5)
                 logger.info(f"Successfully distilled memory for user {user_id}.")
@@ -124,14 +147,20 @@ class Engine:
         tools = self._build_tools()
         
         personality = self.memory.get_personality(user_id)
-        summary = self.memory.get_summary(user_id)
-        summary_block = f"\n【前情提要/對話背景】：\n{summary}\n" if summary else ""
+        
+        user_facts = self.memory.get_user_facts(user_id)
+        session_context = self.memory.get_session_context(user_id)
+        if not user_facts and not session_context:
+            session_context = self.memory.get_summary(user_id)
+
+        facts_block = f"\n【關於使用者的長期事實】：\n{user_facts}\n" if user_facts else ""
+        session_block = f"\n【目前對話前情提要】：\n{session_context}\n" if session_context else ""
 
         model_for_distill = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
         
         system_instruction = (
             f"{personality}\n"
-            f"{summary_block}"
+            f"{facts_block}{session_block}"
             "【決策路由器規範】\n"
             "1. 你是一個精準的決策引擎。你的任務是判斷使用者的需求是否需要呼叫工具。\n"
             "2. **嚴禁幻覺**：如果使用者的需求不明確，或者現有工具無法達成，請直接回答使用者，不要嘗試胡亂調用工具。\n"
@@ -139,7 +168,7 @@ class Engine:
             "4. 如果需要工具，就呼叫對應的函式。如果不需要工具或不確定，直接以文字回覆。\n"
             "5. 請用繁體中文回答。"
         ) if personality else (
-            f"{summary_block}"
+            f"{facts_block}{session_block}"
             "【決策路由器規範】\n"
             "1. 你是一個精準的決策引擎。判斷是否需要呼叫工具。\n"
             "2. 如果不確定使用者意圖，請不要冒險調用工具，改為詢問使用者詳情。\n"
@@ -236,12 +265,18 @@ class Engine:
         conversation_history = self.memory.get_context(user_id, limit=10)
 
         personality = self.memory.get_personality(user_id)
-        summary = self.memory.get_summary(user_id)
-        summary_block = f"\n【前情提要/對話背景】：\n{summary}\n" if summary else ""
+        
+        user_facts = self.memory.get_user_facts(user_id)
+        session_context = self.memory.get_session_context(user_id)
+        if not user_facts and not session_context:
+            session_context = self.memory.get_summary(user_id)
+
+        facts_block = f"\n【關於使用者的長期事實】：\n{user_facts}\n" if user_facts else ""
+        session_block = f"\n【目前對話前情提要】：\n{session_context}\n" if session_context else ""
 
         system_instruction = (
             f"{personality}\n"
-            f"{summary_block}"
+            f"{facts_block}{session_block}"
             "【行為準則】\n"
             "1. 你是一個強大的個人 AI 助手。你的回答必須基於事實。\n"
             "2. **誠實原則**：如果你不知道答案，或者缺乏足夠的上下文來回答，請直接承認，不要編造事實（避免幻覺）。\n"
@@ -250,7 +285,7 @@ class Engine:
             "請用繁體中文回答，語氣友善專業。\n"
             f"{context_block}"
         ) if personality else (
-            f"{summary_block}"
+            f"{facts_block}{session_block}"
             "【行為準則】\n"
             "1. 你是一個強大的個人 AI 助手。請用繁體中文回答，語氣友善專業。\n"
             "2. **避免幻覺**：若不確定事實，請誠實告知使用者「我不知道」或「我需要更多資訊」。\n"
