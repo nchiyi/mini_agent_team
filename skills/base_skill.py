@@ -2,7 +2,7 @@
 Base Skill — Abstract class for all skills.
 """
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Any
 
 
 class BaseSkill(ABC):
@@ -31,7 +31,7 @@ class BaseSkill(ABC):
         """
         ...
 
-    async def scheduled_task(self):
+    async def scheduled_task(self) -> None:
         """Override for periodic scheduled tasks."""
         pass
 
@@ -40,7 +40,7 @@ class BaseSkill(ABC):
         cmds = ", ".join(f"`{c}`" for c in self.commands)
         return f"**{self.name}** — {self.description}\n指令: {cmds}"
 
-    def get_tool_spec(self) -> dict:
+    def get_tool_spec(self) -> dict[str, Any]:
         """
         Return the OpenAI-compatible function calling spec for this skill.
         Default implementation uses a single 'args' string.

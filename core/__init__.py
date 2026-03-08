@@ -221,23 +221,13 @@ class Engine:
         return None
 
     # ------------------------------------------------------------------
-    # Main handler: free-text messages
+    # Shared Helper: Build Chat Messages
     # ------------------------------------------------------------------
-    async def handle_text(self, text: str, user_id: int, cwd: str) -> str:
+    def _build_chat_messages(self, text: str, user_id: int) -> list[dict[str, str]]:
         """
-        Handle free-text messages.
-        1. Try Function Calling routing (fast, single API call)
-        2. Fall back to direct generation
+        Builds the standard message payload (system and user roles) 
+        including memory, semantics, and personality context.
         """
-        # 1. Try Function Calling routing
-        routed_result = await self._route_by_function_calling(text, user_id)
-        if routed_result is not None:
-            return routed_result
-
-        # 2. Direct generation fallback
-        logger.info(f"Direct generation for user {user_id}: '{text[:50]}...'")
-
-        # Retrieve semantic context
         semantic_context = self.memory.semantic.search(text)
         context_block = ""
         if semantic_context:
@@ -272,11 +262,30 @@ class Engine:
         if conversation_history:
             full_prompt = f"對話歷史:\n{conversation_history}\n\n使用者: {text}"
 
-        model = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
-        messages = [
+        return [
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": full_prompt}
         ]
+
+    # ------------------------------------------------------------------
+    # Main handler: free-text messages
+    # ------------------------------------------------------------------
+    async def handle_text(self, text: str, user_id: int, cwd: str) -> str:
+        """
+        Handle free-text messages.
+        1. Try Function Calling routing (fast, single API call)
+        2. Fall back to direct generation
+        """
+        # 1. Try Function Calling routing
+        routed_result = await self._route_by_function_calling(text, user_id)
+        if routed_result is not None:
+            return routed_result
+
+        # 2. Direct generation fallback
+        logger.info(f"Direct generation for user {user_id}: '{text[:50]}...'")
+
+        messages = self._build_chat_messages(text, user_id)
+        model = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
         
         response = await self.llm.generate(
             messages=messages,
@@ -312,46 +321,8 @@ class Engine:
         Handle free-text with streaming output.
         Yields text chunks for the bot to update the message progressively.
         """
-        # Retrieve context
-        semantic_context = self.memory.semantic.search(text)
-        context_block = ""
-        if semantic_context:
-            context_block = f"\n相關背景知識:\n{semantic_context}\n"
-
-        conversation_history = self.memory.get_context(user_id, limit=10)
-
-        personality = self.memory.get_personality(user_id)
-        summary = self.memory.get_summary(user_id)
-        summary_block = f"\n【前情提要/對話背景】：\n{summary}\n" if summary else ""
-
-        system_instruction = (
-            f"{personality}\n"
-            f"{summary_block}"
-            "【行為準則】\n"
-            "1. 你是一個強大的個人 AI 助手。你的回答必須基於事實。\n"
-            "2. **誠實原則**：如果你不知道答案，或者缺乏足夠的上下文來回答，請直接承認，不要編造事實（避免幻覺）。\n"
-            "3. **安全執行**：不要執行可能損害系統安全的危險建議。\n"
-            "4. **精簡有效**：回答應直擊重點，應對及時。\n"
-            "請用繁體中文回答，語氣友善專業。\n"
-            f"{context_block}"
-        ) if personality else (
-            f"{summary_block}"
-            "【行為準則】\n"
-            "1. 你是一個強大的個人 AI 助手。請用繁體中文回答，語氣友善專業。\n"
-            "2. **避免幻覺**：若不確定事實，請誠實告知使用者「我不知道」或「我需要更多資訊」。\n"
-            "3. 確保你的回答不包含虛假的代碼示例或不存在的 API 調用。\n"
-            f"{context_block}"
-        )
-
-        full_prompt = text
-        if conversation_history:
-            full_prompt = f"對話歷史:\n{conversation_history}\n\n使用者: {text}"
-
+        messages = self._build_chat_messages(text, user_id)
         model = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
-        messages = [
-            {"role": "system", "content": system_instruction},
-            {"role": "user", "content": full_prompt}
-        ]
 
         async for chunk in self.llm.stream(
             messages=messages,

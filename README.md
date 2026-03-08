@@ -24,7 +24,7 @@ graph TD
         Engine <--> Skill1[Dev Agent: 開發助手]
         Engine <--> Skill2[Browser: Playwright 網頁眼]
         Engine <--> Skill3[News: 原生爬蟲新聞]
-        Engine <--> Skill4[Soul: 個性靈魂設定]
+        Engine <--> Skill4[Search: Tavily/DDG 混合搜尋]
         Engine <--> Skill5[Monitor: 系統監控]
     end
 
@@ -47,10 +47,13 @@ graph TD
 - **自動總結**：對話超過 20 輪時，自動聚合舊歷史為「Session Summary」。
 - **滾動清理**：刪除冗長舊訊息，只保留精華摘要注入系統提示，平衡 Token 消耗與記憶深度。
 
-### 4. 🛡️ 執行安全與防幻覺 (Safety & Truthfulness)
+### 4. 🌐 混合搜尋引擎 (Advanced Web Search)
+系統內建了強大的網頁搜尋技能。支援設定 `TAVILY_API_KEY` 來啟用**頂級的 Tavily AI 大神搜尋**，這能繞過區域限制與防爬蟲機制，精準抓取最新資訊。若未設定，系統依然能平滑回退，自動使用輕量且快速的 `DuckDuckGo (DDGS)` 進行搜索。
+
+### 5. 🛡️ 執行安全與防幻覺 (Safety & Truthfulness)
 內建 ReAct 思考規範。Agent 在呼叫工具前會進行內部推理，如果不確定事實或缺乏上下文，會選擇承認「我不知道」而不是編造虛假指令，確保執行安全。
 
-### 5. 🚀 Ollama 雙引擎 (Dual Engine)
+### 6. 🚀 Ollama 雙引擎 (Dual Engine)
 支援本地運算的 Ollama 與雲端的 Ollama Cloud API。透過 `agent config` 即可一鍵切換與配置模型白名單。
 
 ---
