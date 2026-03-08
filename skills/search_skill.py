@@ -40,17 +40,31 @@ class SearchSkill(BaseSkill):
         try:
             results = []
             with DDGS() as ddgs:
-                # Get top 5 results
-                ddgs_gen = ddgs.text(query, region='wt-wt', safesearch='moderate', timelimit='y')
-                for i, r in enumerate(ddgs_gen):
-                    if i >= 5:
-                        break
-                    results.append(f"🔹 **[{r['title']}]({r['href']})**\n{r['body']}\n")
+                # 1. Get top 3 standard web results
+                # Using list comprehension to avoid generator issues when taking a small slice
+                web_gen = ddgs.text(query, region='wt-wt', safesearch='moderate', timelimit='y', max_results=3)
+                web_results = list(web_gen) if web_gen else []
+                
+                if web_results:
+                    results.append("🌐 **網頁搜尋結果：**")
+                    for r in web_results:
+                        results.append(f"🔹 **[{r.get('title', '無標題')}]({r.get('href', '')})**\n{r.get('body', '')}\n")
+
+                # 2. Get top 3 news results
+                news_gen = ddgs.news(query, region='wt-wt', safesearch='moderate', timelimit='y', max_results=3)
+                news_results = list(news_gen) if news_gen else []
+                
+                if news_results:
+                    results.append("📰 **即時新聞結果：**")
+                    for r in news_results:
+                        # body could be 'body' or sometimes 'abstract' depending on ddgs version, standardizing fallback mapping
+                        body_text = r.get('body') or r.get('abstract', '') 
+                        results.append(f"🔸 **[{r.get('title', '無標題')}]({r.get('url', '')})**\n{body_text}\n")
 
             if not results:
                 return f"🔍 搜尋「{query}」沒有找到相關結果。"
 
-            response = f"🔍 **「{query}」的搜尋結果：**\n\n" + "\n".join(results)
+            response = f"🔍 **「{query}」的綜合搜尋結果：**\n\n" + "\n".join(results)
             return response
 
         except Exception as e:
