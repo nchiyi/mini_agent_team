@@ -64,6 +64,24 @@ EOF
 echo "✅ .env 檔更新完成。"
 echo ""
 
+# 4. Optional Search API (Tavily)
+echo "[選擇性安裝] 設定進階搜尋引擎 (Tavily API)"
+if [ -n "$TAVILY_API_KEY" ]; then
+    CURRENT_TAVILY="已設定"
+else
+    CURRENT_TAVILY="無"
+fi
+read -p "請輸入 Tavily API Key (選填，若無請直接按 Enter 使用內建搜尋) [目前: $CURRENT_TAVILY]: " NEW_TAVILY_KEY
+TAVILY_KEY=${NEW_TAVILY_KEY:-$TAVILY_API_KEY}
+
+if [ -n "$TAVILY_KEY" ]; then
+    echo "TAVILY_API_KEY=$TAVILY_KEY" >> .env
+    echo "✅ 已啟用 Tavily 進階搜尋引擎。"
+else
+    echo "ℹ️ 未設定 Tavily API Key，將使用內建的 DuckDuckGo 綜合搜尋。"
+fi
+echo ""
+
 # 4. Optional Skills Setup
 echo "[4/4] 選擇性安裝進階模組"
 echo ""
