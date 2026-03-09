@@ -1,14 +1,15 @@
 """
-Core Engine — Central dispatcher for the Telegram AI Agent.
-
-Uses Google GenAI SDK with native Function Calling for
-intelligent routing and multi-step reasoning.
+Engine — core brain of the AI agent.
 """
 import logging
-import config
-from typing import Optional, List
-from datetime import datetime
 import json
+import re
+from typing import Optional, List
+from datetime import datetime, timedelta
+
+import config
+from core.memory import Memory
+from core.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,8 @@ class Engine:
             f"【舊的目前任務摘要】：\n{previous_context if previous_context else '無'}\n\n"
             f"【最新對話歷史】：\n{history}\n\n"
             "請將以上資訊進行這**兩個獨立的區塊**的聚合與更新：\n"
-            "1. 【使用者長期事實】：整理出關於使用者不變的事實（如：職業、喜好、習慣、個人細節）。如果沒有新發現，請保留舊事實。\n"
+            "1. 【使用者長期事實】：整理出關於使用者不變的事實（如：職業、喜好、習慣、個人細節）。"
+            "如果沒有新發現，請保留舊事實。如果使用者明確說了與舊事實矛盾的新資訊（例如換了工作），請更新為最新版本。\n"
             "2. 【目前任務摘要】：整理出目前兩人正在討論的主題、待辦事項或是前情提要。如果話題已經切換，請專注於最新的任務。\n\n"
             "請嚴格使用以下 XML 格式回覆，不要輸出其他廢話：\n"
             "<facts>\n長期事實內容寫這裡...\n</facts>\n"
@@ -106,8 +108,6 @@ class Engine:
             messages = [{"role": "user", "content": prompt}]
             response = await self.llm.generate(messages=messages, model=model)
             new_summary = response.choices[0].message.content or ""
-            
-            import re
             
             if new_summary:
                 facts_match = re.search(r"<facts>(.*?)</facts>", new_summary, re.DOTALL)
@@ -124,6 +124,8 @@ class Engine:
                     
                 # Keep only the very last 5 messages as "immediate context"
                 self.memory.prune_old_messages(user_id, keep_last_n=5)
+                # Record the timestamp for cooldown guard
+                self.memory.set_setting(user_id, "last_distill_ts", datetime.now().isoformat())
                 logger.info(f"Successfully distilled memory for user {user_id}.")
         except Exception as e:
             logger.error(f"Memory distillation failed: {e}")
@@ -229,10 +231,10 @@ class Engine:
                             result = await skill.handle(cmd, args, user_id)
                             
                             # Add assistant message after skill execution
-                            self.memory.add_message(user_id, "assistant", result[:500])
+                            self.memory.add_message(user_id, "assistant", result[:1000])
                             
-                            # Check for distillation after skill
-                            if self.memory.get_message_count(user_id) > 20:
+                            # Check for distillation after skill (with cooldown)
+                            if self._should_distill(user_id):
                                 await self._distill_history(user_id, model_for_distill)
                                 
                             return result
@@ -241,7 +243,7 @@ class Engine:
             if message.content:
                 text_response = message.content
                 self.memory.add_message(user_id, "user", text)
-                self.memory.add_message(user_id, "assistant", text_response[:500])
+                self.memory.add_message(user_id, "assistant", text_response[:1000])
                 return text_response
 
         except Exception as e:
@@ -340,10 +342,10 @@ class Engine:
 
         # Save to memory
         self.memory.add_message(user_id, "user", text)
-        self.memory.add_message(user_id, "assistant", message_content[:500])
+        self.memory.add_message(user_id, "assistant", message_content[:1000])
 
-        # Phase 6: Check for distillation
-        if self.memory.get_message_count(user_id) > 20:
+        # Check for distillation (with cooldown)
+        if self._should_distill(user_id):
              await self._distill_history(user_id, model)
 
         return message_content
@@ -355,19 +357,47 @@ class Engine:
         """
         Handle free-text with streaming output.
         Yields text chunks for the bot to update the message progressively.
+        Collects the full response and saves it to memory after streaming.
         """
         messages = self._build_chat_messages(text, user_id)
         model = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
 
+        # Collect the full response while yielding chunks
+        full_response_parts: list[str] = []
         async for chunk in self.llm.stream(
             messages=messages,
             model=model,
         ):
+            full_response_parts.append(chunk)
             yield chunk
 
-        # Save to memory after streaming completes
+        # Save BOTH user message AND assistant reply to memory
+        full_response = "".join(full_response_parts)
         self.memory.add_message(user_id, "user", text)
+        self.memory.add_message(user_id, "assistant", full_response[:1000])
         
-        # Phase 6: Check for distillation
-        if self.memory.get_message_count(user_id) > 20:
+        # Check for distillation (with cooldown)
+        if self._should_distill(user_id):
              await self._distill_history(user_id, model)
+
+    # ------------------------------------------------------------------
+    # Distillation Cooldown Guard
+    # ------------------------------------------------------------------
+    _DISTILL_COOLDOWN = timedelta(minutes=30)
+
+    def _should_distill(self, user_id: int) -> bool:
+        """
+        Check if distillation should run: message count > 20 AND at least
+        30 minutes have passed since the last distillation.
+        """
+        if self.memory.get_message_count(user_id) <= 20:
+            return False
+        last_distill = self.memory.get_setting(user_id, "last_distill_ts", "")
+        if last_distill:
+            try:
+                last_dt = datetime.fromisoformat(last_distill)
+                if datetime.now() - last_dt < self._DISTILL_COOLDOWN:
+                    return False
+            except ValueError:
+                pass  # Corrupted timestamp, allow distillation
+        return True

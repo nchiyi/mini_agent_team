@@ -5,6 +5,7 @@ import sqlite3
 import json
 import os
 import logging
+import threading
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -17,15 +18,24 @@ class Memory:
 
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
+        self._lock = threading.Lock()
+        self._conn: sqlite3.Connection | None = None
         self._init_db()
         self.semantic = SemanticMemory(db_path)
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Get or create the persistent SQLite connection."""
+        if self._conn is None:
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        return self._conn
 
     def _init_db(self):
         """Create tables if they don't exist."""
         # Ensure the directory exists
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,7 +78,8 @@ class Memory:
     def log_usage(self, user_id: int, model: str, prompt_tokens: int, completion_tokens: int, cost: float = 0.0):
         """Record precise token usage for a conversation step."""
         total = prompt_tokens + completion_tokens
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute(
                 "INSERT INTO usage_logs (user_id, model, prompt_tokens, completion_tokens, total_tokens, estimated_cost, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (user_id, model, prompt_tokens, completion_tokens, total, cost, datetime.now().isoformat()),
@@ -77,7 +88,8 @@ class Memory:
 
     def add_message(self, user_id: int, role: str, content: str):
         """Store a message in history."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute(
                 "INSERT INTO messages (user_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
                 (user_id, role, content, datetime.now().isoformat()),
@@ -99,7 +111,8 @@ class Memory:
 
     def get_context(self, user_id: int, limit: int = 10) -> str:
         """Get recent conversation context for a user."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             rows = conn.execute(
                 "SELECT role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT ?",
                 (user_id, limit),
@@ -115,15 +128,28 @@ class Memory:
         return "\n".join(lines)
 
     def clear_context(self, user_id: int):
-        """Clear the conversation history and summary for a user."""
-        with sqlite3.connect(self.db_path) as conn:
+        """Clear the conversation history and session context.
+        NOTE: user_facts (long-term persona) is intentionally preserved.
+        Use clear_all_memory() to erase everything including user_facts.
+        """
+        with self._lock:
+            conn = self._get_conn()
             conn.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
-            conn.execute("DELETE FROM settings WHERE user_id = ? AND key IN ('summary', 'user_facts', 'session_context')", (user_id,))
+            conn.execute("DELETE FROM settings WHERE user_id = ? AND key IN ('summary', 'session_context', 'last_distill_ts')", (user_id,))
+            conn.commit()
+
+    def clear_all_memory(self, user_id: int):
+        """Erase ALL memory for a user, including long-term facts and personality."""
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM settings WHERE user_id = ? AND key IN ('summary', 'user_facts', 'session_context', 'last_distill_ts')", (user_id,))
             conn.commit()
             
     # Settings
     def set_setting(self, user_id: int, key: str, value: str):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute(
                 "INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, ?, ?)",
                 (user_id, key, value),
@@ -131,7 +157,8 @@ class Memory:
             conn.commit()
 
     def get_setting(self, user_id: int, key: str, default: str = "") -> str:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             row = conn.execute(
                 "SELECT value FROM settings WHERE user_id = ? AND key = ?",
                 (user_id, key),
@@ -176,7 +203,8 @@ class Memory:
 
     def get_message_count(self, user_id: int) -> int:
         """Count messages for a specific user to decide when to distill."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             count = conn.execute(
                 "SELECT COUNT(*) FROM messages WHERE user_id = ?", (user_id,)
             ).fetchone()[0]
@@ -184,7 +212,8 @@ class Memory:
 
     def prune_old_messages(self, user_id: int, keep_last_n: int = 5):
         """Delete old messages, keeping only the most recent ones (after distillation)."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute("""
                 DELETE FROM messages WHERE id NOT IN (
                     SELECT id FROM messages WHERE user_id = ?
@@ -195,7 +224,8 @@ class Memory:
 
     # Projects
     def add_project(self, name: str, path: str, description: str = ""):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute(
                 "INSERT OR REPLACE INTO projects (name, path, description, added_at) VALUES (?, ?, ?, ?)",
                 (name, path, description, datetime.now().isoformat()),
@@ -203,19 +233,22 @@ class Memory:
             conn.commit()
 
     def remove_project(self, name: str):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute("DELETE FROM projects WHERE name = ?", (name,))
             conn.commit()
 
     def get_projects(self) -> list[dict]:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             rows = conn.execute(
                 "SELECT name, path, description FROM projects ORDER BY name"
             ).fetchall()
         return [{"name": r[0], "path": r[1], "description": r[2]} for r in rows]
 
     def get_project_path(self, name: str) -> str | None:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             row = conn.execute(
                 "SELECT path FROM projects WHERE name = ?", (name,)
             ).fetchone()
@@ -267,13 +300,20 @@ class SemanticMemory:
             logger.error(f"Failed to init semantic memory: {e}")
 
     def add_fact(self, content: str, source: str = "conversation"):
-        """Embed and store a new fact."""
+        """Embed and store a new fact, with deduplication."""
         self._lazy_init()
         if not self._initialized: return
 
         try:
             import numpy as np
             vector = self.model.encode([content])[0].astype('float32')
+            
+            # Deduplication: skip if a very similar fact already exists
+            if self.metadata and self.index is not None and self.index.ntotal > 0:
+                distances, _ = self.index.search(np.array([vector]), 1)
+                if distances[0][0] < 0.15:  # L2 distance threshold for near-duplicates
+                    return  # Skip — too similar to existing fact
+            
             self.index.add(np.array([vector]))
             
             self.metadata.append({
