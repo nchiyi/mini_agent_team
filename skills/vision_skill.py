@@ -10,8 +10,27 @@ class VisionSkill(BaseSkill):
     """Skill to analyze images using multi-modal LLMs."""
 
     name = "vision"
-    description = "分析並描述影像內容 (需回覆照片或先傳送照片)"
+    description = "影像分析與 OCR 文字辨識。當使用者傳送照片、圖片、截圖並詢問內容、或需要文字辨識（OCR）提取圖中文字時使用。"
     commands = ["/describe", "/ocr"]
+
+    def get_tool_spec(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": "describe",
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "args": {
+                            "type": "string",
+                            "description": "分析指令或補充問題（例如：這張圖片裡有什麼、提取圖中文字）"
+                        }
+                    },
+                    "required": []
+                }
+            }
+        }
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
         # Check if there is a pending image in memory or if args contain a path (internal use)

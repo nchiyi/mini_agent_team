@@ -16,8 +16,27 @@ except ImportError:
 
 class SystemMonitorSkill(BaseSkill):
     name = "system_monitor"
-    description = "系統監控 — 查看伺服器 CPU、記憶體與磁碟使用量"
+    description = "伺服器系統監控。當使用者詢問伺服器狀態、CPU 使用率、記憶體用量、磁碟空間、系統效能、機器健康狀況、或說「機器好慢」「伺服器正常嗎」時使用。"
     commands = ["/sys"]
+
+    def get_tool_spec(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": "sys",
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "args": {
+                            "type": "string",
+                            "description": "查詢類型（可留空表示查看全部系統狀態）"
+                        }
+                    },
+                    "required": []
+                }
+            }
+        }
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
         if not PSUTIL_AVAILABLE:

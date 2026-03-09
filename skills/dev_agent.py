@@ -8,8 +8,27 @@ import config
 
 class DevAgentSkill(BaseSkill):
     name = "dev_agent"
-    description = "AI 開發助手 — 透過 AI 進行程式開發、除錯、分析"
+    description = "程式開發助手。當使用者要求寫程式、改 code、debug 除錯、分析程式碼、解釋技術概念、產生腳本、或討論軟體架構時使用。"
     commands = ["/dev"]
+
+    def get_tool_spec(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": "dev",
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "args": {
+                            "type": "string",
+                            "description": "使用者的程式開發需求（例如：幫我寫一個 Python 排序演算法、這段 code 有什麼 bug、解釋 async await）"
+                        }
+                    },
+                    "required": ["args"]
+                }
+            }
+        }
 
     async def handle(self, command: str, args: list[str], user_id: int) -> str:
         if not args:

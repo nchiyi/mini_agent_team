@@ -14,7 +14,7 @@ class ResearchSkill(BaseSkill):
     """
 
     name = "researcher"
-    description = "深度研究 — 整合搜尋與多網頁分析，生成綜合研究報告。當使用者需要深入暸解某個主題、撰寫報告或需要多方對比資訊時使用此工具。"
+    description = "深度研究報告。當使用者需要針對某個主題進行深入分析、撰寫報告、多方比較資訊、或說「幫我研究一下」「做個分析報告」時使用。會自動搜尋、閱讀多個網頁、並彙整成結構化的研究報告。"
     commands = ["/research"]
 
     def get_tool_spec(self) -> dict:

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class NewsFetcherSkill(BaseSkill):
     name = "news_fetcher"
-    description = "科技新聞功能。當使用者詢問最新新聞、科技動態、搜尋特定主題的新聞文章或想要訂閱/查看新聞推播時使用此工具。支援搜尋與整理 3-5 則要點。"
+    description = "新聞搜尋與訂閱推播。當使用者詢問最新新聞、想知道某個領域的動態、或希望每天自動收到新聞摘要時使用。支援搜尋與整理 3-5 則重點新聞。"
     commands = ["/news", "/subscribe", "/unsubscribe"]
 
     def get_tool_spec(self) -> dict:

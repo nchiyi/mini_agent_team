@@ -14,7 +14,7 @@ class SearchSkill(BaseSkill):
     """Skill to perform web searches using DuckDuckGo."""
 
     name = "search"
-    description = "網路搜尋功能。當使用者詢問即時資訊、天氣、新聞或需要進行一般性網頁檢索時使用此工具。它會回傳前幾筆相關結果的摘要。⚠️重要：請務必在回應使用者時，附上這些搜尋結果的『來源連結』，讓使用者可以點擊查看。"
+    description = "網路搜尋。當使用者詢問即時資訊、查價格、問天氣、查股價、查詢事實、或需要上網查找任何資料時使用。會回傳搜尋摘要與來源連結。"
     commands = ["/search"]
 
     def get_tool_spec(self) -> dict:
