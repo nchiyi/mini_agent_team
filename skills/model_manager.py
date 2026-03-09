@@ -43,13 +43,13 @@ class ModelManagerSkill(BaseSkill):
             new_model = args[0]
             # Validate model exists
             valid = await self._validate_model(new_model)
+            self.engine.memory.set_setting(user_id, "preferred_model", new_model)
             if not valid:
                 return (
                     f"⚠️ 模型 `{new_model}` 可能無效。\n"
                     f"仍然為您設定，但如果出錯請使用 `/model list` 查看可用模型。"
                 )
 
-            self.engine.memory.set_setting(user_id, "preferred_model", new_model)
             return f"✅ 已將模型切換為: `{new_model}`\n接下來的對話將使用此模型。"
 
     async def _list_models(self) -> str:

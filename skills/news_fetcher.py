@@ -60,7 +60,7 @@ class NewsFetcherSkill(BaseSkill):
             # Use duckduckgo-search for reliable results
             results = []
             with DDGS() as ddgs:
-                news_gen = ddgs.news(query, region='wt-wt', safesearch='moderate', timelimit='w', max_results=8)
+                news_gen = ddgs.news(query, region='tw-tzh', safesearch='moderate', timelimit='w', max_results=8)
                 for r in news_gen:
                     results.append(f"• {r['title']} ({r.get('source', '未知')})\n  {r.get('body', '')[:100]}")
 
@@ -70,7 +70,7 @@ class NewsFetcherSkill(BaseSkill):
             snippets = "\n".join(results)
 
             messages = [
-                {"role": "system", "content": "你是一個專業的新聞主編。請閱讀以下新聞搜尋結果，整理出 3-5 點最重要的新聞，並以繁體中文列表呈現。如果資訊不足，請照實回答。"},
+                {"role": "system", "content": "你是一個專業的新聞主編。請閱讀以下新聞搜尋結果，整理出 3-5 點最重要的新聞，並以**繁體中文**列表呈現。嚴禁出現簡體字。如果資訊不足，請照實回答。"},
                 {"role": "user", "content": f"搜尋關鍵字: {query}\n\n搜尋結果:\n{snippets}"}
             ]
 

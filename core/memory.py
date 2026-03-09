@@ -105,9 +105,9 @@ class Memory:
 
         # Phase 3: Also feed to semantic memory if it's substantial
         if role == "user" and len(content) > 10:
-             self.semantic.add_fact(content, source="user_input")
+            self.semantic.add_fact(content, source="user_input")
         elif role == "assistant" and len(content) > 20:
-             self.semantic.add_fact(content, source="bot_response")
+            self.semantic.add_fact(content, source="bot_response")
 
     def get_context(self, user_id: int, limit: int = 10) -> str:
         """Get recent conversation context for a user."""
@@ -253,6 +253,17 @@ class Memory:
                 "SELECT path FROM projects WHERE name = ?", (name,)
             ).fetchone()
         return row[0] if row else None
+
+    def close(self):
+        """Flush semantic memory and close the database connection."""
+        try:
+            self.semantic.save()
+        except Exception as e:
+            logger.error(f"Failed to save semantic memory on shutdown: {e}")
+        with self._lock:
+            if self._conn:
+                self._conn.close()
+                self._conn = None
 
 
 class SemanticMemory:

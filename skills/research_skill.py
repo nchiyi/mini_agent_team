@@ -119,7 +119,7 @@ class ResearchSkill(BaseSkill):
         try:
             results = []
             with DDGS() as ddgs:
-                ddgs_gen = ddgs.text(query, region='wt-wt', safesearch='moderate', max_results=8)
+                ddgs_gen = ddgs.text(query, region='tw-tzh', safesearch='moderate', timelimit='m', max_results=8)
                 for r in ddgs_gen:
                     results.append(r)
             return results

@@ -123,8 +123,11 @@ class BrowserSkill(BaseSkill):
                 # Use 'domcontentloaded' instead of 'networkidle' for better reliability on heavy sites
                 await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 
-                # Wait a bit for potential JS content if needed, but don't wait for network idle
-                await asyncio.sleep(2)
+                # Wait for JS content to settle, with a short timeout
+                try:
+                    await page.wait_for_load_state('networkidle', timeout=3000)
+                except Exception:
+                    pass  # Timeout is fine — page already has domcontentloaded
                 
                 # Get page title and content
                 title = await page.title()

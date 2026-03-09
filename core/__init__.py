@@ -231,7 +231,7 @@ class Engine:
                             result = await skill.handle(cmd, args, user_id)
                             
                             # Add assistant message after skill execution
-                            self.memory.add_message(user_id, "assistant", result[:1000])
+                            self.memory.add_message(user_id, "assistant", result[:2000])
                             
                             # Check for distillation after skill (with cooldown)
                             if self._should_distill(user_id):
@@ -243,7 +243,7 @@ class Engine:
             if message.content:
                 text_response = message.content
                 self.memory.add_message(user_id, "user", text)
-                self.memory.add_message(user_id, "assistant", text_response[:1000])
+                self.memory.add_message(user_id, "assistant", text_response[:2000])
                 return text_response
 
         except Exception as e:
@@ -342,11 +342,11 @@ class Engine:
 
         # Save to memory
         self.memory.add_message(user_id, "user", text)
-        self.memory.add_message(user_id, "assistant", message_content[:1000])
+        self.memory.add_message(user_id, "assistant", message_content[:2000])
 
         # Check for distillation (with cooldown)
         if self._should_distill(user_id):
-             await self._distill_history(user_id, model)
+            await self._distill_history(user_id, model)
 
         return message_content
 
@@ -356,13 +356,19 @@ class Engine:
     async def handle_text_stream(self, text: str, user_id: int, cwd: str):
         """
         Handle free-text with streaming output.
-        Yields text chunks for the bot to update the message progressively.
-        Collects the full response and saves it to memory after streaming.
+        First tries function calling routing (non-streaming).
+        Falls back to streaming direct generation if no skill matched.
         """
+        # 1. Try Function Calling routing first (non-streaming)
+        routed_result = await self._route_by_function_calling(text, user_id)
+        if routed_result is not None:
+            yield routed_result
+            return
+
+        # 2. Streaming direct generation fallback
         messages = self._build_chat_messages(text, user_id)
         model = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
 
-        # Collect the full response while yielding chunks
         full_response_parts: list[str] = []
         async for chunk in self.llm.stream(
             messages=messages,
@@ -374,11 +380,11 @@ class Engine:
         # Save BOTH user message AND assistant reply to memory
         full_response = "".join(full_response_parts)
         self.memory.add_message(user_id, "user", text)
-        self.memory.add_message(user_id, "assistant", full_response[:1000])
-        
+        self.memory.add_message(user_id, "assistant", full_response[:2000])
+
         # Check for distillation (with cooldown)
         if self._should_distill(user_id):
-             await self._distill_history(user_id, model)
+            await self._distill_history(user_id, model)
 
     # ------------------------------------------------------------------
     # Distillation Cooldown Guard

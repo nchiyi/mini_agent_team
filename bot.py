@@ -57,7 +57,7 @@ async def try_auto_bind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> b
     to interact with the bot gets automatically bound as the sole owner.
     """
     if config.ALLOWED_USER_IDS:
-         return False
+        return False
 
     user_id = update.effective_user.id
     username = update.effective_user.username or "Unknown"
@@ -215,8 +215,9 @@ async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🚫 此 Bot 已綁定為私人專屬，未授權。")
         return
 
-    command = update.message.text.split()[0]
-    args = update.message.text.split()[1:] if len(update.message.text.split()) > 1 else []
+    parts = update.message.text.split()
+    command = parts[0]
+    args = parts[1:]
 
     skill = engine.get_skill_for_command(command)
     if not skill:
@@ -420,8 +421,13 @@ def main():
     print(f"   Skills: {len(skills)} 個")
     print(f"   白名單: {config.ALLOWED_USER_IDS or '無（允許所有人）'}")
 
-    # Build application with post_init hook
-    app = Application.builder().token(config.BOT_TOKEN).post_init(post_init).build()
+    async def post_shutdown(application: Application):
+        """Flush semantic memory on shutdown."""
+        memory.close()
+        logger.info("Memory closed gracefully.")
+
+    # Build application with post_init and post_shutdown hooks
+    app = Application.builder().token(config.BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
     app_instance = app
 
     # Set up scheduler notification callback
