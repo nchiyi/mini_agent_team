@@ -25,7 +25,7 @@ class TelegramAdapter(BaseAdapter):
             except TelegramError as e:
                 logger.error("send failed: %s", e)
                 raise
-        return str(last_msg.message_id) if last_msg else ""
+        return f"{user_id}:{last_msg.message_id}" if last_msg else ""
 
     async def edit(self, message_id: str, text: str) -> None:
         # message_id format: "chat_id:msg_id" — set by Gateway when creating stream message
