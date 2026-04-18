@@ -200,22 +200,47 @@ enabled: true
 
 ---
 
-## 10. 不在此版本範圍
+## 10. 模組七：Agent-to-Agent 協作（ACP Team）
 
-- ACP agent-to-agent 協作（下一版本）
+### 10.1 設計（對齊 my-claude-devteam）
+- `AgentTeam`：管理多個 CLI agent 的協同執行
+- P7 單任務：直接派給單一 agent
+- P9 多模組任務：拆子任務，並行派給多個 agent（codex / gemini / claude）
+- P10 架構決策：輸出策略文件，不直接實作
+- 每個子任務有明確 DoD（完成定義），結果回報 Gateway，再推送頻道
+
+### 10.2 Agent 角色對應
+| Agent | 角色 | 呼叫方式 |
+|-------|------|---------|
+| claude | 主協調者 / 架構決策 | `echo "<task>" \| claude --dangerously-skip-permissions` |
+| codex | 實作、寫 code | `echo "<task>" \| codex --approval-policy auto` |
+| gemini | 研究、查文件 | `echo "<task>" \| gemini` |
+
+### 10.3 驗收條件
+- [ ] `/team <任務描述>` → Gateway 判斷 P7/P9，分派給對應 agent
+- [ ] P9 任務可同時派 codex + gemini，結果整合後回傳
+- [ ] 每個子任務有明確的 DoD 輸出
+- [ ] Agent 執行過程中推送進度到 Telegram / Discord
+
+---
+
+## 11. 不在此版本範圍
+
+- macOS Chrome 操作（Playwright 模組，後續版本）
 - 多使用者同時在線（目前設計為個人使用）
 - Web UI
 - iOS / Android app
 
 ---
 
-## 11. 實作順序建議
+## 12. 實作順序建議
 
 1. 記憶系統（Tier 1/2/3）+ Context 組裝
 2. CLIRunner（ACP）+ 串流
 3. Gateway Router + SessionManager
 4. TelegramAdapter
 5. DiscordAdapter
-6. 模組系統 + 預裝模組移植
-7. Setup 精靈
-8. MCP 整合（claude 專用）
+6. AgentTeam（P7/P9/P10）
+7. 模組系統 + 預裝模組移植
+8. Setup 精靈
+9. MCP 整合（claude 專用）
