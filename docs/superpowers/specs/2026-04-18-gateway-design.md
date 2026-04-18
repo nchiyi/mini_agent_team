@@ -81,6 +81,9 @@ setup.py              ← 互動式安裝精靈（唯一入口）
   - idle 60 分鐘後自動釋放，釋放時清理 subprocess 和 temp files
 - `StreamingBridge`：把 runner 的串流輸出轉送給 adapter
 - `/cancel`：中止當前 user 的執行中任務，SIGTERM runner subprocess
+- `/reset`：清除當前 session 的對話 context（Tier 3 context buffer），保留 Tier 1/2 記憶
+- `/new`：完全重置當前 session（清除 context + Tier 2 工作記憶），保留 Tier 1 永久記憶
+- `/status`：顯示系統狀態（bot uptime、已載入模組、CLI 可用狀態、memory 使用量、當前 session 資訊）
 
 ### 4.2 驗收條件
 - [ ] 收到 `/claude 寫一個 hello world` → 交給 CLIRunner(claude)
@@ -89,6 +92,9 @@ setup.py              ← 互動式安裝精靈（唯一入口）
 - [ ] session idle 60 分鐘後自動釋放，subprocess 被清理
 - [ ] `/use codex` 切換 default runner，下一則訊息套用
 - [ ] `/cancel` 中止執行中任務，回覆確認訊息
+- [ ] `/reset` 清除 context buffer，Tier 1/2 記憶不受影響
+- [ ] `/new` 清除 context buffer + Tier 2，Tier 1 永久記憶不受影響
+- [ ] `/status` 回傳：uptime、模組數、CLI 狀態（已安裝/版本）、memory 行數、當前 runner
 - [ ] 兩個模組宣告同一 command → 啟動失敗並報錯
 - [ ] cwd 設定到不存在路徑 → 回覆錯誤，不崩潰
 
