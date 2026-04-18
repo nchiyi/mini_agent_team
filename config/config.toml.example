@@ -1,0 +1,39 @@
+# config/config.toml.example
+# Copy to config/config.toml and edit
+
+[gateway]
+default_runner = "claude"
+session_idle_minutes = 60
+max_message_length_telegram = 4096
+max_message_length_discord = 2000
+stream_edit_interval_seconds = 1.5
+
+[runners.claude]
+path = "claude"
+args = ["--dangerously-skip-permissions"]
+timeout_seconds = 300
+context_token_budget = 4000
+
+[runners.codex]
+path = "codex"
+args = ["exec", "--skip-git-repo-check"]
+timeout_seconds = 300
+context_token_budget = 4000
+
+[runners.gemini]
+path = "gemini"
+args = []
+timeout_seconds = 300
+context_token_budget = 4000
+
+[audit]
+path = "data/audit"
+max_entries = 1000
+
+[memory]
+db_path = "data/db/history.db"
+hot_path = "data/memory/hot"
+cold_permanent_path = "data/memory/cold/permanent"
+cold_session_path = "data/memory/cold/session"
+tier3_context_turns = 20
+distill_trigger_turns = 20
