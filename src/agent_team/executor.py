@@ -1,5 +1,5 @@
 import asyncio
-from typing import AsyncIterator
+from typing import AsyncGenerator, AsyncIterator
 
 
 async def _stream_subprocess(
@@ -8,7 +8,7 @@ async def _stream_subprocess(
     prompt: str,
     cwd: str,
     timeout: int,
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str, None]:
     cmd = [binary] + args + [prompt]
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -40,12 +40,9 @@ async def run_p7(
     args: list[str],
     timeout: int,
     cwd: str,
-) -> AsyncIterator[str]:
-    first = True
+) -> AsyncGenerator[str, None]:
+    yield "[P7] Running...\n"
     async for chunk in _stream_subprocess(binary, args, task_description, cwd, timeout):
-        if first:
-            yield f"[P7] Running...\n"
-            first = False
         yield chunk
 
 
@@ -55,15 +52,12 @@ async def run_p10(
     args: list[str],
     timeout: int,
     cwd: str,
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str, None]:
     p10_prompt = (
         "You are a software architect. Produce a strategy document for the following. "
         "Do NOT write implementation code. Output: goals, trade-offs, recommended approach, risks.\n"
         f"Task: {task_description}"
     )
-    first = True
+    yield "[P10] Generating architecture document...\n"
     async for chunk in _stream_subprocess(binary, args, p10_prompt, cwd, timeout):
-        if first:
-            yield "[P10] Generating architecture document...\n"
-            first = False
         yield chunk
