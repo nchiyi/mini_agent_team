@@ -1,5 +1,6 @@
 # src/gateway/router.py
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass
@@ -14,14 +15,18 @@ class ParsedCommand:
     is_remember: bool = False
     is_forget: bool = False
     is_recall: bool = False
+    is_module: bool = False
+    module_command: str = ""
 
 
 class Router:
     _BUILTIN = {"/cancel", "/status", "/reset", "/new"}
 
-    def __init__(self, known_runners: set[str], default_runner: str):
+    def __init__(self, known_runners: set[str], default_runner: str,
+                 module_registry=None):
         self._runners = known_runners
         self._default = default_runner
+        self._modules = module_registry
 
     def parse(self, text: str) -> ParsedCommand:
         text = text.strip()
@@ -61,7 +66,17 @@ class Router:
             if prefix in self._runners:
                 prompt = parts[1] if len(parts) > 1 else ""
                 return ParsedCommand(runner=prefix, prompt=prompt)
-            # unknown slash command: pass full text to default runner
+
+            # Check module registry before falling through to default runner
+            slash_prefix = parts[0].lower()  # keep the leading slash
+            if self._modules and self._modules.has_command(slash_prefix):
+                args = parts[1] if len(parts) > 1 else ""
+                return ParsedCommand(
+                    runner=self._default, prompt=args,
+                    is_module=True, module_command=slash_prefix,
+                )
+
+            # Unknown slash command: pass full text to default runner
             return ParsedCommand(runner=self._default, prompt=text)
 
         return ParsedCommand(runner=self._default, prompt=text)
