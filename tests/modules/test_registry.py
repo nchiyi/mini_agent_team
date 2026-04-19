@@ -50,7 +50,7 @@ async def test_registry_dispatch_timeout():
     assert any("timed out" in c for c in chunks)
 
 
-def test_registry_conflict_raises():
+async def test_registry_conflict_raises():
     from src.modules.loader import ModuleRegistry, LoadedModule
     from src.modules.manifest import ModuleManifest
 
@@ -70,7 +70,7 @@ def test_registry_conflict_raises():
         reg.register(_mod("mod_b"))
 
 
-def test_registry_has_command():
+async def test_registry_has_command():
     reg = _make_registry(["/ping"])
     assert reg.has_command("/ping")
     assert not reg.has_command("/pong")

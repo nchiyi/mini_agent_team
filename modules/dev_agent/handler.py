@@ -2,20 +2,15 @@ import asyncio
 import os
 from typing import AsyncIterator
 
-_DEV_BINARY = os.environ.get("DEV_AGENT_BINARY", "claude")
-_DEV_ARGS_RAW = os.environ.get("DEV_AGENT_ARGS", "--dangerously-skip-permissions")
-_DEV_TIMEOUT = int(os.environ.get("DEV_AGENT_TIMEOUT", "300"))
-
-
 async def handle(command: str, args: str, user_id: int, channel: str) -> AsyncIterator[str]:
     if not args.strip():
         yield "Usage: /dev <task description>"
         return
 
-    binary = os.environ.get("DEV_AGENT_BINARY", _DEV_BINARY)
-    args_raw = os.environ.get("DEV_AGENT_ARGS", _DEV_ARGS_RAW)
+    binary = os.environ.get("DEV_AGENT_BINARY", "claude")
+    args_raw = os.environ.get("DEV_AGENT_ARGS", "--dangerously-skip-permissions")
     extra_args = [a for a in args_raw.split() if a]
-    timeout = int(os.environ.get("DEV_AGENT_TIMEOUT", str(_DEV_TIMEOUT)))
+    timeout = int(os.environ.get("DEV_AGENT_TIMEOUT", "300"))
 
     cmd = [binary] + extra_args + [args.strip()]
     try:

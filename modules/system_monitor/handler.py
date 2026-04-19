@@ -1,12 +1,17 @@
+import asyncio
 from typing import AsyncIterator
 
 
 async def handle(command: str, args: str, user_id: int, channel: str) -> AsyncIterator[str]:
     try:
         import psutil
-        cpu = psutil.cpu_percent(interval=0.5)
-        mem = psutil.virtual_memory()
-        disk = psutil.disk_usage("/")
+        cpu, mem, disk = await asyncio.to_thread(
+            lambda: (
+                psutil.cpu_percent(interval=0.5),
+                psutil.virtual_memory(),
+                psutil.disk_usage("/"),
+            )
+        )
         lines = [
             f"CPU: {cpu:.1f}%",
             f"RAM: {mem.used / 1024**3:.1f}GB / {mem.total / 1024**3:.1f}GB ({mem.percent:.1f}%)",

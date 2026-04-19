@@ -1,6 +1,5 @@
 # src/gateway/router.py
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 
 @dataclass
@@ -20,7 +19,6 @@ class ParsedCommand:
 
 
 class Router:
-    _BUILTIN = {"/cancel", "/status", "/reset", "/new"}
 
     def __init__(self, known_runners: set[str], default_runner: str,
                  module_registry=None):
