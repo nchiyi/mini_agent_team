@@ -1,5 +1,5 @@
 import asyncio
-from typing import AsyncGenerator, AsyncIterator
+from typing import AsyncGenerator
 
 
 async def _stream_subprocess(
