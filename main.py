@@ -21,6 +21,7 @@ from src.gateway.streaming import StreamingBridge
 from src.core.memory.tier1 import Tier1Store
 from src.core.memory.tier3 import Tier3Store
 from src.core.memory.context import ContextAssembler
+from src.modules.loader import ModuleRegistry, load_modules
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,9 +44,11 @@ def _build_shared(cfg: Config, audit: AuditLog):
         )
         for name, rc in cfg.runners.items()
     }
+    module_registry = load_modules(cfg.modules_dir)
     router = Router(
         known_runners=set(runners.keys()),
         default_runner=cfg.gateway.default_runner,
+        module_registry=module_registry,
     )
     session_mgr = SessionManager(
         idle_minutes=cfg.gateway.session_idle_minutes,
@@ -57,7 +60,7 @@ def _build_shared(cfg: Config, audit: AuditLog):
     default_runner_cfg = cfg.runners.get(cfg.gateway.default_runner)
     max_tokens = default_runner_cfg.context_token_budget if default_runner_cfg else 4000
     assembler = ContextAssembler(tier1=tier1, tier3=tier3, max_tokens=max_tokens)
-    return runners, router, session_mgr, tier1, tier3, assembler
+    return runners, module_registry, router, session_mgr, tier1, tier3, assembler
 
 
 async def dispatch(
@@ -70,6 +73,7 @@ async def dispatch(
     tier3: Tier3Store,
     assembler: ContextAssembler,
     send_reply,
+    module_registry: ModuleRegistry | None = None,
 ) -> None:
     """Channel-agnostic gateway logic."""
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
@@ -100,14 +104,38 @@ async def dispatch(
         await send_reply("New session started.")
         return
     if cmd.is_status:
+        mod_names = module_registry.get_names() if module_registry else []
+        # Build context to measure current token usage
+        context_str = await assembler.build(
+            user_id=inbound.user_id, channel=inbound.channel, recent_turns=_recent_turns
+        )
+        from src.core.memory.context import count_tokens
+        context_tokens = count_tokens(context_str) if context_str else 0
+        default_runner_obj = runners.get(session.current_runner)
+        token_budget = default_runner_obj.context_token_budget if default_runner_obj else 4000
+        turns = await tier3.get_recent(
+            user_id=inbound.user_id, channel=inbound.channel, n=_recent_turns
+        )
         await send_reply(
-            f"Status\nRunners: {list(runners.keys())}\n"
-            f"Default: {session.current_runner}\nCWD: {session.cwd}"
+            f"Runner: {session.current_runner}\n"
+            f"Context: {context_tokens}/{token_budget} tokens\n"
+            f"Turns: {len(turns)}\n"
+            f"Modules: {mod_names or '(none)'}\n"
+            f"CWD: {session.cwd}"
         )
         return
     if cmd.is_switch_runner:
         session.current_runner = cmd.runner
         await send_reply(f"Switched to {cmd.runner}")
+        return
+
+    if cmd.is_module and module_registry:
+        await bridge.stream(
+            user_id=inbound.user_id,
+            chunks=module_registry.dispatch(
+                cmd.module_command, cmd.prompt, inbound.user_id, inbound.channel
+            ),
+        )
         return
 
     target_runner = runners.get(session.current_runner)
@@ -152,7 +180,8 @@ async def dispatch(
         await send_reply(f"Error: {e}")
 
 
-async def run_telegram(cfg: Config, runners, router, session_mgr, tier1, tier3, assembler) -> None:
+async def run_telegram(cfg: Config, runners, module_registry, router, session_mgr,
+                       tier1, tier3, assembler) -> None:
     tg_app = Application.builder().token(cfg.telegram_token).build()
     adapter = TelegramAdapter(bot=tg_app.bot, allowed_user_ids=cfg.allowed_user_ids)
     bridge = StreamingBridge(adapter, edit_interval=cfg.gateway.stream_edit_interval_seconds)
@@ -175,6 +204,7 @@ async def run_telegram(cfg: Config, runners, router, session_mgr, tier1, tier3, 
             inbound, bridge, session_mgr, router, runners,
             tier1, tier3, assembler,
             lambda t: adapter.send(user_id, t),
+            module_registry=module_registry,
         )
 
     tg_app.add_handler(MessageHandler(filters.TEXT, on_message))
@@ -189,7 +219,8 @@ async def run_telegram(cfg: Config, runners, router, session_mgr, tier1, tier3, 
             await tg_app.stop()
 
 
-async def run_discord(cfg: Config, runners, router, session_mgr, tier1, tier3, assembler) -> None:
+async def run_discord(cfg: Config, runners, module_registry, router, session_mgr,
+                      tier1, tier3, assembler) -> None:
     discord_bridges: dict[int, StreamingBridge] = {}
 
     async def gateway_handler(inbound: InboundMessage) -> None:
@@ -202,6 +233,7 @@ async def run_discord(cfg: Config, runners, router, session_mgr, tier1, tier3, a
             inbound, bridge, session_mgr, router, runners,
             tier1, tier3, assembler,
             lambda t: dc_adapter.send(inbound.user_id, t),
+            module_registry=module_registry,
         )
 
     dc_adapter = DiscordAdapter(
@@ -218,14 +250,16 @@ async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.e
     cfg = load_config(config_path=cfg_path, env_path=env_path)
     _recent_turns = cfg.memory.tier3_context_turns
     audit = AuditLog(audit_dir=cfg.audit.path, max_entries=cfg.audit.max_entries)
-    runners, router, session_mgr, tier1, tier3, assembler = _build_shared(cfg, audit)
+    runners, module_registry, router, session_mgr, tier1, tier3, assembler = _build_shared(cfg, audit)
     await tier3.init()
 
     coroutines = []
     if cfg.telegram_token:
-        coroutines.append(run_telegram(cfg, runners, router, session_mgr, tier1, tier3, assembler))
+        coroutines.append(run_telegram(cfg, runners, module_registry, router,
+                                        session_mgr, tier1, tier3, assembler))
     if cfg.discord_token:
-        coroutines.append(run_discord(cfg, runners, router, session_mgr, tier1, tier3, assembler))
+        coroutines.append(run_discord(cfg, runners, module_registry, router,
+                                       session_mgr, tier1, tier3, assembler))
 
     if not coroutines:
         logger.error("No tokens configured. Set TELEGRAM_BOT_TOKEN or DISCORD_BOT_TOKEN.")
