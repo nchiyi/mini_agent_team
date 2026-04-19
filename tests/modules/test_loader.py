@@ -1,7 +1,6 @@
 # tests/modules/test_loader.py
 import sys, pytest
 from pathlib import Path
-pytestmark = pytest.mark.asyncio
 
 
 def _make_module(base: Path, name: str, commands: list[str],
