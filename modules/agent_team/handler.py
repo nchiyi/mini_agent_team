@@ -10,7 +10,8 @@ from src.agent_team.executor import run_p7, run_p9, run_p10
 async def handle(command: str, args: str, user_id: int, channel: str) -> AsyncIterator[str]:
     mode, task = classify(args)
 
-    if not task:
+    bare_args = args.strip().lower()
+    if not task or bare_args in {"p7", "p9", "p10"}:
         yield "Usage: /team <task> | /team p9 <parallel task> | /team p10 <architecture task>"
         return
 
