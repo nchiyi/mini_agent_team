@@ -1,0 +1,7 @@
+name: vision
+version: 1.0.0
+commands: [/describe]
+description: 圖片描述（Ollama vision model）
+dependencies: [httpx]
+enabled: true
+timeout_seconds: 60

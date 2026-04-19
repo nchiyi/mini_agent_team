@@ -1,0 +1,7 @@
+name: dev_agent
+version: 1.0.0
+commands: [/dev]
+description: 開發任務（透過 CLIRunner 執行）
+dependencies: []
+enabled: true
+timeout_seconds: 300
