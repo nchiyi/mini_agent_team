@@ -34,7 +34,7 @@ def parse_subtasks(output: str, task_id: str) -> list[SubTask]:
                         dod=item.get("dod", ""),
                     ))
                 return subtasks
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
             continue
     raise ValueError(f"Planner output contains no valid JSON array. Output: {output[:300]}")
 
