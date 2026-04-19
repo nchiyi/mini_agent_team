@@ -22,3 +22,4 @@ aiohttp>=3.9.0
 # Cross-platform System Monitor
 psutil>=5.9.0
 discord.py>=2.0
+aiosqlite
