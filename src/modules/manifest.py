@@ -1,5 +1,5 @@
 # src/modules/manifest.py
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -19,10 +19,13 @@ class ModuleManifest:
 def parse_manifest(path: Path) -> ModuleManifest:
     with open(path) as f:
         data = yaml.safe_load(f)
+    commands = data["commands"]
+    if not isinstance(commands, list):
+        raise ValueError(f"'commands' must be a list, got {type(commands).__name__}")
     return ModuleManifest(
         name=data["name"],
         version=data.get("version", "0.0.0"),
-        commands=data["commands"],
+        commands=commands,
         description=data.get("description", ""),
         dependencies=data.get("dependencies", []),
         enabled=data.get("enabled", True),

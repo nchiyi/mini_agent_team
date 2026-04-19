@@ -57,3 +57,9 @@ def test_parse_missing_commands_raises(tmp_path):
     p = _write(tmp_path, "name: nocommands\n")
     with pytest.raises(KeyError):
         parse_manifest(p)
+
+
+def test_parse_commands_not_list_raises(tmp_path):
+    p = _write(tmp_path, "name: mymod\ncommands: /mymod\n")
+    with pytest.raises((KeyError, ValueError)):
+        parse_manifest(p)

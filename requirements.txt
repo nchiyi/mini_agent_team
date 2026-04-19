@@ -24,3 +24,4 @@ psutil>=5.9.0
 discord.py>=2.0
 aiosqlite
 tiktoken
+pyyaml>=6.0
