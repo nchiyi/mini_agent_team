@@ -2,6 +2,7 @@
 """
 Gateway Agent Platform — entry point.
 Runs TelegramAdapter and/or DiscordAdapter concurrently via asyncio.gather().
+Includes Tier 1 permanent memory, Tier 3 SQLite history, and context assembly.
 """
 import asyncio
 import logging
@@ -17,12 +18,17 @@ from src.channels.base import InboundMessage, BaseAdapter
 from src.gateway.router import Router
 from src.gateway.session import SessionManager
 from src.gateway.streaming import StreamingBridge
+from src.core.memory.tier1 import Tier1Store
+from src.core.memory.tier3 import Tier3Store
+from src.core.memory.context import ContextAssembler
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
 logger = logging.getLogger("main")
+
+_recent_turns = 20  # overridden by config at startup
 
 
 def _build_shared(cfg: Config, audit: AuditLog):
@@ -46,7 +52,12 @@ def _build_shared(cfg: Config, audit: AuditLog):
         default_runner=cfg.gateway.default_runner,
         default_cwd=cfg.default_cwd,
     )
-    return runners, router, session_mgr
+    tier1 = Tier1Store(permanent_dir=cfg.memory.cold_permanent_path)
+    tier3 = Tier3Store(db_path=cfg.memory.db_path)
+    default_runner_cfg = cfg.runners.get(cfg.gateway.default_runner)
+    max_tokens = default_runner_cfg.context_token_budget if default_runner_cfg else 4000
+    assembler = ContextAssembler(tier1=tier1, tier3=tier3, max_tokens=max_tokens)
+    return runners, router, session_mgr, tier1, tier3, assembler
 
 
 async def dispatch(
@@ -55,12 +66,30 @@ async def dispatch(
     session_mgr: SessionManager,
     router: Router,
     runners: dict,
+    tier1: Tier1Store,
+    tier3: Tier3Store,
+    assembler: ContextAssembler,
     send_reply,
 ) -> None:
-    """Channel-agnostic gateway logic: parse command, update session, run or respond."""
+    """Channel-agnostic gateway logic."""
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
     cmd = router.parse(inbound.text)
 
+    if cmd.is_remember:
+        tier1.remember(user_id=inbound.user_id, content=cmd.prompt)
+        await send_reply(f"Remembered: {cmd.prompt}")
+        return
+    if cmd.is_forget:
+        removed = tier1.forget(user_id=inbound.user_id, keyword=cmd.prompt)
+        await send_reply(f"Removed {removed} entries matching '{cmd.prompt}'")
+        return
+    if cmd.is_recall:
+        results = await tier3.search(user_id=inbound.user_id, query=cmd.prompt, limit=5)
+        if results:
+            await send_reply("\n".join(r["content"] for r in results))
+        else:
+            await send_reply("Nothing found.")
+        return
     if cmd.is_cancel:
         await send_reply("No active task to cancel.")
         return
@@ -86,16 +115,36 @@ async def dispatch(
         await send_reply(f"Runner '{session.current_runner}' not found.")
         return
 
+    await tier3.save_turn(
+        user_id=inbound.user_id, channel=inbound.channel,
+        role="user", content=inbound.text,
+    )
+    context = await assembler.build(
+        user_id=inbound.user_id, channel=inbound.channel,
+        recent_turns=_recent_turns,
+    )
+    full_prompt = (context + "\n\n" + cmd.prompt) if context else cmd.prompt
+
     try:
-        await bridge.stream(
-            user_id=inbound.user_id,
-            chunks=target_runner.run(
-                prompt=cmd.prompt,
+        response_chunks: list[str] = []
+
+        async def collecting_gen():
+            async for chunk in target_runner.run(
+                prompt=full_prompt,
                 user_id=inbound.user_id,
                 channel=inbound.channel,
                 cwd=session.cwd,
-            ),
-        )
+            ):
+                response_chunks.append(chunk)
+                yield chunk
+
+        await bridge.stream(user_id=inbound.user_id, chunks=collecting_gen())
+        response = "".join(response_chunks).strip()
+        if response:
+            await tier3.save_turn(
+                user_id=inbound.user_id, channel=inbound.channel,
+                role="assistant", content=response,
+            )
     except TimeoutError:
         await send_reply("Runner timed out.")
     except Exception as e:
@@ -103,7 +152,7 @@ async def dispatch(
         await send_reply(f"Error: {e}")
 
 
-async def run_telegram(cfg: Config, runners, router, session_mgr) -> None:
+async def run_telegram(cfg: Config, runners, router, session_mgr, tier1, tier3, assembler) -> None:
     tg_app = Application.builder().token(cfg.telegram_token).build()
     adapter = TelegramAdapter(bot=tg_app.bot, allowed_user_ids=cfg.allowed_user_ids)
     bridge = StreamingBridge(adapter, edit_interval=cfg.gateway.stream_edit_interval_seconds)
@@ -124,6 +173,7 @@ async def run_telegram(cfg: Config, runners, router, session_mgr) -> None:
         )
         await dispatch(
             inbound, bridge, session_mgr, router, runners,
+            tier1, tier3, assembler,
             lambda t: adapter.send(user_id, t),
         )
 
@@ -139,7 +189,7 @@ async def run_telegram(cfg: Config, runners, router, session_mgr) -> None:
             await tg_app.stop()
 
 
-async def run_discord(cfg: Config, runners, router, session_mgr) -> None:
+async def run_discord(cfg: Config, runners, router, session_mgr, tier1, tier3, assembler) -> None:
     discord_bridges: dict[int, StreamingBridge] = {}
 
     async def gateway_handler(inbound: InboundMessage) -> None:
@@ -150,6 +200,7 @@ async def run_discord(cfg: Config, runners, router, session_mgr) -> None:
         bridge = discord_bridges[inbound.user_id]
         await dispatch(
             inbound, bridge, session_mgr, router, runners,
+            tier1, tier3, assembler,
             lambda t: dc_adapter.send(inbound.user_id, t),
         )
 
@@ -163,21 +214,27 @@ async def run_discord(cfg: Config, runners, router, session_mgr) -> None:
 
 
 async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.env") -> None:
+    global _recent_turns
     cfg = load_config(config_path=cfg_path, env_path=env_path)
+    _recent_turns = cfg.memory.tier3_context_turns
     audit = AuditLog(audit_dir=cfg.audit.path, max_entries=cfg.audit.max_entries)
-    runners, router, session_mgr = _build_shared(cfg, audit)
+    runners, router, session_mgr, tier1, tier3, assembler = _build_shared(cfg, audit)
+    await tier3.init()
 
     coroutines = []
     if cfg.telegram_token:
-        coroutines.append(run_telegram(cfg, runners, router, session_mgr))
+        coroutines.append(run_telegram(cfg, runners, router, session_mgr, tier1, tier3, assembler))
     if cfg.discord_token:
-        coroutines.append(run_discord(cfg, runners, router, session_mgr))
+        coroutines.append(run_discord(cfg, runners, router, session_mgr, tier1, tier3, assembler))
 
     if not coroutines:
         logger.error("No tokens configured. Set TELEGRAM_BOT_TOKEN or DISCORD_BOT_TOKEN.")
         return
 
-    await asyncio.gather(*coroutines, return_exceptions=True)
+    try:
+        await asyncio.gather(*coroutines, return_exceptions=True)
+    finally:
+        await tier3.close()
 
 
 if __name__ == "__main__":
