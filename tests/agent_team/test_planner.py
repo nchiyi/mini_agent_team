@@ -3,7 +3,7 @@ import pytest
 pytestmark = pytest.mark.asyncio
 
 
-def test_parse_subtasks_valid_json():
+async def test_parse_subtasks_valid_json():
     from src.agent_team.planner import parse_subtasks
     output = '[{"agent":"codex","prompt":"build x","dod":"tests pass"}]'
     subtasks = parse_subtasks(output, task_id="t1")
@@ -14,7 +14,7 @@ def test_parse_subtasks_valid_json():
     assert subtasks[0].id == "t1-0"
 
 
-def test_parse_subtasks_multiple():
+async def test_parse_subtasks_multiple():
     from src.agent_team.planner import parse_subtasks
     output = (
         'Here is the plan:\n'
@@ -29,13 +29,13 @@ def test_parse_subtasks_multiple():
     assert subtasks[1].agent == "gemini"
 
 
-def test_parse_subtasks_no_json_raises():
+async def test_parse_subtasks_no_json_raises():
     from src.agent_team.planner import parse_subtasks
     with pytest.raises(ValueError, match="valid JSON"):
         parse_subtasks("no json here", task_id="t3")
 
 
-def test_parse_subtasks_missing_dod_defaults_empty():
+async def test_parse_subtasks_missing_dod_defaults_empty():
     from src.agent_team.planner import parse_subtasks
     output = '[{"agent":"claude","prompt":"do something"}]'
     subtasks = parse_subtasks(output, task_id="t4")
@@ -57,3 +57,29 @@ async def test_plan_uses_binary_and_returns_subtasks(tmp_path):
     assert len(subtasks) == 1
     assert subtasks[0].agent == "codex"
     assert subtasks[0].id == "plan-test-0"
+
+
+async def test_parse_subtasks_invalid_json_raises():
+    from src.agent_team.planner import parse_subtasks
+    # Has brackets but invalid JSON content
+    with pytest.raises(ValueError, match="valid JSON"):
+        parse_subtasks("[not valid json]", task_id="t5")
+
+
+async def test_parse_subtasks_missing_agent_raises():
+    from src.agent_team.planner import parse_subtasks
+    with pytest.raises(ValueError, match="missing required"):
+        parse_subtasks('[{"prompt":"x","dod":"y"}]', task_id="t6")
+
+
+async def test_plan_subprocess_failure_raises(tmp_path):
+    from src.agent_team.planner import plan
+    with pytest.raises(RuntimeError, match="exited with code"):
+        await plan(
+            task_description="x",
+            task_id="fail-test",
+            binary="python3",
+            args=["-c", "import sys; sys.exit(1)"],
+            timeout=5,
+            cwd=str(tmp_path),
+        )
