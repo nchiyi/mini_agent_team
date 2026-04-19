@@ -2,6 +2,7 @@ import asyncio
 from typing import AsyncGenerator
 
 from src.agent_team import worktree as wt
+from src.agent_team.models import SubTask
 from src.agent_team.planner import plan as _plan
 
 
@@ -37,6 +38,41 @@ async def _stream_subprocess(
             await proc.wait()
 
 
+async def _collect_subprocess_output(
+    binary: str,
+    args: list[str],
+    prompt: str,
+    cwd: str,
+    timeout: int,
+) -> tuple[list[str], int]:
+    """Run subprocess, collect all output lines, return (chunks, returncode)."""
+    cmd = [binary] + args + [prompt]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=cwd,
+    )
+    chunks = []
+    try:
+        async with asyncio.timeout(timeout):
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                chunks.append(line.decode("utf-8", errors="replace"))
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        chunks.append(f"[timed out after {timeout}s]\n")
+    finally:
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+    return chunks, proc.returncode or 0
+
+
 async def run_p7(
     task_description: str,
     binary: str,
@@ -67,14 +103,14 @@ async def run_p10(
 
 
 async def _collect_subtask(
-    subtask,
+    subtask: "SubTask",
     runner_binaries: dict[str, str],
     runner_args: dict[str, list[str]],
     timeout: int,
     cwd: str,
     data_dir: str,
     index: int,
-) -> tuple:
+) -> tuple["SubTask", list[str]]:
     binary = runner_binaries.get(subtask.agent, subtask.agent)
     args = runner_args.get(subtask.agent, [])
     task_id = subtask.id.rsplit("-", 1)[0]
@@ -84,9 +120,15 @@ async def _collect_subtask(
     try:
         await wt.create(base_repo=cwd, path=subtask.worktree_path, branch=f"team/{subtask.id}")
         subtask.status = "running"
-        async for chunk in _stream_subprocess(binary, args, subtask.prompt, subtask.worktree_path, timeout):
-            chunks.append(f"[subtask-{index}] {chunk}")
-        subtask.status = "done"
+        raw_chunks, returncode = await _collect_subprocess_output(
+            binary, args, subtask.prompt, subtask.worktree_path, timeout
+        )
+        chunks = [f"[subtask-{index}] {c}" for c in raw_chunks]
+        if returncode != 0:
+            subtask.status = "failed"
+            subtask.result = f"exited with code {returncode}"
+        else:
+            subtask.status = "done"
     except Exception as e:
         subtask.status = "failed"
         subtask.result = str(e)

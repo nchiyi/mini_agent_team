@@ -1,3 +1,6 @@
+import subprocess
+from pathlib import Path
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -67,10 +70,6 @@ async def test_run_p7_empty_task(tmp_path):
     assert len(chunks) >= 1
 
 
-import subprocess
-from pathlib import Path
-
-
 @pytest.fixture
 def git_repo(tmp_path):
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
@@ -124,7 +123,8 @@ async def test_run_p9_one_failure_continues(git_repo):
     )]
     full = "".join(chunks)
     # Should report both: one failure, one success
-    assert "✓" in full or "✗" in full
+    assert "✗" in full  # "false" subtask reported as failure
+    assert "✓" in full  # echo subtask reported as success
     # The echo subtask should still have run
     assert "subtask-1" in full
 
