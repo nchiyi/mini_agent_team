@@ -1,5 +1,6 @@
 # tests/modules/test_registry.py
 import pytest
+pytestmark = pytest.mark.asyncio
 
 
 def _make_registry(commands: list[str], timeout: int = 5):
