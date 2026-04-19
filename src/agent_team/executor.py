@@ -62,6 +62,8 @@ async def _collect_subprocess_output(
                 if not line:
                     break
                 chunks.append(line.decode("utf-8", errors="replace"))
+        # Reap exit status after normal completion (prevents asyncio 255 sentinel)
+        await proc.wait()
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
@@ -70,7 +72,7 @@ async def _collect_subprocess_output(
         if proc.returncode is None:
             proc.kill()
             await proc.wait()
-    return chunks, proc.returncode or 0
+    return chunks, proc.returncode if proc.returncode is not None else 0
 
 
 async def run_p7(
