@@ -1,4 +1,3 @@
-import asyncio
 import pytest
 import subprocess
 from pathlib import Path
@@ -44,7 +43,7 @@ async def test_remove_nonexistent_is_noop():
     await remove("/tmp/no_such_worktree_xyz123")
 
 
-def test_worktree_path():
+async def test_worktree_path():
     from src.agent_team.worktree import worktree_path
     result = worktree_path("data", "abc123", 0)
     assert result == "data/worktrees/abc123-0"

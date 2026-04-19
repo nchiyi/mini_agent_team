@@ -1,5 +1,8 @@
 import asyncio
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 async def create(base_repo: str, path: str, branch: str) -> None:
@@ -15,22 +18,23 @@ async def create(base_repo: str, path: str, branch: str) -> None:
         raise RuntimeError(f"git worktree add failed: {stderr.decode().strip()}")
 
 
-async def remove(path: str) -> None:
+async def remove(path: str, base_repo: str = "") -> None:
     if not Path(path).exists():
         return
 
-    # Try to find the base repository by walking up from the worktree path
-    worktree_path_obj = Path(path)
-    current = worktree_path_obj.parent.parent  # Go up from worktrees/name to parent
+    # Use provided base_repo or derive from path
+    cwd = base_repo if base_repo else str(Path(path).parent.parent)
 
     # Execute git worktree remove from the base repo directory
     proc = await asyncio.create_subprocess_exec(
         "git", "worktree", "remove", "--force", path,
-        cwd=str(current),
+        cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    await proc.communicate()
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.warning("git worktree remove failed (rc=%d): %s", proc.returncode, stderr.decode().strip())
 
 
 def worktree_path(data_dir: str, task_id: str, index: int) -> str:
