@@ -1,3 +1,4 @@
+# src/agent_team/models.py
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -13,7 +14,7 @@ class SubTask:
     id: str
     agent: str
     prompt: str
-    dod: str
+    dod: str = ""
     worktree_path: str = ""
     status: str = "pending"
     result: str = ""

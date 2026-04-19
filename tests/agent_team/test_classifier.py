@@ -43,3 +43,10 @@ def test_classify_p9_no_task():
     mode, task = classify("p9")
     assert mode == TaskMode.P7
     assert task == "p9"
+
+
+def test_classify_explicit_p7():
+    from src.agent_team.classifier import classify
+    mode, task = classify("p7 build something")
+    assert mode == TaskMode.P7
+    assert task == "build something"
