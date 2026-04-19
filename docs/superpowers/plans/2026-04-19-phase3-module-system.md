@@ -1045,10 +1045,23 @@ async def dispatch(
         return
     if cmd.is_status:
         mod_names = module_registry.get_names() if module_registry else []
+        # Build context to measure current token usage
+        context_str = await assembler.build(
+            user_id=inbound.user_id, channel=inbound.channel, recent_turns=_recent_turns
+        )
+        from src.core.memory.context import count_tokens
+        context_tokens = count_tokens(context_str) if context_str else 0
+        default_runner_obj = runners.get(session.current_runner)
+        token_budget = default_runner_obj.context_token_budget if default_runner_obj else 4000
+        turns = await tier3.get_recent(
+            user_id=inbound.user_id, channel=inbound.channel, n=_recent_turns
+        )
         await send_reply(
-            f"Status\nRunners: {list(runners.keys())}\n"
-            f"Modules: {mod_names}\n"
-            f"Default: {session.current_runner}\nCWD: {session.cwd}"
+            f"Runner: {session.current_runner}\n"
+            f"Context: {context_tokens}/{token_budget} tokens\n"
+            f"Turns: {len(turns)}\n"
+            f"Modules: {mod_names or '(none)'}\n"
+            f"CWD: {session.cwd}"
         )
         return
     if cmd.is_switch_runner:
@@ -1828,7 +1841,7 @@ git commit -m "feat: add dev_agent module (/dev) — spawns configurable CLI sub
 | Timeout protection per manifest | Task 2 (ModuleRegistry.dispatch) |
 | Router integration | Task 3 |
 | Builtin commands (cancel/status/reset/new) NOT shadowed by modules | Task 3 |
-| /status shows loaded modules | Task 4 (main.py is_status handler) |
+| /status shows runner, context tokens/budget, turns, loaded modules | Task 4 (main.py is_status handler) |
 | dispatch() handles is_module | Task 4 |
 | web_search (/search, /web) | Task 5 |
 | system_monitor (/sysinfo) | Task 6 |
