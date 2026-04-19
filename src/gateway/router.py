@@ -11,6 +11,9 @@ class ParsedCommand:
     is_status: bool = False
     is_reset: bool = False
     is_new: bool = False
+    is_remember: bool = False
+    is_forget: bool = False
+    is_recall: bool = False
 
 
 class Router:
@@ -31,6 +34,21 @@ class Router:
             return ParsedCommand(runner=self._default, prompt="", is_reset=True)
         if text == "/new":
             return ParsedCommand(runner=self._default, prompt="", is_new=True)
+
+        if text.startswith("/remember "):
+            content = text[10:].strip()
+            if content:
+                return ParsedCommand(runner=self._default, prompt=content, is_remember=True)
+
+        if text.startswith("/forget "):
+            keyword = text[8:].strip()
+            if keyword:
+                return ParsedCommand(runner=self._default, prompt=keyword, is_forget=True)
+
+        if text.startswith("/recall "):
+            query = text[8:].strip()
+            if query:
+                return ParsedCommand(runner=self._default, prompt=query, is_recall=True)
 
         if text.startswith("/use "):
             target = text[5:].strip()
