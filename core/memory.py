@@ -103,11 +103,7 @@ class Memory:
             """, (user_id, user_id))
             conn.commit()
 
-        # Phase 3: Also feed to semantic memory if it's substantial
-        if role == "user" and len(content) > 10:
-            self.semantic.add_fact(content, source="user_input")
-        elif role == "assistant" and len(content) > 20:
-            self.semantic.add_fact(content, source="bot_response")
+        # Semantic memory should only store explicit long-term facts, not routine turns.
 
     def get_context(self, user_id: int, limit: int = 10) -> str:
         """Get recent conversation context for a user."""
@@ -192,6 +188,8 @@ class Memory:
     def set_user_facts(self, user_id: int, text: str):
         """Store long-term stable facts about the user."""
         self.set_setting(user_id, "user_facts", text)
+        if text.strip():
+            self.semantic.add_fact(text.strip(), source="user_facts")
 
     def get_session_context(self, user_id: int) -> str:
         """Get the short-term context of the current session/task."""

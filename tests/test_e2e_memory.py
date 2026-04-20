@@ -39,15 +39,15 @@ async def _dispatch(user_id, channel, text, router, session_mgr, runners, bridge
     cmd = router.parse(text)
 
     if cmd.is_remember:
-        t1.remember(user_id=user_id, content=cmd.prompt)
+        t1.remember(user_id=user_id, channel=channel, content=cmd.prompt)
         await adapter.send(user_id, f"Remembered: {cmd.prompt}")
         return
     if cmd.is_forget:
-        removed = t1.forget(user_id=user_id, keyword=cmd.prompt)
+        removed = t1.forget(user_id=user_id, channel=channel, keyword=cmd.prompt)
         await adapter.send(user_id, f"Removed {removed} entries matching '{cmd.prompt}'")
         return
     if cmd.is_recall:
-        results = await t3.search(user_id=user_id, query=cmd.prompt)
+        results = await t3.search(user_id=user_id, channel=channel, query=cmd.prompt)
         if results:
             await adapter.send(user_id, "\n".join(r["content"] for r in results))
         else:
@@ -78,7 +78,7 @@ async def test_remember_stores_entry(tmp_path):
     await _dispatch(1, "telegram", "/remember I am a Python developer",
                     router, session_mgr, runners, bridge, adapter, t1, t3, assembler)
 
-    entries = t1.list_entries(user_id=1)
+    entries = t1.list_entries(user_id=1, channel="telegram")
     assert len(entries) == 1
     assert "Python developer" in entries[0]["content"]
     assert any("Remembered" in m for m in adapter.sent)
@@ -88,12 +88,12 @@ async def test_remember_stores_entry(tmp_path):
 
 async def test_forget_removes_entry(tmp_path):
     adapter, router, session_mgr, runners, bridge, t1, t3, assembler = await _make_full_pipeline(tmp_path)
-    t1.remember(user_id=1, content="I use vim")
-    t1.remember(user_id=1, content="I use emacs")
+    t1.remember(user_id=1, channel="telegram", content="I use vim")
+    t1.remember(user_id=1, channel="telegram", content="I use emacs")
     await _dispatch(1, "telegram", "/forget emacs",
                     router, session_mgr, runners, bridge, adapter, t1, t3, assembler)
 
-    entries = t1.list_entries(user_id=1)
+    entries = t1.list_entries(user_id=1, channel="telegram")
     assert len(entries) == 1
     assert "vim" in entries[0]["content"]
 
@@ -113,7 +113,7 @@ async def test_turns_saved_to_tier3(tmp_path):
 
 async def test_context_included_in_subsequent_message(tmp_path):
     adapter, router, session_mgr, runners, bridge, t1, t3, assembler = await _make_full_pipeline(tmp_path)
-    t1.remember(user_id=1, content="context-fact-xyz")
+    t1.remember(user_id=1, channel="telegram", content="context-fact-xyz")
     ctx = await assembler.build(user_id=1, channel="telegram", recent_turns=5)
     assert "context-fact-xyz" in ctx
 

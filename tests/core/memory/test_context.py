@@ -28,7 +28,7 @@ async def test_context_includes_tier1_entries(tmp_path):
     t3 = Tier3Store(db_path=str(tmp_path / "db/history.db"))
     await t3.init()
     t1 = Tier1Store(permanent_dir=str(tmp_path / "tier1"))
-    t1.remember(user_id=1, content="I prefer Python")
+    t1.remember(user_id=1, channel="telegram", content="I prefer Python")
     assembler = ContextAssembler(tier1=t1, tier3=t3, max_tokens=4000)
 
     ctx = await assembler.build(user_id=1, channel="telegram", recent_turns=5)

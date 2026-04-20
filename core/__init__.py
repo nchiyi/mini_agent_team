@@ -144,22 +144,45 @@ class Engine:
     # ------------------------------------------------------------------
     # NLU routing via Function Calling (Fast Path)
     # ------------------------------------------------------------------
-    async def _route_by_function_calling(self, text: str, user_id: int) -> Optional[str]:
-        """Use OpenAI Function Calling to route to the right skill."""
-        tools = self._build_tools()
-        
+    def _assemble_memory_context(self, user_id: int, current_text: str | None = None) -> dict:
+        """Assemble reusable memory/context blocks once per request."""
         personality = self.memory.get_personality(user_id)
-        
         user_facts = self.memory.get_user_facts(user_id)
         session_context = self.memory.get_session_context(user_id)
         if not user_facts and not session_context:
             session_context = self.memory.get_summary(user_id)
 
+        conversation_history = self.memory.get_context(user_id, limit=10)
+
+        semantic_context = ""
+        if current_text:
+            semantic_hits = self.memory.semantic.search(current_text)
+            if semantic_hits:
+                history_lines = set(line.strip() for line in conversation_history.splitlines() if line.strip())
+                filtered_hits = [
+                    line for line in semantic_hits.splitlines()
+                    if line.strip() and line.strip() not in history_lines
+                ]
+                semantic_context = "\n".join(filtered_hits)
+
         facts_block = f"\n【關於使用者的長期事實】：\n{user_facts}\n" if user_facts else ""
         session_block = f"\n【目前對話前情提要】：\n{session_context}\n" if session_context else ""
+        context_block = f"\n相關背景知識:\n{semantic_context}\n" if semantic_context else ""
 
-        model_for_distill = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
-        
+        return {
+            "personality": personality,
+            "conversation_history": conversation_history,
+            "facts_block": facts_block,
+            "session_block": session_block,
+            "context_block": context_block,
+        }
+
+    def _build_router_messages(self, text: str, context: dict) -> list[dict[str, str]]:
+        personality = context["personality"]
+        facts_block = context["facts_block"]
+        session_block = context["session_block"]
+        conversation_history = context["conversation_history"]
+
         system_instruction = (
             f"{personality}\n"
             f"{facts_block}{session_block}"
@@ -179,11 +202,20 @@ class Engine:
             "5. 請用繁體中文回答。"
         )
 
+        messages = [{"role": "system", "content": system_instruction}]
+        if conversation_history:
+            messages.append({"role": "system", "content": f"最近對話歷史:\n{conversation_history}"})
+        messages.append({"role": "user", "content": text})
+        return messages
+
+    async def _route_by_function_calling(self, text: str, user_id: int, context: dict | None = None) -> Optional[str]:
+        """Use OpenAI Function Calling to route to the right skill."""
+        tools = self._build_tools()
+        context = context or self._assemble_memory_context(user_id, current_text=text)
+
+        model_for_distill = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
         model = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
-        messages = [
-            {"role": "system", "content": system_instruction},
-            {"role": "user", "content": text}
-        ]
+        messages = self._build_router_messages(text, context)
 
         try:
             response = await self.llm.generate(
@@ -254,27 +286,17 @@ class Engine:
     # ------------------------------------------------------------------
     # Shared Helper: Build Chat Messages
     # ------------------------------------------------------------------
-    def _build_chat_messages(self, text: str, user_id: int) -> list[dict[str, str]]:
+    def _build_chat_messages(self, text: str, user_id: int, context: dict | None = None) -> list[dict[str, str]]:
         """
-        Builds the standard message payload (system and user roles) 
+        Builds the standard message payload (system and structured message history)
         including memory, semantics, and personality context.
         """
-        semantic_context = self.memory.semantic.search(text)
-        context_block = ""
-        if semantic_context:
-            context_block = f"\n相關背景知識:\n{semantic_context}\n"
-
-        conversation_history = self.memory.get_context(user_id, limit=10)
-
-        personality = self.memory.get_personality(user_id)
-        
-        user_facts = self.memory.get_user_facts(user_id)
-        session_context = self.memory.get_session_context(user_id)
-        if not user_facts and not session_context:
-            session_context = self.memory.get_summary(user_id)
-
-        facts_block = f"\n【關於使用者的長期事實】：\n{user_facts}\n" if user_facts else ""
-        session_block = f"\n【目前對話前情提要】：\n{session_context}\n" if session_context else ""
+        context = context or self._assemble_memory_context(user_id, current_text=text)
+        personality = context["personality"]
+        facts_block = context["facts_block"]
+        session_block = context["session_block"]
+        context_block = context["context_block"]
+        conversation_history = context["conversation_history"]
 
         system_instruction = (
             f"{personality}\n"
@@ -295,14 +317,15 @@ class Engine:
             f"{context_block}"
         )
 
-        full_prompt = text
+        messages = [{"role": "system", "content": system_instruction}]
         if conversation_history:
-            full_prompt = f"對話歷史:\n{conversation_history}\n\n使用者: {text}"
-
-        return [
-            {"role": "system", "content": system_instruction},
-            {"role": "user", "content": full_prompt}
-        ]
+            for line in conversation_history.splitlines():
+                if line.startswith("User: "):
+                    messages.append({"role": "user", "content": line[6:]})
+                elif line.startswith("Assistant: "):
+                    messages.append({"role": "assistant", "content": line[11:]})
+        messages.append({"role": "user", "content": text})
+        return messages
 
     # ------------------------------------------------------------------
     # Main handler: free-text messages
@@ -314,14 +337,15 @@ class Engine:
         2. Fall back to direct generation
         """
         # 1. Try Function Calling routing
-        routed_result = await self._route_by_function_calling(text, user_id)
+        context = self._assemble_memory_context(user_id, current_text=text)
+        routed_result = await self._route_by_function_calling(text, user_id, context=context)
         if routed_result is not None:
             return routed_result
 
         # 2. Direct generation fallback
         logger.info(f"Direct generation for user {user_id}: '{text[:50]}...'")
 
-        messages = self._build_chat_messages(text, user_id)
+        messages = self._build_chat_messages(text, user_id, context=context)
         model = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
         
         response = await self.llm.generate(
@@ -360,13 +384,14 @@ class Engine:
         Falls back to streaming direct generation if no skill matched.
         """
         # 1. Try Function Calling routing first (non-streaming)
-        routed_result = await self._route_by_function_calling(text, user_id)
+        context = self._assemble_memory_context(user_id, current_text=text)
+        routed_result = await self._route_by_function_calling(text, user_id, context=context)
         if routed_result is not None:
             yield routed_result
             return
 
         # 2. Streaming direct generation fallback
-        messages = self._build_chat_messages(text, user_id)
+        messages = self._build_chat_messages(text, user_id, context=context)
         model = self.memory.get_setting(user_id, "preferred_model", None) or config.DEFAULT_MODEL
 
         full_response_parts: list[str] = []
