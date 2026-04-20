@@ -7,7 +7,9 @@ and can use a different model. Use cases:
   - Dev Agent (powerful model for code generation)
   - Summary Agent (mid-tier model for summarization)
 """
+import json
 import logging
+import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,27 @@ class SubAgent:
         self.system_prompt = system_prompt
         self.model = model or "llama3.1"
         self.client = ollama_client
-        self.history: list[dict] = []  # Simple in-memory history
+        self.history_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", f"subagent_{name}_history.json")
+        self.history: list[dict] = self._load_history()
+
+    def _load_history(self) -> list[dict]:
+        try:
+            if os.path.exists(self.history_path):
+                with open(self.history_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return data
+        except Exception:
+            logger.warning("Failed to load sub-agent history", exc_info=True)
+        return []
+
+    def _save_history(self):
+        try:
+            os.makedirs(os.path.dirname(self.history_path), exist_ok=True)
+            with open(self.history_path, "w", encoding="utf-8") as f:
+                json.dump(self.history[-20:], f, ensure_ascii=False, indent=2)
+        except Exception:
+            logger.warning("Failed to persist sub-agent history", exc_info=True)
 
     async def send(self, message: str) -> str:
         """Send a message to this sub-agent and get a response."""
@@ -44,6 +66,7 @@ class SubAgent:
         # Store in history
         self.history.append({"role": "user", "content": message})
         self.history.append({"role": "assistant", "content": message_content[:500]})
+        self._save_history()
 
         usage_tokens = response.usage.total_tokens if hasattr(response, 'usage') and response.usage else '?'
         logger.info(f"SubAgent[{self.name}] responded ({usage_tokens} tokens)")
@@ -52,4 +75,5 @@ class SubAgent:
     def reset(self):
         """Clear conversation history."""
         self.history.clear()
+        self._save_history()
         logger.info(f"SubAgent[{self.name}] history cleared")
