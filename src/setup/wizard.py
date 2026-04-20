@@ -1,9 +1,16 @@
 import asyncio
+import os
+import subprocess
 import sys
 
 from src.setup.state import WizardState, is_step_done, mark_step_done
+from src.setup.state import load_state, save_state, reset_state
 from src.setup.validator import validate_telegram_token, validate_discord_token
 from src.setup.installer import is_cli_installed, install_cli, install_ollama, progress_reporter
+from src.setup.deploy import (
+    write_config_toml, write_env_file, write_systemd_unit,
+    write_docker_compose, create_data_dirs,
+)
 
 _G = "\033[32m"
 _Y = "\033[33m"
@@ -234,3 +241,86 @@ async def step_7_deploy(state: WizardState) -> None:
         state.deploy_mode = "foreground"
     _ok(f"Deploy mode: {state.deploy_mode}")
     mark_step_done(state, 7)
+
+
+async def step_8_launch(
+    state: WizardState,
+    cwd: str,
+    bg_tasks: list[asyncio.Task],
+) -> None:
+    _hdr(8, "Writing config and launching")
+    if bg_tasks:
+        print("  Waiting for background installs to complete...")
+        results = await asyncio.gather(*bg_tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                _warn(f"Background install error: {r}")
+    create_data_dirs(cwd)
+    runners = state.selected_clis or ["claude"]
+    write_config_toml(
+        os.path.join(cwd, "config", "config.toml"),
+        {"default_runner": runners[0], "runners": runners},
+    )
+    env: dict[str, str] = {}
+    if state.telegram_token:
+        env["TELEGRAM_BOT_TOKEN"] = state.telegram_token
+    if state.discord_token:
+        env["DISCORD_BOT_TOKEN"] = state.discord_token
+    if state.allowed_user_ids:
+        env["ALLOWED_USER_IDS"] = ",".join(str(i) for i in state.allowed_user_ids)
+    env["DEFAULT_CWD"] = cwd
+    write_env_file(os.path.join(cwd, "secrets", ".env"), env)
+    if state.deploy_mode == "systemd":
+        write_systemd_unit(cwd)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+        subprocess.run(
+            ["systemctl", "--user", "enable", "--now", "gateway-agent"], check=False
+        )
+        _ok("Systemd service started: gateway-agent")
+    elif state.deploy_mode == "docker":
+        write_docker_compose(cwd)
+        subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
+        _ok("Docker container started")
+    else:
+        python = os.path.join(cwd, "venv", "bin", "python3")
+        if not os.path.exists(python):
+            python = "python3"
+        _ok("Launching bot...")
+        os.execv(python, [python, os.path.join(cwd, "main.py")])
+    mark_step_done(state, 8)
+
+
+async def run_wizard(
+    state_path: str = "data/setup-state.json",
+    reset: bool = False,
+    cwd: str = ".",
+) -> None:
+    cwd = os.path.abspath(cwd)
+    if reset:
+        reset_state(state_path)
+        print("State reset. Starting fresh.\n")
+    state = load_state(state_path)
+    print(f"\n{'='*52}")
+    print("  Gateway Agent Platform — Setup Wizard")
+    print(f"{'='*52}\n")
+    bg_tasks: list[asyncio.Task] = []
+
+    await step_1_channel(state)
+    save_state(state, state_path)
+    await step_2_token(state)
+    save_state(state, state_path)
+    await step_3_allowlist(state)
+    save_state(state, state_path)
+    cli_tasks = await step_4_clis(state)
+    bg_tasks.extend(cli_tasks)
+    save_state(state, state_path)
+    ollama_task = await step_5_search(state)
+    if ollama_task:
+        bg_tasks.append(ollama_task)
+    save_state(state, state_path)
+    await step_6_updates(state)
+    save_state(state, state_path)
+    await step_7_deploy(state)
+    save_state(state, state_path)
+    await step_8_launch(state, cwd, bg_tasks)
+    save_state(state, state_path)

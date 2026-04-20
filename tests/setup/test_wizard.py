@@ -239,3 +239,110 @@ async def test_step7_docker(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda _: "3")
     await wizard.step_7_deploy(state)
     assert state.deploy_mode == "docker"
+
+
+# ── run_wizard orchestrator ──────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_run_wizard_resumes_skipping_completed_steps(tmp_path):
+    from src.setup.state import save_state
+    state = WizardState(
+        completed_steps=[1, 2, 3, 4, 5, 6, 7],
+        channel="telegram",
+        telegram_token="tok",
+        allowed_user_ids=[123],
+        selected_clis=["claude"],
+        search_mode="fts5",
+        update_notifications=True,
+        deploy_mode="foreground",
+    )
+    state_path = str(tmp_path / "state.json")
+    save_state(state, state_path)
+    with patch("src.setup.wizard.step_8_launch", new_callable=AsyncMock) as mock_launch:
+        await wizard.run_wizard(state_path=state_path, cwd=str(tmp_path))
+    mock_launch.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_run_wizard_reset_clears_state(tmp_path):
+    from src.setup.state import save_state
+    state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6, 7],
+                        channel="telegram", telegram_token="tok",
+                        allowed_user_ids=[1], selected_clis=["claude"],
+                        search_mode="fts5", update_notifications=True,
+                        deploy_mode="foreground")
+    state_path = str(tmp_path / "state.json")
+    save_state(state, state_path)
+    with patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as mock_s1, \
+         patch("src.setup.wizard.step_2_token", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]), \
+         patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None), \
+         patch("src.setup.wizard.step_6_updates", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_7_deploy", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_8_launch", new_callable=AsyncMock):
+        await wizard.run_wizard(state_path=state_path, reset=True, cwd=str(tmp_path))
+    # step_1 must be called because state was reset (steps re-run)
+    mock_s1.assert_called_once()
+
+
+# ── step_8_launch ────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_step8_writes_config_and_env(tmp_path):
+    state = WizardState(
+        completed_steps=[1, 2, 3, 4, 5, 6, 7],
+        channel="telegram", telegram_token="TOK",
+        allowed_user_ids=[111], selected_clis=["claude"],
+        search_mode="fts5", update_notifications=True,
+        deploy_mode="foreground",
+    )
+    with patch("src.setup.wizard.write_config_toml") as mock_cfg, \
+         patch("src.setup.wizard.write_env_file") as mock_env, \
+         patch("src.setup.wizard.create_data_dirs"), \
+         patch("os.execv"):
+        await wizard.step_8_launch(state, str(tmp_path), [])
+    mock_cfg.assert_called_once()
+    mock_env.assert_called_once()
+    # env_file content passed as second positional arg
+    env_arg = mock_env.call_args[0][1]
+    assert env_arg.get("TELEGRAM_BOT_TOKEN") == "TOK"
+    assert env_arg.get("ALLOWED_USER_IDS") == "111"
+
+
+@pytest.mark.asyncio
+async def test_step8_systemd_calls_systemctl(tmp_path):
+    state = WizardState(
+        completed_steps=list(range(1, 8)),
+        channel="telegram", telegram_token="T",
+        allowed_user_ids=[1], selected_clis=["claude"],
+        search_mode="fts5", update_notifications=False,
+        deploy_mode="systemd",
+    )
+    with patch("src.setup.wizard.write_config_toml"), \
+         patch("src.setup.wizard.write_env_file"), \
+         patch("src.setup.wizard.create_data_dirs"), \
+         patch("src.setup.wizard.write_systemd_unit") as mock_unit, \
+         patch("subprocess.run") as mock_run:
+        await wizard.step_8_launch(state, str(tmp_path), [])
+    mock_unit.assert_called_once()
+    assert mock_run.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_step8_docker_calls_compose(tmp_path):
+    state = WizardState(
+        completed_steps=list(range(1, 8)),
+        channel="telegram", telegram_token="T",
+        allowed_user_ids=[1], selected_clis=["claude"],
+        search_mode="fts5", update_notifications=False,
+        deploy_mode="docker",
+    )
+    with patch("src.setup.wizard.write_config_toml"), \
+         patch("src.setup.wizard.write_env_file"), \
+         patch("src.setup.wizard.create_data_dirs"), \
+         patch("src.setup.wizard.write_docker_compose") as mock_dc, \
+         patch("subprocess.run") as mock_run:
+        await wizard.step_8_launch(state, str(tmp_path), [])
+    mock_dc.assert_called_once()
+    mock_run.assert_called_once()
