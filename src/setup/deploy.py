@@ -76,8 +76,11 @@ def write_config_toml(path: str, config: dict) -> None:
     sections = "\n\n".join(
         _RUNNER_CONFIGS[r] for r in runners if r in _RUNNER_CONFIGS
     )
+    default_runner = config.get("default_runner", "claude")
+    if default_runner not in _RUNNER_CONFIGS:
+        raise ValueError(f"Unknown runner: {default_runner!r}. Must be one of {list(_RUNNER_CONFIGS)}")
     content = _TOML_TEMPLATE.format(
-        default_runner=config.get("default_runner", "claude"),
+        default_runner=default_runner,
         runner_sections=sections,
     )
     p = Path(path)
@@ -88,7 +91,8 @@ def write_config_toml(path: str, config: dict) -> None:
 def write_env_file(path: str, env: dict) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("\n".join(f"{k}={v}" for k, v in env.items()) + "\n")
+    lines = [f"{k}={str(v).replace(chr(10), '').replace(chr(13), '')}" for k, v in env.items()]
+    p.write_text("\n".join(lines) + "\n" if lines else "")
 
 
 def write_systemd_unit(cwd: str) -> None:
