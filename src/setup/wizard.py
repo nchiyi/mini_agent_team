@@ -270,24 +270,31 @@ async def step_8_launch(
         env["ALLOWED_USER_IDS"] = ",".join(str(i) for i in state.allowed_user_ids)
     env["DEFAULT_CWD"] = cwd
     write_env_file(os.path.join(cwd, "secrets", ".env"), env)
+    mark_step_done(state, 8)
     if state.deploy_mode == "systemd":
         write_systemd_unit(cwd)
-        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
-        subprocess.run(
+        r1 = subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+        r2 = subprocess.run(
             ["systemctl", "--user", "enable", "--now", "gateway-agent"], check=False
         )
-        _ok("Systemd service started: gateway-agent")
+        if r1.returncode != 0 or r2.returncode != 0:
+            _warn("systemctl returned non-zero — check service status manually")
+        else:
+            _ok("Systemd service started: gateway-agent")
     elif state.deploy_mode == "docker":
         write_docker_compose(cwd)
-        subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
-        _ok("Docker container started")
+        r = subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
+        if r.returncode != 0:
+            _warn("docker compose returned non-zero — check container status manually")
+        else:
+            _ok("Docker container started")
     else:
         python = os.path.join(cwd, "venv", "bin", "python3")
         if not os.path.exists(python):
+            _warn(f"venv python not found, falling back to system python3")
             python = "python3"
         _ok("Launching bot...")
         os.execv(python, [python, os.path.join(cwd, "main.py")])
-    mark_step_done(state, 8)
 
 
 async def run_wizard(
