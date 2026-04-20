@@ -159,9 +159,14 @@ async def step_4_clis(state: WizardState) -> list[asyncio.Task]:
         status = "installed" if is_cli_installed(cli) else "not found"
         print(f"  {cli}: {status}")
     raw = _prompt("Select CLIs (comma-separated: claude,codex,gemini,kiro)", "claude")
-    selected = [c.strip() for c in raw.split(",") if c.strip() in _ALL_CLIS]
+    tokens = [c.strip() for c in raw.split(",") if c.strip()]
+    selected = [c for c in tokens if c in _ALL_CLIS]
+    invalid = [c for c in tokens if c not in _ALL_CLIS]
+    if invalid:
+        _warn(f"Unrecognised CLIs ignored: {invalid}")
     if not selected:
         selected = ["claude"]
+        _ok("Defaulting to claude")
     state.selected_clis = selected
     bg_tasks: list[asyncio.Task] = []
     task_names: list[str] = []
@@ -172,7 +177,7 @@ async def step_4_clis(state: WizardState) -> list[asyncio.Task]:
             bg_tasks.append(t)
             task_names.append(cli)
     if bg_tasks:
-        asyncio.create_task(progress_reporter(bg_tasks, task_names))
+        _reporter = asyncio.create_task(progress_reporter(bg_tasks, task_names))
         _ok(f"Installing {task_names} in background — continuing...")
     mark_step_done(state, 4)
     return bg_tasks
@@ -189,7 +194,7 @@ async def step_5_search(state: WizardState) -> asyncio.Task | None:
     if choice == "2":
         state.search_mode = "fts5+embedding"
         t = asyncio.create_task(install_ollama())
-        asyncio.create_task(progress_reporter([t], ["ollama"]))
+        _reporter = asyncio.create_task(progress_reporter([t], ["ollama"]))
         _ok("Installing Ollama in background...")
         mark_step_done(state, 5)
         return t
