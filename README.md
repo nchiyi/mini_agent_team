@@ -2,31 +2,49 @@
 
 A versatile multi-channel AI gateway that bridges Telegram and Discord to local CLI-based AI agents such as Claude Code, Codex, and Gemini. Interact with your preferred AI agents directly from your mobile device with persistent memory, full-text search capabilities, and a modular plugin architecture.
 
+> 繁體中文說明請見 [README.zh-TW.md](README.zh-TW.md)
+
 ---
 
 ## Architecture
 
-```
-Telegram / Discord
-       │
-       ▼
-  Channel Adapters  (src/channels/)
-       │
-       ▼
-    Gateway         (src/gateway/router.py)
-       │
-       ├── Built-in commands  (/remember, /forget, /recall, /status, /switch)
-       │
-       └── CLI Runners        (src/runners/cli_runner.py)
-                │
-                ├── Claude Code  (claude --dangerously-skip-permissions)
-                ├── OpenAI Codex (codex exec)
-                ├── Gemini CLI   (gemini)
-                └── custom runners (configurable)
+```mermaid
+flowchart TD
+    TG[📱 Telegram] -->|message| TA[TelegramAdapter]
+    DC[🎮 Discord] -->|message| DA[DiscordAdapter]
 
-Memory System:
-  Tier 1: Persistent per-user/per-channel facts (JSONL, high-speed access)
-  Tier 3: Comprehensive conversation history (SQLite WAL + FTS5 search)
+    TA --> GW[Gateway / Router]
+    DA --> GW
+
+    GW -->|/remember /forget| T1[(Tier 1\nPermanent Memory\nJSONL per user/channel)]
+    GW -->|/recall| T3[(Tier 3\nSQLite WAL\nFTS5 Search)]
+    GW -->|/status| SM[SessionManager]
+
+    GW -->|prompt + context| CTX[ContextAssembler\nTier1 + Tier3 history]
+    CTX --> CR[CLIRunner]
+
+    CR -->|subprocess| CL[🤖 Claude Code]
+    CR -->|subprocess| CX[🤖 Codex]
+    CR -->|subprocess| GM[🤖 Gemini CLI]
+    CR -->|subprocess| CU[🤖 Custom Runner]
+
+    CR -->|streaming chunks| SB[StreamingBridge\nlive-edit messages]
+    SB --> TA
+    SB --> DA
+
+    CR --> AL[AuditLog\ndaily JSONL]
+
+    subgraph Memory["Memory System"]
+        T1
+        T3
+    end
+
+    subgraph Runners["CLI Runners"]
+        CL
+        CX
+        GM
+        CU
+    end
 ```
 
 ---
@@ -56,7 +74,7 @@ Memory System:
 ```bash
 git clone https://github.com/nchiyi/mini_agent_team.git
 cd mini_agent_team
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -66,7 +84,7 @@ pip install -r requirements.txt
 Launch the interactive setup wizard:
 
 ```bash
-python -m src.setup.wizard
+python3 -m src.setup.wizard
 ```
 
 Alternatively, configure the environment manually:
@@ -80,7 +98,7 @@ cp .env.example secrets/.env
 ### Execution
 
 ```bash
-python main.py
+python3 main.py
 ```
 
 ---
@@ -113,10 +131,26 @@ args = ["--dangerously-skip-permissions"]
 timeout_seconds = 300
 context_token_budget = 4000
 
+[runners.codex]
+path = "codex"
+args = ["exec", "-s", "danger-full-access"]
+timeout_seconds = 300
+context_token_budget = 4000
+
+[runners.gemini]
+path = "gemini"
+args = []
+timeout_seconds = 300
+context_token_budget = 4000
+
 [memory]
 db_path = "data/db/history.db"
 cold_permanent_path = "data/memory/cold/permanent"
 tier3_context_turns = 20
+
+[audit]
+path = "data/audit"
+max_entries = 1000
 ```
 
 ---
@@ -140,12 +174,16 @@ tier3_context_turns = 20
 
 ## Memory System Architecture
 
-| Tier | Storage Engine | Purpose |
-|------|----------------|---------|
-| Tier 1 | Per-user JSONL | High-priority facts and user-defined notes via `/remember` |
-| Tier 3 | SQLite (FTS5) | Searchable, long-term conversation history |
+| Tier | Storage Engine | Scope | Purpose |
+|------|----------------|-------|---------|
+| Tier 1 | Per-user JSONL file | Per user + per channel | High-priority permanent facts saved with `/remember` |
+| Tier 3 | SQLite WAL + FTS5 | Per user + per channel | Searchable long-term conversation history |
 
-**Context Injection:** Prompts are automatically enriched by prepending Tier 1 notes followed by the most recent Tier 3 dialogue turns (configured via `tier3_context_turns`).
+**Context Injection Order:**
+1. Tier 1 permanent notes (up to `tier1_budget` tokens)
+2. Most recent Tier 3 turns (up to `tier3_context_turns` turns, token-capped)
+
+Both tiers are scoped per `(user_id, channel)` to prevent cross-platform data leakage.
 
 ---
 
@@ -153,10 +191,13 @@ tier3_context_turns = 20
 
 Extend the gateway by placing module directories under `modules/`. Each module must contain a `handler.py` that exports an `AsyncGenerator` handler. Modules are automatically discovered during the startup sequence.
 
-### Included Modules:
-- `dev_agent`: Delegates complex tasks to a sub-agent with git worktree access.
-- `web_search`: Integrates DuckDuckGo or Tavily for real-time web results.
-- `vision`: Provides image description capabilities via multimodal APIs.
+### Included Modules
+
+| Module | Description |
+|--------|-------------|
+| `dev_agent` | Delegates complex coding tasks to a sub-agent with git worktree isolation |
+| `web_search` | Real-time web search via DuckDuckGo or Tavily API |
+| `vision` | Image description and analysis via multimodal APIs |
 
 ---
 
@@ -164,17 +205,19 @@ Extend the gateway by placing module directories under `modules/`. Each module m
 
 ### Systemd (User Service)
 
-The setup wizard can automatically generate a systemd unit file for you:
+The setup wizard can automatically generate a systemd unit file:
 
 ```bash
-python -m src.setup.wizard
+python3 -m src.setup.wizard
 systemctl --user enable --now gateway-agent
+systemctl --user status gateway-agent
 ```
 
-### Docker
+### Docker Compose
 
 ```bash
 docker compose up -d
+docker compose logs -f
 ```
 
 ---
@@ -182,36 +225,58 @@ docker compose up -d
 ## Project Structure
 
 ```
-main.py                    Entry point
-src/
-  channels/
-    telegram.py            Telegram adapter
-    discord_adapter.py     Discord adapter
-    base.py                BaseAdapter interface
-  gateway/
-    router.py              Command parsing and routing logic
-    session.py             Per-user session state management
-    streaming.py           Streaming bridge for real-time updates
-  core/
-    memory/
-      tier1.py             Permanent memory management
-      tier3.py             SQLite history and search engine
-      context.py           Token-aware context assembly
-    config.py              Configuration loader
-  runners/
-    cli_runner.py          Subprocess-based runner wrapper
-    audit.py               Asynchronous audit logging
-  modules/
-    loader.py              Module auto-discovery system
-  setup/
-    wizard.py              Interactive configuration wizard
-    deploy.py              Deployment script generator
-    installer.py           CLI tool installation utility
-modules/                   Directory for drop-in plugins
-config/                    Generated config.toml
-secrets/                   Generated .env (protected with chmod 600)
-data/                      Runtime data (databases, memory, logs)
+mini_agent_team/
+├── main.py                    # Entry point — starts Telegram/Discord adapters
+├── requirements.txt
+├── config/
+│   ├── config.toml            # Generated by wizard
+│   └── config.toml.example
+├── secrets/
+│   └── .env                   # Bot tokens (chmod 600, never commit)
+├── data/                      # Runtime data (gitignored)
+│   ├── db/history.db          # Tier 3 SQLite database
+│   ├── memory/cold/permanent/ # Tier 1 JSONL files
+│   └── audit/                 # Daily audit logs
+├── modules/                   # Drop-in plugins directory
+│   ├── dev_agent/
+│   ├── web_search/
+│   └── vision/
+└── src/
+    ├── channels/
+    │   ├── base.py            # BaseAdapter interface
+    │   ├── telegram.py        # Telegram adapter (python-telegram-bot)
+    │   └── discord_adapter.py # Discord adapter (discord.py)
+    ├── gateway/
+    │   ├── router.py          # Command parsing and routing
+    │   ├── session.py         # Per-user session state + idle cleanup
+    │   └── streaming.py       # Live-edit streaming bridge
+    ├── core/
+    │   ├── config.py          # TOML + .env config loader
+    │   └── memory/
+    │       ├── tier1.py       # Permanent memory (JSONL, sync)
+    │       ├── tier3.py       # SQLite history + FTS5 + async write queue
+    │       └── context.py     # Token-aware context assembler
+    ├── runners/
+    │   ├── cli_runner.py      # Async subprocess runner with streaming
+    │   └── audit.py           # Async audit logger with file lock
+    ├── modules/
+    │   └── loader.py          # Module auto-discovery
+    ├── agent_team/            # Multi-agent orchestration (planner + executor)
+    └── setup/
+        ├── wizard.py          # Interactive setup wizard
+        ├── deploy.py          # Config / systemd / Docker file writers
+        └── installer.py       # CLI tool installer (npm-based)
 ```
+
+---
+
+## Security
+
+- `ALLOWED_USER_IDS` is **fail-closed**: an empty list locks the bot to all users.
+- `secrets/.env` is written with `chmod 600` by the wizard.
+- Raw exceptions are never forwarded to chat — only a generic error message is shown.
+- Memory is scoped per `(user_id, channel)` — no cross-platform data leakage.
+- Discord reply routing uses per-user locks to prevent response misdirection.
 
 ---
 
