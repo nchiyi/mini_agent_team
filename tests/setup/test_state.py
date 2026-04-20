@@ -80,3 +80,11 @@ def test_load_state_ignores_unknown_keys(tmp_path):
     Path(path).write_text(json.dumps({"channel": "telegram", "future_key": "ignored"}))
     state = load_state(path)
     assert state.channel == "telegram"
+
+
+def test_load_state_returns_default_on_corrupt_json(tmp_path):
+    path = str(tmp_path / "state.json")
+    Path(path).write_text("{corrupt json}")
+    state = load_state(path)
+    assert state.completed_steps == []
+    assert state.channel == ""
