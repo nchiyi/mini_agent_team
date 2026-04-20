@@ -1,6 +1,6 @@
 import asyncio
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock
 from src.setup.installer import is_cli_installed, install_cli, install_ollama, progress_reporter
 
 
@@ -55,6 +55,17 @@ async def test_install_ollama_install_fails():
     mock_proc_fail = AsyncMock()
     mock_proc_fail.returncode = 1
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc_fail):
+        result = await install_ollama()
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_install_ollama_pull_fails():
+    mock_install = AsyncMock()
+    mock_install.returncode = 0
+    mock_pull = AsyncMock()
+    mock_pull.returncode = 1
+    with patch("asyncio.create_subprocess_exec", side_effect=[mock_install, mock_pull]):
         result = await install_ollama()
     assert result is False
 
