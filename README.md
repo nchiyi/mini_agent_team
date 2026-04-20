@@ -272,6 +272,14 @@ mini_agent_team/
 
 ---
 
+## Tool Usage Policy
+
+> Under the mini_agent_team (MAT) architecture, any tool authorized via a personal account whose terms do not explicitly support multi-user proxy usage is permitted only as a remote-control tool for the owner. It must not be shared with team members or external clients.
+
+> The current MAT recommended integration is **Gemini CLI** as the primary option. Claude Code CLI and Codex CLI are restricted to owner-only personal remote control. Kiro is not supported.
+
+---
+
 ## License
 
 This project is licensed under the MIT License.

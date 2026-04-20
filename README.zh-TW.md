@@ -294,6 +294,14 @@ mini_agent_team/
 
 ---
 
+## 工具使用政策
+
+> 在 mini_agent_team (MAT) 架構下，若工具是以個人帳號授權且條款未明確支持多人代理使用，則僅允許作為擁有者本人之遠端控制工具，不得提供給團隊成員或外部客戶共用。
+
+> 目前 MAT 正式建議接入工具以 **Gemini CLI** 為優先；Claude Code CLI 與 Codex CLI 僅限擁有者本人自用遙控；Kiro 暫不納入支援名單。
+
+---
+
 ## License
 
 MIT License
