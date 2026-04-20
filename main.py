@@ -253,6 +253,12 @@ async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.e
     runners, module_registry, router, session_mgr, tier1, tier3, assembler = _build_shared(cfg, audit)
     await tier3.init()
 
+    if not cfg.allowed_user_ids:
+        logger.warning(
+            "ALLOWED_USER_IDS is not set — bot is open to ALL users. "
+            "Set ALLOWED_USER_IDS in secrets/.env to restrict access."
+        )
+
     coroutines = []
     if cfg.telegram_token:
         coroutines.append(run_telegram(cfg, runners, module_registry, router,

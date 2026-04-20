@@ -67,20 +67,22 @@ class Tier3Store:
             item = await self._write_queue.get()
             if item is None:
                 break
-            user_id, channel, role, content, ts = item
+            user_id, channel, role, content, ts, done_event = item
             await self._db.execute(
                 "INSERT INTO turns(user_id, channel, role, content, ts) VALUES (?,?,?,?,?)",
                 (user_id, channel, role, content, ts),
             )
             await self._db.commit()
+            done_event.set()
             self._write_queue.task_done()
 
     async def save_turn(
         self, *, user_id: int, channel: str, role: str, content: str
     ) -> None:
         ts = datetime.now(timezone.utc).isoformat()
-        await self._write_queue.put((user_id, channel, role, content, ts))
-        await self._write_queue.join()
+        done_event = asyncio.Event()
+        await self._write_queue.put((user_id, channel, role, content, ts, done_event))
+        await done_event.wait()
 
     async def get_recent(
         self, *, user_id: int, channel: str, n: int
