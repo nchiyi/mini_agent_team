@@ -1,97 +1,220 @@
-# 🤖 Telegram-to-Control (Ollama Dual Engine)
+# mini_agent_team
 
-這是一個進化版的 Telegram AI Agent 平台，徹底拋棄了舊有的 Gemini CLI。核心完全基於 **Python 與 Ollama (支援 Local 與 Cloud API)**。
-
-這不只是一個聊天機器人，而是一個具備「思考、觀察、工具選擇」能力的 **Autonomous Agent**。
+A versatile multi-channel AI gateway that bridges Telegram and Discord to local CLI-based AI agents such as Claude Code, Codex, and Gemini. Interact with your preferred AI agents directly from your mobile device with persistent memory, full-text search capabilities, and a modular plugin architecture.
 
 ---
 
-## 🏗️ 系統架構圖 (Architecture)
+## Architecture
 
-```mermaid
-graph TD
-    User((使用者)) <--> Telegram[Telegram Bot API]
-    Telegram <--> BotPy[bot.py: 介面與事件處理]
-    BotPy <--> Engine[core/Engine: 中控核心]
-    
-    subgraph "核心大腦 (Brain)"
-        Engine <--> LLM[core/OllamaClient: AI 雙引擎]
-        Engine <--> Memory[core/Memory: SQLite + FAISS]
-        LLM <--> Config[config.py: 權限與白名單]
-    end
+```
+Telegram / Discord
+       │
+       ▼
+  Channel Adapters  (src/channels/)
+       │
+       ▼
+    Gateway         (src/gateway/router.py)
+       │
+       ├── Built-in commands  (/remember, /forget, /recall, /status, /switch)
+       │
+       └── CLI Runners        (src/runners/cli_runner.py)
+                │
+                ├── Claude Code  (claude --dangerously-skip-permissions)
+                ├── OpenAI Codex (codex exec)
+                ├── Gemini CLI   (gemini)
+                └── custom runners (configurable)
 
-    subgraph "擴充技能 (Skills/Tools)"
-        Engine <--> Skill1[Dev Agent: 開發助手]
-        Engine <--> Skill2[Browser: Playwright 網頁眼]
-        Engine <--> Skill3[News: 原生爬蟲新聞]
-        Engine <--> Skill4[Search: Tavily/DDG 混合搜尋]
-        Engine <--> Skill5[Monitor: 系統監控]
-    end
-
-    LLM <--> LocalOllama[本地端 Ollama Server]
-    LLM <--> CloudOllama[Ollama Cloud API Server]
+Memory System:
+  Tier 1: Persistent per-user/per-channel facts (JSONL, high-speed access)
+  Tier 3: Comprehensive conversation history (SQLite WAL + FTS5 search)
 ```
 
 ---
 
-## 🧩 核心功能亮點 (Core Features)
+## Key Features
 
-### 1. 🌈 靈魂引導流程 (Soul Onboarding)
-這是系統最人性化的設計。當您第一次啟動 Bot 時，Agent 會主動向您發起「靈魂初始化問卷」，詢問您的個性偏好、互動規範與稱呼方式。這讓您的 AI 助理從第一秒起就真正「認主」。
-
-### 2. 🎭 個性自定義 (Soul Customization)
-透過 `/soul` 指令，您可以隨時調整或洗滌 Agent 的靈魂。您可以讓它是傲嬌的助理、專業的導師，或是機智的脫口秀演員。
-
-### 3. 🧠 記憶蒸餾系統 (Memory Distillation)
-為了解決長對話導致的 Token 爆炸問題，系統具備自動化記憶蒸餾功能：
-- **自動總結**：對話超過 20 輪時，自動聚合舊歷史為「Session Summary」。
-- **滾動清理**：刪除冗長舊訊息，只保留精華摘要注入系統提示，平衡 Token 消耗與記憶深度。
-
-### 4. 🌐 混合搜尋引擎 (Advanced Web Search)
-系統內建了強大的網頁搜尋技能。支援設定 `TAVILY_API_KEY` 來啟用**頂級的 Tavily AI 大神搜尋**，這能繞過區域限制與防爬蟲機制，精準抓取最新資訊。若未設定，系統依然能平滑回退，自動使用輕量且快速的 `DuckDuckGo (DDGS)` 進行搜索。
-
-### 5. 🛡️ 執行安全與防幻覺 (Safety & Truthfulness)
-內建 ReAct 思考規範。Agent 在呼叫工具前會進行內部推理，如果不確定事實或缺乏上下文，會選擇承認「我不知道」而不是編造虛假指令，確保執行安全。
-
-### 6. 🚀 Ollama 雙引擎 (Dual Engine)
-支援本地運算的 Ollama 與雲端的 Ollama Cloud API。透過 `agent config` 即可一鍵切換與配置模型白名單。
+- **Multi-Platform Support**: Seamlessly integrate Telegram and Discord within a single process.
+- **Dynamic Agent Switching**: Hot-swap between different AI runners at runtime using commands like `/claude`, `/codex`, or `/gemini`.
+- **Real-time Streaming**: Enjoy live message updates as the runner generates output chunks.
+- **Advanced Persistent Memory**: Dual-tier storage featuring permanent user notes and searchable conversation history.
+- **Modular Plugin System**: Easily extend functionality with drop-in modules for web search, computer vision, and specialized dev agents.
+- **Interactive Setup**: Streamlined configuration via a built-in interactive wizard (`python -m src.setup.wizard`).
+- **Comprehensive Audit Logs**: Maintain accountability with append-only daily JSONL logs of all runner interactions.
 
 ---
 
-## 🧩 各元件技術解析
+## Quick Start
 
-- **`Engine` (core/__init__.py)**: 實作了雙層路由機制（Function Calling + Text Path），協調各項技能。
-- **`Memory` (core/memory.py)**: 整合 SQLite（持久化設定）與 FAISS（語義檢索）。
-- **`OllamaClient` (core/ollama_client.py)**: 統一封裝 OpenAI 相容 API，支援串流輸出。
+### Prerequisites
 
----
+- Python 3.11+
+- At least one CLI agent installed: `claude`, `codex`, or `gemini`
+- A Telegram Bot Token (via [@BotFather](https://t.me/botfather)) and/or a Discord Bot Token.
 
-## ⚡ 快速開始 (Quick Start)
+### Installation
 
-### 1️⃣ 初始化環境
 ```bash
-bash setup.sh
+git clone https://github.com/nchiyi/mini_agent_team.git
+cd mini_agent_team
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### 2️⃣ 互動式配置
+### Configuration
+
+Launch the interactive setup wizard:
+
 ```bash
-./agent config
+python -m src.setup.wizard
 ```
 
-### 3️⃣ 啟動
+Alternatively, configure the environment manually:
+
 ```bash
-./agent start
+cp config/config.toml.example config/config.toml
+cp .env.example secrets/.env
+# Update secrets/.env with your tokens and ALLOWED_USER_IDS
+```
+
+### Execution
+
+```bash
+python main.py
 ```
 
 ---
 
-## 📱 管理工具 (`./agent`)
-- `./agent start / stop / restart`: 服務管理。
-- `./agent config`: 模型與環境配置。
-- `./agent status`: 狀態檢查。
-- `./agent logs`: 查看日誌。
+## Detailed Configuration
+
+### `secrets/.env`
+
+```env
+TELEGRAM_BOT_TOKEN=your_telegram_token
+DISCORD_BOT_TOKEN=your_discord_token      # optional
+ALLOWED_USER_IDS=123456789,987654321      # required — leave empty to lock the bot
+```
+
+> **Security Note:** The `ALLOWED_USER_IDS` field is mandatory. An empty list will lock the bot, preventing any unauthorized access.
+
+### `config/config.toml`
+
+Key configuration parameters:
+
+```toml
+[gateway]
+default_runner = "claude"
+session_idle_minutes = 60
+stream_edit_interval_seconds = 1.5
+
+[runners.claude]
+path = "claude"
+args = ["--dangerously-skip-permissions"]
+timeout_seconds = 300
+context_token_budget = 4000
+
+[memory]
+db_path = "data/db/history.db"
+cold_permanent_path = "data/memory/cold/permanent"
+tier3_context_turns = 20
+```
 
 ---
 
-## 📄 License
-MIT
+## Bot Commands
+
+| Command | Description |
+|---------|-------------|
+| `/remember <text>` | Save a permanent note to your memory |
+| `/forget <keyword>` | Remove permanent notes matching the keyword |
+| `/recall <query>` | Perform a full-text search of your conversation history |
+| `/status` | View current runner, token usage, and session information |
+| `/claude` | Switch to the Claude Code runner |
+| `/codex` | Switch to the Codex runner |
+| `/gemini` | Switch to the Gemini CLI runner |
+| `/new` | Terminate the current session and start fresh |
+
+*All other messages are automatically forwarded to the active runner and streamed back to the user.*
+
+---
+
+## Memory System Architecture
+
+| Tier | Storage Engine | Purpose |
+|------|----------------|---------|
+| Tier 1 | Per-user JSONL | High-priority facts and user-defined notes via `/remember` |
+| Tier 3 | SQLite (FTS5) | Searchable, long-term conversation history |
+
+**Context Injection:** Prompts are automatically enriched by prepending Tier 1 notes followed by the most recent Tier 3 dialogue turns (configured via `tier3_context_turns`).
+
+---
+
+## Module System
+
+Extend the gateway by placing module directories under `modules/`. Each module must contain a `handler.py` that exports an `AsyncGenerator` handler. Modules are automatically discovered during the startup sequence.
+
+### Included Modules:
+- `dev_agent`: Delegates complex tasks to a sub-agent with git worktree access.
+- `web_search`: Integrates DuckDuckGo or Tavily for real-time web results.
+- `vision`: Provides image description capabilities via multimodal APIs.
+
+---
+
+## Deployment
+
+### Systemd (User Service)
+
+The setup wizard can automatically generate a systemd unit file for you:
+
+```bash
+python -m src.setup.wizard
+systemctl --user enable --now gateway-agent
+```
+
+### Docker
+
+```bash
+docker compose up -d
+```
+
+---
+
+## Project Structure
+
+```
+main.py                    Entry point
+src/
+  channels/
+    telegram.py            Telegram adapter
+    discord_adapter.py     Discord adapter
+    base.py                BaseAdapter interface
+  gateway/
+    router.py              Command parsing and routing logic
+    session.py             Per-user session state management
+    streaming.py           Streaming bridge for real-time updates
+  core/
+    memory/
+      tier1.py             Permanent memory management
+      tier3.py             SQLite history and search engine
+      context.py           Token-aware context assembly
+    config.py              Configuration loader
+  runners/
+    cli_runner.py          Subprocess-based runner wrapper
+    audit.py               Asynchronous audit logging
+  modules/
+    loader.py              Module auto-discovery system
+  setup/
+    wizard.py              Interactive configuration wizard
+    deploy.py              Deployment script generator
+    installer.py           CLI tool installation utility
+modules/                   Directory for drop-in plugins
+config/                    Generated config.toml
+secrets/                   Generated .env (protected with chmod 600)
+data/                      Runtime data (databases, memory, logs)
+```
+
+---
+
+## License
+
+This project is licensed under the MIT License.

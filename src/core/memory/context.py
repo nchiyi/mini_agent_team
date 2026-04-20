@@ -40,7 +40,7 @@ class ContextAssembler:
         sections: list[str] = []
 
         # --- Tier 1 ---
-        t1_text = self._t1.render_for_context(user_id)
+        t1_text = self._t1.render_for_context(user_id, channel)
         if t1_text:
             if count_tokens(t1_text) <= self._t1_budget:
                 sections.append(t1_text)

@@ -1,9 +1,12 @@
 # src/core/memory/tier3.py
 import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import aiosqlite
+
+logger = logging.getLogger(__name__)
 
 
 class Tier3Store:
@@ -68,13 +71,17 @@ class Tier3Store:
             if item is None:
                 break
             user_id, channel, role, content, ts, done_event = item
-            await self._db.execute(
-                "INSERT INTO turns(user_id, channel, role, content, ts) VALUES (?,?,?,?,?)",
-                (user_id, channel, role, content, ts),
-            )
-            await self._db.commit()
-            done_event.set()
-            self._write_queue.task_done()
+            try:
+                await self._db.execute(
+                    "INSERT INTO turns(user_id, channel, role, content, ts) VALUES (?,?,?,?,?)",
+                    (user_id, channel, role, content, ts),
+                )
+                await self._db.commit()
+            except Exception:
+                logger.error("DB write failed", exc_info=True)
+            finally:
+                done_event.set()
+                self._write_queue.task_done()
 
     async def save_turn(
         self, *, user_id: int, channel: str, role: str, content: str
@@ -97,15 +104,15 @@ class Tier3Store:
         return [{"role": r["role"], "content": r["content"], "ts": r["ts"]} for r in reversed(rows)]
 
     async def search(
-        self, *, user_id: int, query: str, limit: int = 5
+        self, *, user_id: int, channel: str, query: str, limit: int = 5
     ) -> list[dict[str, Any]]:
         async with self._db.execute(
             """SELECT t.role, t.content, t.ts
                FROM turns_fts f
                JOIN turns t ON t.id = f.rowid
-               WHERE turns_fts MATCH ? AND t.user_id = ?
+               WHERE turns_fts MATCH ? AND t.user_id = ? AND t.channel = ?
                ORDER BY rank LIMIT ?""",
-            (query, user_id, limit),
+            (query, user_id, channel, limit),
         ) as cur:
             rows = await cur.fetchall()
         return [{"role": r["role"], "content": r["content"], "ts": r["ts"]} for r in rows]

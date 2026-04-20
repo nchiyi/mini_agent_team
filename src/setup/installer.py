@@ -21,31 +21,37 @@ async def install_cli(name: str) -> tuple[str, bool]:
     cmd = _CLI_INSTALL.get(name)
     if not cmd:
         return name, False
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    await proc.wait()
-    return name, proc.returncode == 0
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        await proc.wait()
+        return name, proc.returncode == 0
+    except (FileNotFoundError, PermissionError, OSError):
+        return name, False
 
 
 async def install_ollama() -> bool:
-    proc = await asyncio.create_subprocess_exec(
-        *_OLLAMA_INSTALL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    await proc.wait()
-    if proc.returncode != 0:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *_OLLAMA_INSTALL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        await proc.wait()
+        if proc.returncode != 0:
+            return False
+        proc2 = await asyncio.create_subprocess_exec(
+            *_OLLAMA_PULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        await proc2.wait()
+        return proc2.returncode == 0
+    except (FileNotFoundError, PermissionError, OSError):
         return False
-    proc2 = await asyncio.create_subprocess_exec(
-        *_OLLAMA_PULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    await proc2.wait()
-    return proc2.returncode == 0
 
 
 async def progress_reporter(

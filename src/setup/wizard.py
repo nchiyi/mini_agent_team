@@ -152,7 +152,7 @@ async def step_3_allowlist(state: WizardState) -> None:
         if raw.isdigit():
             state.allowed_user_ids = [int(raw)]
     if not state.allowed_user_ids:
-        _warn("No user IDs set — bot will be accessible to anyone!")
+        _warn("No user IDs set — bot will be LOCKED (no one can use it). Re-run step 3 to add a user ID.")
     mark_step_done(state, 3)
 
 

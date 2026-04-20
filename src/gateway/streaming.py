@@ -32,7 +32,10 @@ class StreamingBridge:
                 last_edit = now
 
         if message_id is not None and accumulated:
-            safe = accumulated[: self._adapter.max_message_length()]
-            await self._adapter.edit(message_id, safe)
+            max_len = self._adapter.max_message_length()
+            await self._adapter.edit(message_id, accumulated[:max_len])
+            overflow = accumulated[max_len:]
+            if overflow:
+                await self._adapter.send(user_id, overflow)
         elif not message_id and accumulated:
             await self._adapter.send(user_id, accumulated)

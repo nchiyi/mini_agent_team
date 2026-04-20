@@ -28,7 +28,7 @@ class CLIRunner:
         channel: str,
         cwd: str,
     ) -> AsyncIterator[str]:
-        self._audit.write(
+        await self._audit.write(
             user_id=user_id,
             channel=channel,
             runner=self.name,

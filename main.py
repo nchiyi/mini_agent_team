@@ -80,15 +80,15 @@ async def dispatch(
     cmd = router.parse(inbound.text)
 
     if cmd.is_remember:
-        tier1.remember(user_id=inbound.user_id, content=cmd.prompt)
+        tier1.remember(user_id=inbound.user_id, channel=inbound.channel, content=cmd.prompt)
         await send_reply(f"Remembered: {cmd.prompt}")
         return
     if cmd.is_forget:
-        removed = tier1.forget(user_id=inbound.user_id, keyword=cmd.prompt)
+        removed = tier1.forget(user_id=inbound.user_id, channel=inbound.channel, keyword=cmd.prompt)
         await send_reply(f"Removed {removed} entries matching '{cmd.prompt}'")
         return
     if cmd.is_recall:
-        results = await tier3.search(user_id=inbound.user_id, query=cmd.prompt, limit=5)
+        results = await tier3.search(user_id=inbound.user_id, channel=inbound.channel, query=cmd.prompt, limit=5)
         if results:
             await send_reply("\n".join(r["content"] for r in results))
         else:
@@ -176,8 +176,8 @@ async def dispatch(
     except TimeoutError:
         await send_reply("Runner timed out.")
     except Exception as e:
-        logger.error("Runner error: %s", e)
-        await send_reply(f"Error: {e}")
+        logger.error("Runner error: %s", e, exc_info=True)
+        await send_reply("An error occurred. Please try again.")
 
 
 async def run_telegram(cfg: Config, runners, module_registry, router, session_mgr,

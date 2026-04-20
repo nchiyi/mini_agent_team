@@ -1,4 +1,5 @@
 # src/channels/discord_adapter.py
+import asyncio
 import logging
 from typing import Callable, Awaitable
 import discord
@@ -21,6 +22,8 @@ class DiscordAdapter(BaseAdapter):
         self._token = token
         self._allowed = set(allowed_user_ids)
         self._user_channel: dict[int, discord.TextChannel] = {}
+        self._dispatch_channel: dict[int, discord.TextChannel] = {}
+        self._user_locks: dict[int, asyncio.Lock] = {}
         self._setup_handlers(gateway_handler)
 
     def _setup_handlers(
@@ -35,20 +38,27 @@ class DiscordAdapter(BaseAdapter):
                 await message.channel.send("Unauthorized.")
                 return
             self._user_channel[user_id] = message.channel
-            await gateway_handler(
-                InboundMessage(
-                    user_id=user_id,
-                    channel="discord",
-                    text=message.content,
-                    message_id=str(message.id),
-                )
-            )
+            if user_id not in self._user_locks:
+                self._user_locks[user_id] = asyncio.Lock()
+            async with self._user_locks[user_id]:
+                self._dispatch_channel[user_id] = message.channel
+                try:
+                    await gateway_handler(
+                        InboundMessage(
+                            user_id=user_id,
+                            channel="discord",
+                            text=message.content,
+                            message_id=str(message.id),
+                        )
+                    )
+                finally:
+                    self._dispatch_channel.pop(user_id, None)
 
     def is_authorized(self, user_id: int) -> bool:
-        return not self._allowed or user_id in self._allowed
+        return bool(self._allowed) and user_id in self._allowed
 
     async def send(self, user_id: int, text: str) -> str:
-        channel = self._user_channel.get(user_id)
+        channel = self._dispatch_channel.get(user_id) or self._user_channel.get(user_id)
         if not channel:
             logger.error("No channel context for Discord user %s", user_id)
             return ""

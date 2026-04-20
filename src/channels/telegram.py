@@ -14,7 +14,7 @@ class TelegramAdapter(BaseAdapter):
         self._allowed = set(allowed_user_ids)
 
     def is_authorized(self, user_id: int) -> bool:
-        return not self._allowed or user_id in self._allowed
+        return bool(self._allowed) and user_id in self._allowed
 
     async def send(self, user_id: int, text: str) -> str:
         chunks = self._split(text)

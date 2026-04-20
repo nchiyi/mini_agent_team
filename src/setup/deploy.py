@@ -96,7 +96,9 @@ def write_env_file(path: str, env: dict) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"{k}={str(v).replace(chr(10), '').replace(chr(13), '')}" for k, v in env.items()]
-    p.write_text("\n".join(lines) + "\n" if lines else "")
+    content = "\n".join(lines) + "\n" if lines else ""
+    p.write_text(content)
+    p.chmod(0o600)
 
 
 def write_systemd_unit(cwd: str) -> None:
