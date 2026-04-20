@@ -12,6 +12,8 @@ from src.setup.deploy import (
     write_docker_compose, create_data_dirs,
 )
 
+_background_tasks: set[asyncio.Task] = set()
+
 _G = "\033[32m"
 _Y = "\033[33m"
 _R = "\033[31m"
@@ -184,7 +186,9 @@ async def step_4_clis(state: WizardState) -> list[asyncio.Task]:
             bg_tasks.append(t)
             task_names.append(cli)
     if bg_tasks:
-        _reporter = asyncio.create_task(progress_reporter(bg_tasks, task_names))
+        _t = asyncio.create_task(progress_reporter(bg_tasks, task_names))
+        _background_tasks.add(_t)
+        _t.add_done_callback(_background_tasks.discard)
         _ok(f"Installing {task_names} in background — continuing...")
     mark_step_done(state, 4)
     return bg_tasks
@@ -201,7 +205,9 @@ async def step_5_search(state: WizardState) -> asyncio.Task | None:
     if choice == "2":
         state.search_mode = "fts5+embedding"
         t = asyncio.create_task(install_ollama())
-        _reporter = asyncio.create_task(progress_reporter([t], ["ollama"]))
+        _t = asyncio.create_task(progress_reporter([t], ["ollama"]))
+        _background_tasks.add(_t)
+        _t.add_done_callback(_background_tasks.discard)
         _ok("Installing Ollama in background...")
         mark_step_done(state, 5)
         return t
@@ -259,7 +265,12 @@ async def step_8_launch(
     runners = state.selected_clis or ["claude"]
     write_config_toml(
         os.path.join(cwd, "config", "config.toml"),
-        {"default_runner": runners[0], "runners": runners},
+        {
+            "default_runner": runners[0],
+            "runners": runners,
+            "search_mode": state.search_mode,
+            "update_notifications": state.update_notifications,
+        },
     )
     env: dict[str, str] = {}
     if state.telegram_token:
@@ -291,8 +302,9 @@ async def step_8_launch(
     else:
         python = os.path.join(cwd, "venv", "bin", "python3")
         if not os.path.exists(python):
-            _warn(f"venv python not found, falling back to system python3")
+            _warn("venv python not found, falling back to system python3")
             python = "python3"
+        save_state(state, os.path.join(cwd, "data", "setup-state.json"))
         _ok("Launching bot...")
         os.execv(python, [python, os.path.join(cwd, "main.py")])
 

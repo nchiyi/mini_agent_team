@@ -5,7 +5,7 @@ import shutil
 _CLI_INSTALL: dict[str, list[str]] = {
     "claude": ["npm", "install", "-g", "@anthropic-ai/claude-code"],
     "codex": ["npm", "install", "-g", "@openai/codex"],
-    "gemini": ["npm", "install", "-g", "@google/generative-ai"],
+    "gemini": ["npm", "install", "-g", "@google/gemini-cli"],
     "kiro": ["npm", "install", "-g", "@aws/kiro"],
 }
 

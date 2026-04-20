@@ -29,6 +29,7 @@ session_idle_minutes = 60
 max_message_length_telegram = 4096
 max_message_length_discord = 2000
 stream_edit_interval_seconds = 1.5
+update_notifications = {update_notifications}
 
 {runner_sections}
 
@@ -43,6 +44,7 @@ cold_permanent_path = "data/memory/cold/permanent"
 cold_session_path = "data/memory/cold/session"
 tier3_context_turns = 20
 distill_trigger_turns = 20
+search_mode = "{search_mode}"
 
 [modules]
 dir = "modules"
@@ -82,6 +84,8 @@ def write_config_toml(path: str, config: dict) -> None:
     content = _TOML_TEMPLATE.format(
         default_runner=default_runner,
         runner_sections=sections,
+        search_mode=config.get("search_mode", "fts5"),
+        update_notifications="true" if config.get("update_notifications", True) else "false",
     )
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
