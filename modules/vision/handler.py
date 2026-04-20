@@ -3,6 +3,7 @@ from typing import AsyncIterator
 
 _OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 _VISION_MODEL = os.environ.get("VISION_MODEL", "llava")
+_ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 
 
 async def handle(command: str, args: str, user_id: int, channel: str) -> AsyncIterator[str]:
@@ -15,8 +16,12 @@ async def handle(command: str, args: str, user_id: int, channel: str) -> AsyncIt
         from pathlib import Path
 
         target = args.strip()
-        if Path(target).exists():
-            img_b64 = base64.b64encode(Path(target).read_bytes()).decode()
+        p = Path(target)
+        if p.suffix.lower() not in _ALLOWED_IMAGE_SUFFIXES:
+            # treat as URL regardless of whether a non-image path exists locally
+            images = [target]
+        elif p.exists():
+            img_b64 = base64.b64encode(p.read_bytes()).decode()
             images = [img_b64]
         else:
             images = [target]

@@ -266,7 +266,10 @@ async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.e
         return
 
     try:
-        await asyncio.gather(*coroutines, return_exceptions=True)
+        results = await asyncio.gather(*coroutines, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error("Channel exited with error: %s", result, exc_info=result)
     finally:
         await tier3.close()
 
