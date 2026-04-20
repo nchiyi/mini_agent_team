@@ -3,6 +3,7 @@ import sys
 
 from src.setup.state import WizardState, is_step_done, mark_step_done
 from src.setup.validator import validate_telegram_token, validate_discord_token
+from src.setup.installer import is_cli_installed, install_cli, install_ollama, progress_reporter
 
 _G = "\033[32m"
 _Y = "\033[33m"
@@ -144,3 +145,87 @@ async def step_3_allowlist(state: WizardState) -> None:
     if not state.allowed_user_ids:
         _warn("No user IDs set — bot will be accessible to anyone!")
     mark_step_done(state, 3)
+
+
+_ALL_CLIS = ["claude", "codex", "gemini", "kiro"]
+
+
+async def step_4_clis(state: WizardState) -> list[asyncio.Task]:
+    if is_step_done(state, 4):
+        _ok(f"Step 4 done (CLIs: {state.selected_clis})")
+        return []
+    _hdr(4, "CLI Tools")
+    for cli in _ALL_CLIS:
+        status = "installed" if is_cli_installed(cli) else "not found"
+        print(f"  {cli}: {status}")
+    raw = _prompt("Select CLIs (comma-separated: claude,codex,gemini,kiro)", "claude")
+    selected = [c.strip() for c in raw.split(",") if c.strip() in _ALL_CLIS]
+    if not selected:
+        selected = ["claude"]
+    state.selected_clis = selected
+    bg_tasks: list[asyncio.Task] = []
+    task_names: list[str] = []
+    for cli in selected:
+        if not is_cli_installed(cli):
+            print(f"  Queuing background install: {cli}")
+            t = asyncio.create_task(install_cli(cli))
+            bg_tasks.append(t)
+            task_names.append(cli)
+    if bg_tasks:
+        asyncio.create_task(progress_reporter(bg_tasks, task_names))
+        _ok(f"Installing {task_names} in background — continuing...")
+    mark_step_done(state, 4)
+    return bg_tasks
+
+
+async def step_5_search(state: WizardState) -> asyncio.Task | None:
+    if is_step_done(state, 5):
+        _ok(f"Step 5 done (search: {state.search_mode})")
+        return None
+    _hdr(5, "Search Mode")
+    print("  1. FTS5 keyword search (default, no extra install)")
+    print("  2. FTS5 + embedding (background Ollama install)")
+    choice = _prompt("Choose", "1")
+    if choice == "2":
+        state.search_mode = "fts5+embedding"
+        t = asyncio.create_task(install_ollama())
+        asyncio.create_task(progress_reporter([t], ["ollama"]))
+        _ok("Installing Ollama in background...")
+        mark_step_done(state, 5)
+        return t
+    state.search_mode = "fts5"
+    _ok("Search mode: FTS5")
+    mark_step_done(state, 5)
+    return None
+
+
+async def step_6_updates(state: WizardState) -> None:
+    if is_step_done(state, 6):
+        _ok(f"Step 6 done (update notifications: {state.update_notifications})")
+        return
+    _hdr(6, "Update Notifications")
+    print("  Check for new GitHub releases on startup and print a notice.")
+    print("  (Never auto-updates — you control when to update.)")
+    choice = _prompt("Enable? (y/n)", "y")
+    state.update_notifications = choice.lower() != "n"
+    _ok(f"Update notifications: {'on' if state.update_notifications else 'off'}")
+    mark_step_done(state, 6)
+
+
+async def step_7_deploy(state: WizardState) -> None:
+    if is_step_done(state, 7):
+        _ok(f"Step 7 done (deploy: {state.deploy_mode})")
+        return
+    _hdr(7, "Deploy Mode")
+    print("  1. foreground  — run in terminal (Ctrl-C to stop)")
+    print("  2. systemd     — user service, auto-restart, survives logout")
+    print("  3. docker      — docker compose (requires Docker)")
+    choice = _prompt("Choose", "1")
+    if choice == "2":
+        state.deploy_mode = "systemd"
+    elif choice == "3":
+        state.deploy_mode = "docker"
+    else:
+        state.deploy_mode = "foreground"
+    _ok(f"Deploy mode: {state.deploy_mode}")
+    mark_step_done(state, 7)

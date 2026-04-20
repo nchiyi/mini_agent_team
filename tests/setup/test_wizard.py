@@ -123,3 +123,119 @@ async def test_step3_skipped_if_done():
     state = WizardState(channel="telegram", completed_steps=[1, 2, 3], allowed_user_ids=[42])
     await wizard.step_3_allowlist(state)
     assert state.allowed_user_ids == [42]
+
+
+# ── Step 4: CLI ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_step4_selects_clis(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3])
+    monkeypatch.setattr("builtins.input", lambda _: "claude,codex")
+    with patch("src.setup.wizard.is_cli_installed", return_value=True):
+        tasks = await wizard.step_4_clis(state)
+    assert state.selected_clis == ["claude", "codex"]
+    assert tasks == []  # all installed, no background tasks
+    assert 4 in state.completed_steps
+
+
+@pytest.mark.asyncio
+async def test_step4_queues_install_for_missing(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3])
+    monkeypatch.setattr("builtins.input", lambda _: "claude")
+    with patch("src.setup.wizard.is_cli_installed", return_value=False):
+        with patch("src.setup.wizard.install_cli", new_callable=AsyncMock, return_value=("claude", True)):
+            tasks = await wizard.step_4_clis(state)
+    assert len(tasks) == 1
+
+
+@pytest.mark.asyncio
+async def test_step4_defaults_to_claude_on_empty(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3])
+    monkeypatch.setattr("builtins.input", lambda _: "")
+    with patch("src.setup.wizard.is_cli_installed", return_value=True):
+        await wizard.step_4_clis(state)
+    assert "claude" in state.selected_clis
+
+
+@pytest.mark.asyncio
+async def test_step4_skipped_if_done():
+    state = WizardState(completed_steps=[1, 2, 3, 4], selected_clis=["codex"])
+    tasks = await wizard.step_4_clis(state)
+    assert tasks == []
+    assert state.selected_clis == ["codex"]
+
+
+# ── Step 5: search ───────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_step5_fts5_default(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3, 4])
+    monkeypatch.setattr("builtins.input", lambda _: "1")
+    task = await wizard.step_5_search(state)
+    assert state.search_mode == "fts5"
+    assert task is None
+    assert 5 in state.completed_steps
+
+
+@pytest.mark.asyncio
+async def test_step5_embedding_returns_task(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3, 4])
+    monkeypatch.setattr("builtins.input", lambda _: "2")
+    with patch("src.setup.wizard.install_ollama", new_callable=AsyncMock, return_value=True):
+        task = await wizard.step_5_search(state)
+    assert state.search_mode == "fts5+embedding"
+    assert task is not None
+
+
+@pytest.mark.asyncio
+async def test_step5_skipped_if_done():
+    state = WizardState(completed_steps=[1, 2, 3, 4, 5], search_mode="fts5+embedding")
+    task = await wizard.step_5_search(state)
+    assert task is None
+    assert state.search_mode == "fts5+embedding"
+
+
+# ── Step 6: updates ──────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_step6_updates_on(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3, 4, 5])
+    monkeypatch.setattr("builtins.input", lambda _: "y")
+    await wizard.step_6_updates(state)
+    assert state.update_notifications is True
+    assert 6 in state.completed_steps
+
+
+@pytest.mark.asyncio
+async def test_step6_updates_off(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3, 4, 5])
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+    await wizard.step_6_updates(state)
+    assert state.update_notifications is False
+
+
+# ── Step 7: deploy ───────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_step7_foreground(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6])
+    monkeypatch.setattr("builtins.input", lambda _: "1")
+    await wizard.step_7_deploy(state)
+    assert state.deploy_mode == "foreground"
+    assert 7 in state.completed_steps
+
+
+@pytest.mark.asyncio
+async def test_step7_systemd(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6])
+    monkeypatch.setattr("builtins.input", lambda _: "2")
+    await wizard.step_7_deploy(state)
+    assert state.deploy_mode == "systemd"
+
+
+@pytest.mark.asyncio
+async def test_step7_docker(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6])
+    monkeypatch.setattr("builtins.input", lambda _: "3")
+    await wizard.step_7_deploy(state)
+    assert state.deploy_mode == "docker"
