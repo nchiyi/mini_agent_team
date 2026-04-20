@@ -63,6 +63,70 @@ def _build_shared(cfg: Config, audit: AuditLog):
     return runners, module_registry, router, session_mgr, tier1, tier3, assembler
 
 
+async def _dispatch_pipeline(
+    *,
+    inbound: "InboundMessage",
+    session,
+    runners: dict,
+    tier3: "Tier3Store",
+    send_reply,
+    pipeline_runners: list[str],
+    prompt: str,
+) -> None:
+    """Run prompt through a chain of runners; each step receives the previous output."""
+    await tier3.save_turn(
+        user_id=inbound.user_id, channel=inbound.channel,
+        role="user", content=inbound.text,
+    )
+    current_input = prompt
+    full_log: list[str] = []
+
+    for i, runner_name in enumerate(pipeline_runners):
+        runner = runners.get(runner_name)
+        if not runner:
+            await send_reply(f"Runner '{runner_name}' not found, skipping.")
+            continue
+
+        label = f"[{runner_name.upper()} {'→' * (i + 1)}]"
+        await send_reply(f"{label} processing...")
+
+        if i > 0:
+            current_input = (
+                f"Original request: {prompt}\n\n"
+                f"Previous response ({pipeline_runners[i - 1]}):\n{current_input}\n\n"
+                f"Please review, improve, or continue based on the above:"
+            )
+
+        chunks: list[str] = []
+        try:
+            async for chunk in runner.run(
+                prompt=current_input,
+                user_id=inbound.user_id,
+                channel=inbound.channel,
+                cwd=session.cwd,
+            ):
+                chunks.append(chunk)
+            output = "".join(chunks).strip()
+        except TimeoutError:
+            await send_reply(f"{label} timed out.")
+            break
+        except Exception as e:
+            logger.error("Pipeline runner %s error: %s", runner_name, e, exc_info=True)
+            await send_reply(f"{label} error — stopping pipeline.")
+            break
+
+        await send_reply(f"{label}\n{output}")
+        full_log.append(f"{runner_name}: {output}")
+        current_input = output
+
+    if full_log:
+        combined = " | ".join(pipeline_runners) + " pipeline:\n" + "\n\n---\n".join(full_log)
+        await tier3.save_turn(
+            user_id=inbound.user_id, channel=inbound.channel,
+            role="assistant", content=combined,
+        )
+
+
 async def dispatch(
     inbound: InboundMessage,
     bridge: StreamingBridge,
@@ -135,6 +199,14 @@ async def dispatch(
             chunks=module_registry.dispatch(
                 cmd.module_command, cmd.prompt, inbound.user_id, inbound.channel
             ),
+        )
+        return
+
+    if cmd.is_pipeline:
+        await _dispatch_pipeline(
+            inbound=inbound, session=session, runners=runners,
+            tier3=tier3, send_reply=send_reply,
+            pipeline_runners=cmd.pipeline_runners, prompt=cmd.prompt,
         )
         return
 

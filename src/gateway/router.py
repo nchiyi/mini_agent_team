@@ -1,5 +1,5 @@
 # src/gateway/router.py
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -16,6 +16,8 @@ class ParsedCommand:
     is_recall: bool = False
     is_module: bool = False
     module_command: str = ""
+    is_pipeline: bool = False
+    pipeline_runners: list[str] = field(default_factory=list)
 
 
 class Router:
@@ -52,6 +54,18 @@ class Router:
             query = text[8:].strip()
             if query:
                 return ParsedCommand(runner=self._default, prompt=query, is_recall=True)
+
+        if text.startswith("/relay "):
+            rest = text[7:].strip()
+            parts2 = rest.split(None, 1)
+            if len(parts2) >= 1:
+                runners = [r.strip() for r in parts2[0].split(",") if r.strip() in self._runners]
+                prompt = parts2[1].strip() if len(parts2) > 1 else ""
+                if len(runners) >= 2 and prompt:
+                    return ParsedCommand(
+                        runner=runners[0], prompt=prompt,
+                        is_pipeline=True, pipeline_runners=runners,
+                    )
 
         if text.startswith("/use "):
             target = text[5:].strip()
