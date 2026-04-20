@@ -1,4 +1,3 @@
-import pytest
 import urllib.error
 from unittest.mock import patch, MagicMock
 from src.setup.validator import validate_telegram_token, validate_discord_token
