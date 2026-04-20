@@ -22,6 +22,7 @@ from src.core.memory.tier1 import Tier1Store
 from src.core.memory.tier3 import Tier3Store
 from src.core.memory.context import ContextAssembler
 from src.modules.loader import ModuleRegistry, load_modules
+from src.gateway.nlu import FastPathDetector
 
 logging.basicConfig(
     level=logging.INFO,
@@ -127,6 +128,163 @@ async def _dispatch_pipeline(
         )
 
 
+async def _dispatch_discussion(
+    *,
+    inbound: "InboundMessage",
+    session,
+    runners: dict,
+    tier3: "Tier3Store",
+    send_reply,
+    discussion_runners: list[str],
+    discussion_rounds: int,
+    prompt: str,
+) -> None:
+    await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
+                          role="user", content=inbound.text)
+    history: list[tuple[str, str]] = []
+
+    for round_num in range(discussion_rounds):
+        runner_name = discussion_runners[round_num % len(discussion_runners)]
+        runner = runners.get(runner_name)
+        if not runner:
+            await send_reply(f"Runner '{runner_name}' not found.")
+            continue
+
+        label = f"[Round {round_num + 1} — {runner_name.upper()}]"
+        await send_reply(f"{label} thinking...")
+
+        if not history:
+            round_prompt = prompt
+        else:
+            history_text = "\n\n".join(f"{name.upper()}: {resp}" for name, resp in history)
+            round_prompt = (
+                f"Original question: {prompt}\n\n"
+                f"Discussion so far:\n{history_text}\n\n"
+                f"Your turn ({runner_name}): Please respond, critique, or build on the above."
+            )
+
+        chunks: list[str] = []
+        try:
+            async for chunk in runner.run(
+                prompt=round_prompt, user_id=inbound.user_id,
+                channel=inbound.channel, cwd=session.cwd,
+            ):
+                chunks.append(chunk)
+            output = "".join(chunks).strip()
+        except (TimeoutError, Exception) as e:
+            logger.error("Discussion round %d error: %s", round_num + 1, e, exc_info=True)
+            await send_reply(f"{label} error — stopping discussion.")
+            break
+
+        await send_reply(f"{label}\n{output}")
+        history.append((runner_name, output))
+
+    if len(history) >= 2:
+        synthesiser = discussion_runners[-1]
+        synth_runner = runners.get(synthesiser)
+        if synth_runner:
+            await send_reply(f"[SYNTHESIS — {synthesiser.upper()}] summarising...")
+            history_text = "\n\n".join(f"{n.upper()}: {r}" for n, r in history)
+            synth_prompt = (
+                f"Original question: {prompt}\n\n"
+                f"Full discussion:\n{history_text}\n\n"
+                f"Please synthesise the key conclusions and actionable takeaways."
+            )
+            synth_chunks: list[str] = []
+            async for chunk in synth_runner.run(
+                prompt=synth_prompt, user_id=inbound.user_id,
+                channel=inbound.channel, cwd=session.cwd,
+            ):
+                synth_chunks.append(chunk)
+            synthesis = "".join(synth_chunks).strip()
+            await send_reply(f"[CONCLUSION]\n{synthesis}")
+            history.append((synthesiser + "_synthesis", synthesis))
+
+    if history:
+        transcript = "\n\n---\n".join(f"{n}: {r}" for n, r in history)
+        await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
+                              role="assistant", content=f"[discussion] {transcript}")
+
+
+async def _get_runner_response(runner_name: str, prompt: str, inbound, session, runners) -> tuple[str, str]:
+    runner = runners.get(runner_name)
+    if not runner:
+        return runner_name, "(runner not found)"
+    chunks: list[str] = []
+    try:
+        async for chunk in runner.run(
+            prompt=prompt, user_id=inbound.user_id,
+            channel=inbound.channel, cwd=session.cwd,
+        ):
+            chunks.append(chunk)
+        return runner_name, "".join(chunks).strip()
+    except Exception as e:
+        logger.error("Debate runner %s error: %s", runner_name, e, exc_info=True)
+        return runner_name, f"(error: {e})"
+
+
+async def _dispatch_debate(
+    *,
+    inbound: "InboundMessage",
+    session,
+    runners: dict,
+    tier3: "Tier3Store",
+    send_reply,
+    debate_runners: list[str],
+    prompt: str,
+) -> None:
+    await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
+                          role="user", content=inbound.text)
+    await send_reply(f"[DEBATE] {' vs '.join(r.upper() for r in debate_runners)}")
+
+    answers = dict(await asyncio.gather(*[
+        _get_runner_response(r, prompt, inbound, session, runners)
+        for r in debate_runners
+    ]))
+    labels = {r: chr(65 + i) for i, r in enumerate(debate_runners)}
+
+    for runner_name in debate_runners:
+        label = labels[runner_name]
+        await send_reply(f"[{label}] {runner_name.upper()}\n{answers[runner_name]}")
+
+    vote_prompt_template = (
+        f"Original question: {prompt}\n\n"
+        + "\n\n".join(f"Option {labels[r]} ({r}):\n{answers[r]}" for r in debate_runners)
+        + "\n\nWhich answer is the most correct, complete, and actionable? "
+          "Reply with ONLY the letter on the first line, then your reasoning."
+    )
+
+    await send_reply("[VOTING] Each runner casting vote...")
+    vote_results = dict(await asyncio.gather(*[
+        _get_runner_response(r, vote_prompt_template, inbound, session, runners)
+        for r in debate_runners
+    ]))
+
+    tally: dict[str, int] = {r: 0 for r in debate_runners}
+    for voter, vote_text in vote_results.items():
+        first_line = vote_text.strip().split("\n")[0].strip().upper()
+        for runner_name, label in labels.items():
+            if first_line == label:
+                tally[runner_name] += 1
+                await send_reply(f"[{voter.upper()} votes {label}] {vote_text}")
+                break
+
+    winner = max(tally, key=lambda r: tally[r])
+    await send_reply(
+        f"[RESULT] Winner: {winner.upper()} "
+        f"({tally[winner]}/{len(debate_runners)} votes)\n\n"
+        f"Winning answer:\n{answers[winner]}"
+    )
+
+    transcript = (
+        f"Debate: {prompt}\n\n"
+        + "\n\n".join(f"{r} [{labels[r]}]: {answers[r]}" for r in debate_runners)
+        + f"\n\nWinner: {winner} ({tally[winner]} votes)"
+    )
+    await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
+                          role="assistant", content=f"[debate] {transcript}")
+
+
 async def dispatch(
     inbound: InboundMessage,
     bridge: StreamingBridge,
@@ -142,6 +300,13 @@ async def dispatch(
     """Channel-agnostic gateway logic."""
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
     cmd = router.parse(inbound.text)
+
+    if not inbound.text.startswith("/") and not any([
+        cmd.is_pipeline, cmd.is_discussion, cmd.is_debate,
+    ]):
+        nlu_cmd = FastPathDetector(set(runners.keys())).detect(inbound.text)
+        if nlu_cmd is not None:
+            cmd = nlu_cmd
 
     if cmd.is_remember:
         tier1.remember(user_id=inbound.user_id, channel=inbound.channel, content=cmd.prompt)
@@ -207,6 +372,24 @@ async def dispatch(
             inbound=inbound, session=session, runners=runners,
             tier3=tier3, send_reply=send_reply,
             pipeline_runners=cmd.pipeline_runners, prompt=cmd.prompt,
+        )
+        return
+
+    if cmd.is_discussion:
+        await _dispatch_discussion(
+            inbound=inbound, session=session, runners=runners,
+            tier3=tier3, send_reply=send_reply,
+            discussion_runners=cmd.discussion_runners,
+            discussion_rounds=cmd.discussion_rounds,
+            prompt=cmd.prompt,
+        )
+        return
+
+    if cmd.is_debate:
+        await _dispatch_debate(
+            inbound=inbound, session=session, runners=runners,
+            tier3=tier3, send_reply=send_reply,
+            debate_runners=cmd.debate_runners, prompt=cmd.prompt,
         )
         return
 

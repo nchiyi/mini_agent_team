@@ -18,6 +18,11 @@ class ParsedCommand:
     module_command: str = ""
     is_pipeline: bool = False
     pipeline_runners: list[str] = field(default_factory=list)
+    is_discussion: bool = False
+    discussion_runners: list[str] = field(default_factory=list)
+    discussion_rounds: int = 3
+    is_debate: bool = False
+    debate_runners: list[str] = field(default_factory=list)
 
 
 class Router:
@@ -54,6 +59,38 @@ class Router:
             query = text[8:].strip()
             if query:
                 return ParsedCommand(runner=self._default, prompt=query, is_recall=True)
+
+        if text.startswith("/discuss "):
+            rest = text[9:].strip()
+            parts2 = rest.split(None, 1)
+            if len(parts2) >= 1:
+                runner_part = parts2[0]
+                rounds = 3
+                if ",rounds=" in runner_part:
+                    runner_part, rounds_str = runner_part.rsplit(",rounds=", 1)
+                    rounds = min(max(int(rounds_str), 2), 6)
+                runners = [r.strip() for r in runner_part.split(",") if r.strip() in self._runners]
+                prompt = parts2[1].strip() if len(parts2) > 1 else ""
+                if len(runners) >= 2 and prompt:
+                    return ParsedCommand(
+                        runner=runners[0], prompt=prompt,
+                        is_discussion=True,
+                        discussion_runners=runners,
+                        discussion_rounds=rounds,
+                    )
+
+        if text.startswith("/debate "):
+            rest = text[8:].strip()
+            parts2 = rest.split(None, 1)
+            if len(parts2) >= 1:
+                runners_list = [r.strip() for r in parts2[0].split(",")
+                                if r.strip() in self._runners]
+                prompt = parts2[1].strip() if len(parts2) > 1 else ""
+                if len(runners_list) >= 2 and prompt:
+                    return ParsedCommand(
+                        runner=runners_list[0], prompt=prompt,
+                        is_debate=True, debate_runners=runners_list,
+                    )
 
         if text.startswith("/relay "):
             rest = text[7:].strip()
