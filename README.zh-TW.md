@@ -81,24 +81,26 @@ pip install -r requirements.txt
 
 ### 設定
 
-執行互動式安裝精靈（推薦）：
+**一行指令安裝**（clone + venv + 安裝套件 + 互動精靈）：
 
 ```bash
-python3 -m src.setup.wizard
+curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh | bash
 ```
 
-或手動複製範例檔案：
+或手動逐步執行：
 
 ```bash
-cp config/config.toml.example config/config.toml
-cp .env.example secrets/.env
-# 編輯 secrets/.env，填入 Token 和 ALLOWED_USER_IDS
+git clone https://github.com/nchiyi/mini_agent_team.git
+cd mini_agent_team
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python3 -m src.setup.wizard
 ```
 
 ### 啟動
 
 ```bash
-python3 main.py
+cd mini_agent_team && source venv/bin/activate && python3 main.py
 ```
 
 ---

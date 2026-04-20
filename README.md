@@ -71,34 +71,26 @@ flowchart TD
 
 ### Installation
 
+**One-liner** (clone + venv + dependencies + interactive wizard):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh | bash
+```
+
+Or step by step:
+
 ```bash
 git clone https://github.com/nchiyi/mini_agent_team.git
 cd mini_agent_team
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-```
-
-### Configuration
-
-Launch the interactive setup wizard:
-
-```bash
 python3 -m src.setup.wizard
-```
-
-Alternatively, configure the environment manually:
-
-```bash
-cp config/config.toml.example config/config.toml
-cp .env.example secrets/.env
-# Update secrets/.env with your tokens and ALLOWED_USER_IDS
 ```
 
 ### Execution
 
 ```bash
-python3 main.py
+cd mini_agent_team && source venv/bin/activate && python3 main.py
 ```
 
 ---
