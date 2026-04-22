@@ -55,7 +55,7 @@ class DiscordAdapter(BaseAdapter):
                     self._dispatch_channel.pop(user_id, None)
 
     def is_authorized(self, user_id: int) -> bool:
-        return bool(self._allowed) and user_id in self._allowed
+        return not self._allowed or user_id in self._allowed
 
     async def send(self, user_id: int, text: str) -> str:
         channel = self._dispatch_channel.get(user_id) or self._user_channel.get(user_id)
