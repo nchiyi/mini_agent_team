@@ -16,19 +16,25 @@ from src.channels.telegram import TelegramAdapter
 from src.channels.discord_adapter import DiscordAdapter
 from src.channels.base import InboundMessage, BaseAdapter
 from src.gateway.router import Router
-from src.gateway.session import SessionManager
+from src.gateway.session import SessionManager, get_active_role
 from src.gateway.streaming import StreamingBridge
 from src.core.memory.tier1 import Tier1Store
 from src.core.memory.tier3 import Tier3Store
 from src.core.memory.context import ContextAssembler
 from src.modules.loader import ModuleRegistry, load_modules
 from src.gateway.nlu import FastPathDetector
+from src.roles import build_role_prompt_prefix
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
 logger = logging.getLogger("main")
+
+
+def _apply_role_prompt(prompt: str, role_slug: str, base_dir: str) -> str:
+    prefix = build_role_prompt_prefix(role_slug, base_dir)
+    return prefix + prompt if prefix else prompt
 
 
 
@@ -83,7 +89,8 @@ async def _dispatch_pipeline(
     context = await assembler.build(
         user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
     )
-    current_input = (context + "\n\n" + prompt) if context else prompt
+    role_prompt = _apply_role_prompt(prompt, session.active_role, session.cwd)
+    current_input = (context + "\n\n" + role_prompt) if context else role_prompt
     full_log: list[str] = []
 
     for i, runner_name in enumerate(pipeline_runners):
@@ -150,7 +157,8 @@ async def _dispatch_discussion(
     context = await assembler.build(
         user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
     )
-    prompt = (context + "\n\n" + prompt) if context else prompt
+    role_prompt = _apply_role_prompt(prompt, session.active_role, session.cwd)
+    prompt = (context + "\n\n" + role_prompt) if context else role_prompt
     history: list[tuple[str, str]] = []
 
     for round_num in range(discussion_rounds):
@@ -250,7 +258,8 @@ async def _dispatch_debate(
     context = await assembler.build(
         user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
     )
-    prompt = (context + "\n\n" + prompt) if context else prompt
+    role_prompt = _apply_role_prompt(prompt, session.active_role, session.cwd)
+    prompt = (context + "\n\n" + role_prompt) if context else role_prompt
     await send_reply(f"[DEBATE] {' vs '.join(r.upper() for r in debate_runners)}")
 
     answers = dict(await asyncio.gather(*[
@@ -317,6 +326,10 @@ async def dispatch(
     """Channel-agnostic gateway logic."""
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
     cmd = router.parse(inbound.text)
+    active_role = get_active_role(inbound.user_id, inbound.channel)
+    if active_role:
+        session.active_role = active_role
+    role_slug = session.active_role or cmd.role
 
     if not inbound.text.startswith("/") and not any([
         cmd.is_pipeline, cmd.is_discussion, cmd.is_debate,
@@ -344,9 +357,11 @@ async def dispatch(
         await send_reply("No active task to cancel.")
         return
     if cmd.is_reset:
+        session_mgr.clear_active_role(inbound.user_id, inbound.channel)
         await send_reply("Context cleared.")
         return
     if cmd.is_new:
+        session_mgr.clear_active_role(inbound.user_id, inbound.channel)
         await send_reply("New session started.")
         return
     if cmd.is_status:
@@ -367,6 +382,7 @@ async def dispatch(
             f"Context: {context_tokens}/{token_budget} tokens\n"
             f"Turns: {len(turns)}\n"
             f"Modules: {mod_names or '(none)'}\n"
+            f"Role: {session.active_role or '(none)'}\n"
             f"CWD: {session.cwd}"
         )
         return
@@ -410,7 +426,12 @@ async def dispatch(
         )
         return
 
-    target_runner = runners.get(session.current_runner)
+    explicit_runner = False
+    if inbound.text.startswith("/"):
+        prefix = inbound.text.split(None, 1)[0].lstrip("/").lower()
+        explicit_runner = prefix in runners
+
+    target_runner = runners.get(cmd.runner if explicit_runner else session.current_runner)
     if not target_runner:
         await send_reply(f"Runner '{session.current_runner}' not found.")
         return
@@ -423,7 +444,8 @@ async def dispatch(
         user_id=inbound.user_id, channel=inbound.channel,
         recent_turns=recent_turns,
     )
-    full_prompt = (context + "\n\n" + cmd.prompt) if context else cmd.prompt
+    prompt = _apply_role_prompt(cmd.prompt, role_slug, session.cwd)
+    full_prompt = (context + "\n\n" + prompt) if context else prompt
 
     try:
         response_chunks: list[str] = []

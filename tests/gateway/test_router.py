@@ -17,6 +17,14 @@ def test_route_default_runner_for_plain_text():
     assert cmd.prompt == "what is the weather today?"
 
 
+def test_route_plain_text_can_attach_semantic_role(monkeypatch):
+    from src.gateway.role_router import RoleRouter
+    monkeypatch.setattr(RoleRouter, "route", lambda self, text: "code-auditor")
+    router = Router(known_runners={"claude", "codex", "gemini"}, default_runner="claude")
+    cmd = router.parse("please audit this diff")
+    assert cmd.role == "code-auditor"
+
+
 def test_route_use_command_changes_runner():
     router = Router(known_runners={"claude", "codex", "gemini"}, default_runner="claude")
     cmd = router.parse("/use codex")

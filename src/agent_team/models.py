@@ -12,8 +12,9 @@ class TaskMode(Enum):
 @dataclass
 class SubTask:
     id: str
-    agent: str
+    agent: str  # This is the runner/binary name (e.g., claude, gemini)
     prompt: str
+    role: str = ""  # The role slug from roster/
     dod: str = ""
     worktree_path: str = ""
     status: str = "pending"

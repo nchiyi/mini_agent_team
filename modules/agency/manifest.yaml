@@ -1,0 +1,4 @@
+name: agency
+description: 代理人企業管理模組 — 負責 Roster 角色庫管理與 DNA 注入切換。
+commands:
+  - /agency

@@ -1,9 +1,13 @@
 import asyncio
+import logging
 from typing import AsyncGenerator
 
 from src.agent_team import worktree as wt
 from src.agent_team.models import SubTask
 from src.agent_team.planner import plan as _plan
+from src.roles import build_role_prompt_prefix
+
+logger = logging.getLogger(__name__)
 
 
 async def _stream_subprocess(
@@ -12,8 +16,13 @@ async def _stream_subprocess(
     prompt: str,
     cwd: str,
     timeout: int,
+    role: str = "",
+    role_base_dir: str | None = None,
 ) -> AsyncGenerator[str, None]:
-    cmd = [binary] + args + [prompt]
+    dna = build_role_prompt_prefix(role, role_base_dir)
+    full_prompt = dna + prompt if dna else prompt
+    
+    cmd = [binary] + args + [full_prompt]
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdin=asyncio.subprocess.DEVNULL,
@@ -44,9 +53,14 @@ async def _collect_subprocess_output(
     prompt: str,
     cwd: str,
     timeout: int,
+    role: str = "",
+    role_base_dir: str | None = None,
 ) -> tuple[list[str], int]:
     """Run subprocess, collect all output lines, return (chunks, returncode)."""
-    cmd = [binary] + args + [prompt]
+    dna = build_role_prompt_prefix(role, role_base_dir)
+    full_prompt = dna + prompt if dna else prompt
+
+    cmd = [binary] + args + [full_prompt]
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdin=asyncio.subprocess.DEVNULL,
@@ -62,7 +76,6 @@ async def _collect_subprocess_output(
                 if not line:
                     break
                 chunks.append(line.decode("utf-8", errors="replace"))
-        # Reap exit status after normal completion (prevents asyncio 255 sentinel)
         await proc.wait()
     except asyncio.TimeoutError:
         proc.kill()
@@ -81,9 +94,12 @@ async def run_p7(
     args: list[str],
     timeout: int,
     cwd: str,
+    role: str = "",
 ) -> AsyncGenerator[str, None]:
-    yield "[P7] Running...\n"
-    async for chunk in _stream_subprocess(binary, args, task_description, cwd, timeout):
+    yield f"[P7] Running as {role if role else 'default'}...\n"
+    async for chunk in _stream_subprocess(
+        binary, args, task_description, cwd, timeout, role=role, role_base_dir=cwd
+    ):
         yield chunk
 
 
@@ -93,14 +109,17 @@ async def run_p10(
     args: list[str],
     timeout: int,
     cwd: str,
+    role: str = "expert-architect" # P10 defaults to architect
 ) -> AsyncGenerator[str, None]:
     p10_prompt = (
-        "You are a software architect. Produce a strategy document for the following. "
+        "Produce a strategy document for the following. "
         "Do NOT write implementation code. Output: goals, trade-offs, recommended approach, risks.\n"
         f"Task: {task_description}"
     )
-    yield "[P10] Generating architecture document...\n"
-    async for chunk in _stream_subprocess(binary, args, p10_prompt, cwd, timeout):
+    yield f"[P10] Generating architecture document as {role}...\n"
+    async for chunk in _stream_subprocess(
+        binary, args, p10_prompt, cwd, timeout, role=role, role_base_dir=cwd
+    ):
         yield chunk
 
 
@@ -123,9 +142,15 @@ async def _collect_subtask(
         await wt.create(base_repo=cwd, path=subtask.worktree_path, branch=f"team/{subtask.id}")
         subtask.status = "running"
         raw_chunks, returncode = await _collect_subprocess_output(
-            binary, args, subtask.prompt, subtask.worktree_path, timeout
+            binary,
+            args,
+            subtask.prompt,
+            subtask.worktree_path,
+            timeout,
+            role=subtask.role,
+            role_base_dir=cwd,
         )
-        chunks = [f"[subtask-{index}] {c}" for c in raw_chunks]
+        chunks = [f"[subtask-{index}|{subtask.role}] {c}" for c in raw_chunks]
         if returncode != 0:
             subtask.status = "failed"
             subtask.result = f"exited with code {returncode}"
@@ -150,7 +175,7 @@ async def run_p9(
     cwd: str,
     data_dir: str,
 ) -> AsyncGenerator[str, None]:
-    yield "[P9] Planning subtasks...\n"
+    yield "[P9] Planning subtasks as department-head...\n"
     try:
         subtasks = await _plan(
             task_description=task_description,
@@ -164,7 +189,7 @@ async def run_p9(
         yield f"[P9] Planning failed: {e}\n"
         return
 
-    plan_lines = "\n".join(f"  [{i}|{st.agent}] {st.prompt[:60]}" for i, st in enumerate(subtasks))
+    plan_lines = "\n".join(f"  [{i}|{st.agent}|{st.role}] {st.prompt[:60]}" for i, st in enumerate(subtasks))
     yield f"[P9] Plan:\n{plan_lines}\n[P9] Executing {len(subtasks)} subtasks in parallel...\n"
 
     results = await asyncio.gather(
@@ -190,11 +215,11 @@ async def run_p9(
         else:
             subtask, _ = result
             if subtask.status == "done":
-                yield f"[P9]   ✓ subtask {subtask.id} done\n"
+                yield f"[P9]   ✓ subtask {subtask.id} ({subtask.role}) done\n"
                 try:
                     await wt.remove(subtask.worktree_path, base_repo=cwd)
                 except Exception:
                     pass
             else:
-                yield f"[P9]   ✗ subtask {subtask.id} failed: {subtask.result}\n"
+                yield f"[P9]   ✗ subtask {subtask.id} ({subtask.role}) failed: {subtask.result}\n"
                 yield f"[P9]   Worktree preserved at: {subtask.worktree_path}\n"

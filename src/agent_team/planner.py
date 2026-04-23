@@ -3,14 +3,22 @@ import json
 import re
 
 from src.agent_team.models import SubTask
+from src.roles import available_role_slugs
 
-_PLANNER_PROMPT_PREFIX = (
-    "You are a task planner. Break the following task into 2-4 independent subtasks. "
-    "Each subtask must specify the agent (claude, codex, or gemini), the prompt to send, "
-    "and a definition_of_done. "
-    'Output ONLY valid JSON with no other text: [{"agent": "...", "prompt": "...", "dod": "..."}]\n'
-    "Task: "
-)
+
+def _planner_prompt_prefix(cwd: str) -> str:
+    roles = available_role_slugs(cwd)
+    role_lines = "\n".join(f"- {slug}" for slug in roles) if roles else "- department-head"
+    return (
+        "You are a Senior Department Head. Break the following task into 2-4 specialized subtasks. "
+        "For each subtask, assign the best 'role' (slug from available roster), a 'runner' "
+        "(claude, gemini, or codex), a specific 'prompt', and a 'dod' (definition of done). "
+        "\nAvailable Roles:\n"
+        f"{role_lines}\n"
+        "\nOutput ONLY a valid JSON array: "
+        '[{"role": "slug", "runner": "...", "prompt": "...", "dod": "..."}]\n'
+        "Task: "
+    )
 
 
 def parse_subtasks(output: str, task_id: str) -> list[SubTask]:
@@ -21,15 +29,17 @@ def parse_subtasks(output: str, task_id: str) -> list[SubTask]:
             if isinstance(raw, list):
                 subtasks = []
                 for i, item in enumerate(raw):
-                    agent = item.get("agent", "")
+                    role = item.get("role", "")
+                    runner = item.get("runner", item.get("agent", ""))
                     prompt = item.get("prompt", "")
-                    if not agent or not prompt:
+                    if not runner or not prompt:
                         raise ValueError(
-                            f"Subtask {i} missing required field 'agent' or 'prompt'. Item: {item}"
+                            f"Subtask {i} missing required field 'runner/agent' or 'prompt'. Item: {item}"
                         )
                     subtasks.append(SubTask(
                         id=f"{task_id}-{i}",
-                        agent=agent,
+                        agent=runner,
+                        role=role,
                         prompt=prompt,
                         dod=item.get("dod", ""),
                     ))
@@ -50,7 +60,7 @@ async def plan(
     if args is None:
         args = ["--dangerously-skip-permissions"]
 
-    prompt = _PLANNER_PROMPT_PREFIX + task_description
+    prompt = _planner_prompt_prefix(cwd) + task_description
     cmd = [binary] + args + [prompt]
 
     proc = await asyncio.create_subprocess_exec(
@@ -79,9 +89,14 @@ async def plan(
             await proc.wait()
 
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"Planner subprocess exited with code {proc.returncode}. "
-            f"Output: {''.join(chunks)[:300]}"
-        )
+        output_snippet = "".join(chunks)[:300]
+        # Claude-code often outputs lots of ansi, try to find JSON anyway
+        try:
+            return parse_subtasks("".join(chunks), task_id)
+        except Exception:
+            raise RuntimeError(
+                f"Planner subprocess exited with code {proc.returncode}. "
+                f"Output: {output_snippet}"
+            )
 
     return parse_subtasks("".join(chunks), task_id)
