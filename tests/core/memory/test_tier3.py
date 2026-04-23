@@ -64,7 +64,7 @@ async def test_tier3_fts_search(tmp_path):
     await store.save_turn(user_id=1, channel="telegram", role="user", content="memory system sqlite")
     await store.save_turn(user_id=1, channel="telegram", role="user", content="discord adapter implementation")
 
-    results = await store.search(user_id=1, query="sqlite memory", limit=5)
+    results = await store.search(user_id=1, channel="telegram", query="sqlite memory", limit=5)
     assert any("memory" in r["content"] or "sqlite" in r["content"] for r in results)
 
     await store.close()

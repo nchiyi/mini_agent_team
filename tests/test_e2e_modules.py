@@ -57,6 +57,7 @@ async def test_module_command_dispatched_e2e(tmp_path):
         inbound, bridge, session_mgr, router, runners,
         tier1, tier3, assembler,
         lambda t: adapter.send(1, t),
+        recent_turns=20,
         module_registry=reg,
     )
 
@@ -112,6 +113,7 @@ async def test_status_shows_context_and_modules(tmp_path):
         inbound, bridge, session_mgr, router, runners,
         tier1, tier3, assembler,
         lambda t: adapter.send(1, t),
+        recent_turns=20,
         module_registry=reg,
     )
 
@@ -163,6 +165,7 @@ async def test_unknown_command_falls_through_to_runner(tmp_path):
         inbound, bridge, session_mgr, router, runners,
         tier1, tier3, assembler,
         lambda t: adapter.send(1, t),
+        recent_turns=20,
         module_registry=reg,
     )
 

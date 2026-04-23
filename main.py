@@ -30,7 +30,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("main")
 
-_recent_turns = 20  # overridden by config at startup
 
 
 def _build_shared(cfg: Config, audit: AuditLog):
@@ -70,6 +69,8 @@ async def _dispatch_pipeline(
     session,
     runners: dict,
     tier3: "Tier3Store",
+    assembler: ContextAssembler,
+    recent_turns: int,
     send_reply,
     pipeline_runners: list[str],
     prompt: str,
@@ -79,7 +80,10 @@ async def _dispatch_pipeline(
         user_id=inbound.user_id, channel=inbound.channel,
         role="user", content=inbound.text,
     )
-    current_input = prompt
+    context = await assembler.build(
+        user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
+    )
+    current_input = (context + "\n\n" + prompt) if context else prompt
     full_log: list[str] = []
 
     for i, runner_name in enumerate(pipeline_runners):
@@ -134,6 +138,8 @@ async def _dispatch_discussion(
     session,
     runners: dict,
     tier3: "Tier3Store",
+    assembler: ContextAssembler,
+    recent_turns: int,
     send_reply,
     discussion_runners: list[str],
     discussion_rounds: int,
@@ -141,6 +147,10 @@ async def _dispatch_discussion(
 ) -> None:
     await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
                           role="user", content=inbound.text)
+    context = await assembler.build(
+        user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
+    )
+    prompt = (context + "\n\n" + prompt) if context else prompt
     history: list[tuple[str, str]] = []
 
     for round_num in range(discussion_rounds):
@@ -229,12 +239,18 @@ async def _dispatch_debate(
     session,
     runners: dict,
     tier3: "Tier3Store",
+    assembler: ContextAssembler,
+    recent_turns: int,
     send_reply,
     debate_runners: list[str],
     prompt: str,
 ) -> None:
     await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
                           role="user", content=inbound.text)
+    context = await assembler.build(
+        user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
+    )
+    prompt = (context + "\n\n" + prompt) if context else prompt
     await send_reply(f"[DEBATE] {' vs '.join(r.upper() for r in debate_runners)}")
 
     answers = dict(await asyncio.gather(*[
@@ -295,6 +311,7 @@ async def dispatch(
     tier3: Tier3Store,
     assembler: ContextAssembler,
     send_reply,
+    recent_turns: int,
     module_registry: ModuleRegistry | None = None,
 ) -> None:
     """Channel-agnostic gateway logic."""
@@ -336,14 +353,14 @@ async def dispatch(
         mod_names = module_registry.get_names() if module_registry else []
         # Build context to measure current token usage
         context_str = await assembler.build(
-            user_id=inbound.user_id, channel=inbound.channel, recent_turns=_recent_turns
+            user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
         )
         from src.core.memory.context import count_tokens
         context_tokens = count_tokens(context_str) if context_str else 0
         default_runner_obj = runners.get(session.current_runner)
         token_budget = default_runner_obj.context_token_budget if default_runner_obj else 4000
         turns = await tier3.get_recent(
-            user_id=inbound.user_id, channel=inbound.channel, n=_recent_turns
+            user_id=inbound.user_id, channel=inbound.channel, n=recent_turns
         )
         await send_reply(
             f"Runner: {session.current_runner}\n"
@@ -370,7 +387,7 @@ async def dispatch(
     if cmd.is_pipeline:
         await _dispatch_pipeline(
             inbound=inbound, session=session, runners=runners,
-            tier3=tier3, send_reply=send_reply,
+            tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
             pipeline_runners=cmd.pipeline_runners, prompt=cmd.prompt,
         )
         return
@@ -378,7 +395,7 @@ async def dispatch(
     if cmd.is_discussion:
         await _dispatch_discussion(
             inbound=inbound, session=session, runners=runners,
-            tier3=tier3, send_reply=send_reply,
+            tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
             discussion_runners=cmd.discussion_runners,
             discussion_rounds=cmd.discussion_rounds,
             prompt=cmd.prompt,
@@ -388,7 +405,7 @@ async def dispatch(
     if cmd.is_debate:
         await _dispatch_debate(
             inbound=inbound, session=session, runners=runners,
-            tier3=tier3, send_reply=send_reply,
+            tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
             debate_runners=cmd.debate_runners, prompt=cmd.prompt,
         )
         return
@@ -404,7 +421,7 @@ async def dispatch(
     )
     context = await assembler.build(
         user_id=inbound.user_id, channel=inbound.channel,
-        recent_turns=_recent_turns,
+        recent_turns=recent_turns,
     )
     full_prompt = (context + "\n\n" + cmd.prompt) if context else cmd.prompt
 
@@ -459,6 +476,7 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
             inbound, bridge, session_mgr, router, runners,
             tier1, tier3, assembler,
             lambda t: adapter.send(user_id, t),
+            recent_turns=cfg.memory.tier3_context_turns,
             module_registry=module_registry,
         )
 
@@ -488,6 +506,7 @@ async def run_discord(cfg: Config, runners, module_registry, router, session_mgr
             inbound, bridge, session_mgr, router, runners,
             tier1, tier3, assembler,
             lambda t: dc_adapter.send(inbound.user_id, t),
+            recent_turns=cfg.memory.tier3_context_turns,
             module_registry=module_registry,
         )
 
@@ -501,9 +520,7 @@ async def run_discord(cfg: Config, runners, module_registry, router, session_mgr
 
 
 async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.env") -> None:
-    global _recent_turns
     cfg = load_config(config_path=cfg_path, env_path=env_path)
-    _recent_turns = cfg.memory.tier3_context_turns
     audit = AuditLog(audit_dir=cfg.audit.path, max_entries=cfg.audit.max_entries)
     runners, module_registry, router, session_mgr, tier1, tier3, assembler = _build_shared(cfg, audit)
     await tier3.init()
