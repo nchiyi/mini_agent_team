@@ -77,3 +77,11 @@ def test_load_modules_skips_dir_without_manifest(tmp_path):
     from src.modules.loader import load_modules
     reg = load_modules(str(tmp_path))
     assert reg.get_names() == []
+
+
+def test_real_agency_module_loads():
+    from src.modules.loader import load_modules
+    repo_root = Path(__file__).resolve().parents[2]
+    reg = load_modules(str(repo_root / "modules"))
+    assert "agency" in reg.get_names()
+    assert "/agency" in reg.get_commands()

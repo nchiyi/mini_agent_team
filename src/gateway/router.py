@@ -1,11 +1,12 @@
 # src/gateway/router.py
 from dataclasses import dataclass, field
-
+from .role_router import RoleRouter
 
 @dataclass
 class ParsedCommand:
     runner: str
     prompt: str
+    role: str = "" # Added for Agency Integration
     is_switch_runner: bool = False
     is_cancel: bool = False
     is_status: bool = False
@@ -32,6 +33,7 @@ class Router:
         self._runners = known_runners
         self._default = default_runner
         self._modules = module_registry
+        self._role_router = RoleRouter()
 
     def parse(self, text: str) -> ParsedCommand:
         text = text.strip()
@@ -128,4 +130,11 @@ class Router:
             # Unknown slash command: pass full text to default runner
             return ParsedCommand(runner=self._default, prompt=text)
 
-        return ParsedCommand(runner=self._default, prompt=text)
+        # Agency Integration: Try semantic routing for natural language
+        matched_role = self._role_router.route(text)
+        
+        return ParsedCommand(
+            runner=self._default, 
+            prompt=text, 
+            role=matched_role if matched_role else ""
+        )

@@ -1,9 +1,6 @@
 # tests/gateway/test_session.py
 import asyncio, pytest
 
-pytestmark = pytest.mark.asyncio
-
-
 def test_session_created_on_first_access():
     from src.gateway.session import SessionManager
     mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
@@ -33,6 +30,24 @@ def test_session_set_runner():
     assert mgr.get_or_create(user_id=1, channel="telegram").current_runner == "codex"
 
 
+def test_session_active_role_round_trip():
+    from src.gateway.session import SessionManager
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    mgr.set_active_role(user_id=1, channel="telegram", role="code-auditor")
+    session = mgr.get_or_create(user_id=1, channel="telegram")
+    assert session.active_role == "code-auditor"
+
+
+def test_session_active_role_clear():
+    from src.gateway.session import SessionManager
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    mgr.set_active_role(user_id=1, channel="telegram", role="code-auditor")
+    mgr.clear_active_role(user_id=1, channel="telegram")
+    session = mgr.get_or_create(user_id=1, channel="telegram")
+    assert session.active_role == ""
+
+
+@pytest.mark.asyncio
 async def test_session_idle_release():
     from src.gateway.session import SessionManager
     mgr = SessionManager(idle_minutes=0, default_runner="claude", default_cwd="/tmp")

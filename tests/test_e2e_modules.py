@@ -173,3 +173,67 @@ async def test_unknown_command_falls_through_to_runner(tmp_path):
     assert len(all_output) > 0
 
     await tier3.close()
+
+
+async def test_active_role_is_injected_into_default_dispatch(tmp_path):
+    from fake_adapter import FakeAdapter
+    from src.channels.base import InboundMessage
+    from src.runners.audit import AuditLog
+    from src.runners.cli_runner import CLIRunner
+    from src.gateway.router import Router
+    from src.gateway.session import SessionManager, set_active_role
+    from src.gateway.streaming import StreamingBridge
+    from src.core.memory.tier1 import Tier1Store
+    from src.core.memory.tier3 import Tier3Store
+    from src.core.memory.context import ContextAssembler
+    from src.modules.loader import ModuleRegistry
+
+    roster_dir = tmp_path / "roster"
+    roster_dir.mkdir()
+    (roster_dir / "code-auditor.md").write_text(
+        "---\n"
+        "slug: code-auditor\n"
+        "name: Code Auditor\n"
+        "summary: Review code changes\n"
+        "identity: You are a meticulous code auditor.\n"
+        "rules:\n"
+        "  - Focus on correctness\n"
+        "---\n"
+        "Body\n",
+        encoding="utf-8",
+    )
+
+    reg = ModuleRegistry()
+    audit = AuditLog(audit_dir=str(tmp_path / "audit"), max_entries=100)
+    runner = CLIRunner(name="echo", binary="echo", args=[], timeout_seconds=5,
+                       context_token_budget=1000, audit=audit)
+    runners = {"echo": runner}
+    router = Router(known_runners=set(runners.keys()), default_runner="echo",
+                    module_registry=reg)
+    session_mgr = SessionManager(idle_minutes=60, default_runner="echo",
+                                  default_cwd=str(tmp_path))
+    adapter = FakeAdapter()
+    bridge = StreamingBridge(adapter, edit_interval=0.0)
+    tier1 = Tier1Store(permanent_dir=str(tmp_path / "permanent"))
+    tier3 = Tier3Store(db_path=str(tmp_path / "history.db"))
+    await tier3.init()
+    assembler = ContextAssembler(tier1=tier1, tier3=tier3, max_tokens=1000)
+
+    from main import dispatch
+
+    set_active_role(1, "tg", "code-auditor")
+    inbound = InboundMessage(user_id=1, channel="tg", text="review this patch", message_id="1")
+    await dispatch(
+        inbound, bridge, session_mgr, router, runners,
+        tier1, tier3, assembler,
+        lambda t: adapter.send(1, t),
+        recent_turns=20,
+        module_registry=reg,
+    )
+
+    all_output = adapter.sent + list(adapter.edits.values())
+    combined = " ".join(all_output)
+    assert "You are a meticulous code auditor." in combined
+    assert "Focus on correctness" in combined
+
+    await tier3.close()
