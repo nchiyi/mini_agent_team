@@ -1,0 +1,7 @@
+name: system_monitor
+version: 1.0.0
+commands: [/sysinfo]
+description: CPU / 記憶體 / 磁碟狀態
+dependencies: [psutil]
+enabled: true
+timeout_seconds: 10

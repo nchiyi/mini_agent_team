@@ -1,0 +1,7 @@
+name: agent_team
+version: 1.0.0
+commands: [/team]
+description: 多 Agent 協作（P7 單一任務 / P9 並行子任務 / P10 架構文件）
+dependencies: []
+enabled: true
+timeout_seconds: 600

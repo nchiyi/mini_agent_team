@@ -19,8 +19,8 @@ async def test_module_command_dispatched_e2e(tmp_path):
     from src.core.memory.tier1 import Tier1Store
     from src.core.memory.tier3 import Tier3Store
     from src.core.memory.context import ContextAssembler
-    from src.modules.loader import ModuleRegistry, LoadedModule
-    from src.modules.manifest import ModuleManifest
+    from src.skills.loader import ModuleRegistry, LoadedModule
+    from src.skills.manifest import ModuleManifest
 
     # Build fake module
     async def ping_handler(command, args, user_id, channel):
@@ -78,8 +78,8 @@ async def test_status_shows_context_and_modules(tmp_path):
     from src.core.memory.tier1 import Tier1Store
     from src.core.memory.tier3 import Tier3Store
     from src.core.memory.context import ContextAssembler
-    from src.modules.loader import ModuleRegistry, LoadedModule
-    from src.modules.manifest import ModuleManifest
+    from src.skills.loader import ModuleRegistry, LoadedModule
+    from src.skills.manifest import ModuleManifest
 
     async def ping_handler(command, args, user_id, channel):
         yield "pong"
@@ -140,7 +140,7 @@ async def test_unknown_command_falls_through_to_runner(tmp_path):
     from src.core.memory.tier1 import Tier1Store
     from src.core.memory.tier3 import Tier3Store
     from src.core.memory.context import ContextAssembler
-    from src.modules.loader import ModuleRegistry
+    from src.skills.loader import ModuleRegistry
 
     reg = ModuleRegistry()  # empty
     audit = AuditLog(audit_dir=str(tmp_path / "audit"), max_entries=100)
@@ -186,7 +186,7 @@ async def test_active_role_is_injected_into_default_dispatch(tmp_path):
     from src.core.memory.tier1 import Tier1Store
     from src.core.memory.tier3 import Tier3Store
     from src.core.memory.context import ContextAssembler
-    from src.modules.loader import ModuleRegistry
+    from src.skills.loader import ModuleRegistry
 
     roster_dir = tmp_path / "roster"
     roster_dir.mkdir()
