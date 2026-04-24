@@ -89,7 +89,12 @@ async def step_2_token(state: WizardState) -> None:
                 _err("Token required")
                 continue
             print("  Validating...")
-            if validate_telegram_token(token):
+            result = validate_telegram_token(token)
+            if result.skipped:
+                state.telegram_token = token
+                _warn(f"Validation skipped ({result.reason}) — token saved as-is")
+                break
+            if result.valid:
                 state.telegram_token = token
                 _ok("Telegram token valid")
                 break
@@ -101,7 +106,12 @@ async def step_2_token(state: WizardState) -> None:
                 _err("Token required")
                 continue
             print("  Validating...")
-            if validate_discord_token(token):
+            result = validate_discord_token(token)
+            if result.skipped:
+                state.discord_token = token
+                _warn(f"Validation skipped ({result.reason}) — token saved as-is")
+                break
+            if result.valid:
                 state.discord_token = token
                 _ok("Discord token valid")
                 break
