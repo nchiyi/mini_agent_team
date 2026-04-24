@@ -1,6 +1,7 @@
 # src/channels/discord_adapter.py
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Callable, Awaitable
 import discord
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 MAX_LEN = 2000
 
 _ALLOW_OPTS = frozenset(("off", "mentions", "all"))
+_SAFE_EXT = re.compile(r'^\.[a-zA-Z0-9]{1,10}$')
 
 
 async def _typing_loop(channel: discord.abc.Messageable) -> None:
@@ -97,9 +99,14 @@ class DiscordAdapter(BaseAdapter):
                     attachments: list[str] = []
                     if message.attachments:
                         _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+                        upload_root = _UPLOAD_DIR.resolve()
                         for att in message.attachments:
-                            ext = Path(att.filename).suffix or ""
+                            raw_ext = Path(att.filename).suffix
+                            ext = raw_ext if _SAFE_EXT.match(raw_ext) else ""
                             dest = _UPLOAD_DIR / f"{user_id}_{att.id}{ext}"
+                            if not dest.resolve().is_relative_to(upload_root):
+                                logger.warning("Attachment path escaped upload dir: %s", dest)
+                                continue
                             await att.save(dest)
                             attachments.append(str(dest))
                     await gateway_handler(

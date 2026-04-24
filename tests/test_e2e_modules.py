@@ -181,7 +181,7 @@ async def test_active_role_is_injected_into_default_dispatch(tmp_path):
     from src.runners.audit import AuditLog
     from src.runners.cli_runner import CLIRunner
     from src.gateway.router import Router
-    from src.gateway.session import SessionManager, set_active_role
+    from src.gateway.session import SessionManager
     from src.gateway.streaming import StreamingBridge
     from src.core.memory.tier1 import Tier1Store
     from src.core.memory.tier3 import Tier3Store
@@ -221,7 +221,7 @@ async def test_active_role_is_injected_into_default_dispatch(tmp_path):
 
     from main import dispatch
 
-    set_active_role(1, "tg", "code-auditor")
+    session_mgr.set_active_role(1, "tg", "code-auditor")
     inbound = InboundMessage(user_id=1, channel="tg", text="review this patch", message_id="1")
     await dispatch(
         inbound, bridge, session_mgr, router, runners,

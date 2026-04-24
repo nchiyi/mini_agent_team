@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from telegram import Update
@@ -33,6 +34,7 @@ from src.roles import build_role_prompt_prefix
 
 _DEFAULT_ROLE = "department-head"
 _role_prompt_cache: dict[str, tuple[float, str]] = {}  # slug -> (mtime, prefix)
+_SAFE_EXT = re.compile(r'^\.[a-zA-Z0-9]{1,10}$')
 
 logging.basicConfig(
     level=logging.INFO,
@@ -676,9 +678,12 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
 
     upload_dir = Path("data/uploads")
     upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_root = upload_dir.resolve()
 
     async def _download_tg_file(tg_file, filename: str) -> str:
         dest = upload_dir / filename
+        if not dest.resolve().is_relative_to(upload_root):
+            raise ValueError(f"Attachment path escaped upload dir: {dest}")
         await tg_file.download_to_drive(str(dest))
         return str(dest)
 
@@ -735,14 +740,16 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
         if msg.photo:
             largest = max(msg.photo, key=lambda p: p.file_size or 0)
             tg_file = await context.bot.get_file(largest.file_id)
-            ext = Path(tg_file.file_path or "photo.jpg").suffix or ".jpg"
+            raw_ext = Path(tg_file.file_path or "photo.jpg").suffix
+            ext = raw_ext if _SAFE_EXT.match(raw_ext) else ".jpg"
             path = await _download_tg_file(tg_file, f"{msg.from_user.id}_{largest.file_unique_id}{ext}")
             attachments.append(path)
 
         if msg.document:
             doc = msg.document
             tg_file = await context.bot.get_file(doc.file_id)
-            ext = Path(doc.file_name or "file").suffix or ""
+            raw_ext = Path(doc.file_name or "file").suffix
+            ext = raw_ext if _SAFE_EXT.match(raw_ext) else ""
             path = await _download_tg_file(tg_file, f"{msg.from_user.id}_{doc.file_unique_id}{ext}")
             attachments.append(path)
 

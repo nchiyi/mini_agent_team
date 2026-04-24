@@ -4,8 +4,11 @@ Lightweight file resolver: maps natural language file references to real paths.
 Uses find/git ls-files (depth 2) to avoid token waste.
 """
 import asyncio
+import logging
 import re
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _NL_REFS = re.compile(
     r"\b(the\s+)?"
@@ -47,8 +50,8 @@ async def _list_files(cwd: str, max_depth: int = 2) -> list[str]:
         ]
         if files:
             return files
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("git ls-files failed in %r: %s", cwd, exc)
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -59,7 +62,8 @@ async def _list_files(cwd: str, max_depth: int = 2) -> list[str]:
         )
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
         return [f.lstrip("./") for f in out.decode().splitlines() if f.startswith("./")]
-    except Exception:
+    except Exception as exc:
+        logger.debug("find failed in %r: %s", cwd, exc)
         return []
 
 
@@ -68,13 +72,24 @@ async def resolve_file_refs(prompt: str, cwd: str) -> str:
     Scan prompt for natural-language file references and append resolved paths.
     Returns the original prompt unchanged if no refs found or resolution fails.
     """
+    try:
+        cwd_path = Path(cwd).resolve()
+        if not cwd_path.is_dir():
+            logger.debug("resolve_file_refs: cwd %r is not a directory, skipping", cwd)
+            return prompt
+        cwd = str(cwd_path)
+    except Exception as exc:
+        logger.debug("resolve_file_refs: invalid cwd %r: %s", cwd, exc)
+        return prompt
+
     match = _NL_REFS.search(prompt)
     if not match:
         return prompt
 
     try:
         files = await _list_files(cwd)
-    except Exception:
+    except Exception as exc:
+        logger.debug("resolve_file_refs: _list_files raised: %s", exc)
         return prompt
 
     file_set = {Path(f).name.lower(): f for f in reversed(files)}
