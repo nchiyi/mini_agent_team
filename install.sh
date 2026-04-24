@@ -21,24 +21,58 @@ fi
 cd "$DIR"
 
 # ── 2. Python check ───────────────────────
-if ! command -v python3 &>/dev/null; then
-    echo "❌  python3 not found. Please install Python 3.11+."
-    exit 1
+_py_ver_num() { "$1" -c 'import sys; print(sys.version_info.major * 100 + sys.version_info.minor)' 2>/dev/null || echo 0; }
+
+PYTHON_BIN="python3"
+
+# Prefer an explicitly versioned binary if the default is too old
+if [ "$(_py_ver_num python3)" -lt 311 ]; then
+    for _candidate in python3.13 python3.12 python3.11; do
+        if command -v "$_candidate" &>/dev/null && [ "$(_py_ver_num "$_candidate")" -ge 311 ]; then
+            PYTHON_BIN="$_candidate"
+            break
+        fi
+    done
 fi
 
-PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-PY_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
-PY_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
-if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]; }; then
+PY_VER=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "not found")
+
+if [ "$(_py_ver_num "$PYTHON_BIN")" -lt 311 ]; then
     echo "❌  Python $PY_VER found, but 3.11+ is required."
-    exit 1
+    echo ""
+    if [[ "$OSTYPE" == "linux-gnu"* ]] && command -v apt &>/dev/null; then
+        echo "💡  Detected Ubuntu/Debian."
+        echo "    This will run: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.11 python3.11-venv"
+        read -rp "🔧  Auto-install Python 3.11 now? [y/N]: " _DO_INSTALL
+        if [[ "$_DO_INSTALL" =~ ^[Yy]$ ]]; then
+            sudo add-apt-repository -y ppa:deadsnakes/ppa
+            sudo apt install -y python3.11 python3.11-venv
+            PYTHON_BIN="python3.11"
+            PY_VER=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+            echo "✅  Python $PY_VER installed"
+        else
+            echo "👉  Manual install:"
+            echo "    sudo add-apt-repository ppa:deadsnakes/ppa"
+            echo "    sudo apt install python3.11 python3.11-venv"
+            exit 1
+        fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "💡  macOS — run one of:"
+        echo "    brew install python@3.11"
+        echo "    or download from: https://www.python.org/downloads/"
+        exit 1
+    else
+        echo "💡  Please install Python 3.11+: https://www.python.org/downloads/"
+        exit 1
+    fi
+else
+    echo "✅  Python $PY_VER"
 fi
-echo "✅  Python $PY_VER"
 
 # ── 3. venv ───────────────────────────────
 if [ ! -d "venv" ]; then
     echo "🐍  Creating virtual environment..."
-    python3 -m venv venv
+    "$PYTHON_BIN" -m venv venv
 fi
 source venv/bin/activate
 echo "✅  Virtual environment active"
@@ -53,7 +87,7 @@ echo "✅  Dependencies installed"
 echo ""
 echo "🧙  Launching setup wizard..."
 echo ""
-python3 -m src.setup.wizard
+"$PYTHON_BIN" -m src.setup.wizard
 
 echo ""
 echo "🚀  Setup complete. To start the bot:"
