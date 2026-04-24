@@ -26,3 +26,5 @@ aiosqlite
 tiktoken
 pyyaml>=6.0
 mcp
+groq
+edge-tts

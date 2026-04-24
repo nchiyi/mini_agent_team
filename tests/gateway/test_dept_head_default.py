@@ -54,6 +54,8 @@ async def test_dispatch_applies_dept_head_when_no_role_set():
     cmd.is_cancel = cmd.is_status = cmd.is_reset = cmd.is_new = False
     cmd.is_switch_runner = cmd.is_skill = False
     cmd.is_pipeline = cmd.is_discussion = cmd.is_debate = False
+    cmd.is_voice_on = cmd.is_voice_off = False
+    cmd.is_usage = False
     cmd.role = ""
     cmd.runner = "claude"
     cmd.prompt = "summarise the project"

@@ -40,3 +40,8 @@ distill_trigger_turns = 20
 
 [modules]
 dir = "modules"
+
+[voice]
+stt_provider = "groq"          # "groq" | "faster-whisper"
+tts_provider = "edge-tts"      # "edge-tts" | "gtts"
+tts_voice = "zh-TW-HsiaoChenNeural"
