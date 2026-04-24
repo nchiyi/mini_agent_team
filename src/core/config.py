@@ -1,17 +1,22 @@
 # src/core/config.py
-import os, tomllib
+import logging
+import os
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 
+logger = logging.getLogger(__name__)
 
 _DEFAULT_RUNNER_ARGS: dict[str, list[str]] = {
-    "claude": ["--dangerously-skip-permissions"],
+    "claude": [],
     "codex": ["exec", "--full-auto", "--skip-git-repo-check"],
     "gemini": ["--approval-mode", "yolo"],
     "kiro": [],
 }
+
+_DANGEROUS_SKIP_PERMISSIONS = "--dangerously-skip-permissions"
 
 _LEGACY_RUNNER_ARGS: dict[str, list[list[str]]] = {
     "codex": [
@@ -23,12 +28,21 @@ _LEGACY_RUNNER_ARGS: dict[str, list[list[str]]] = {
 
 
 @dataclass
+class RateLimitConfig:
+    enabled: bool = True
+    per_user_per_minute: int = 10
+    burst: int = 3
+    max_concurrent_dispatches: int = 5
+
+
+@dataclass
 class GatewayConfig:
     default_runner: str
     session_idle_minutes: int
     max_message_length_telegram: int
     max_message_length_discord: int
     stream_edit_interval_seconds: float
+    rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
 
 
 @dataclass
@@ -113,12 +127,20 @@ def load_config(
         load_dotenv(env_path)
 
     gw = raw["gateway"]
+    rl_raw = gw.get("rate_limit", {})
+    rate_limit_cfg = RateLimitConfig(
+        enabled=rl_raw.get("enabled", True),
+        per_user_per_minute=rl_raw.get("per_user_per_minute", 10),
+        burst=rl_raw.get("burst", 3),
+        max_concurrent_dispatches=rl_raw.get("max_concurrent_dispatches", 5),
+    )
     gateway = GatewayConfig(
         default_runner=gw["default_runner"],
         session_idle_minutes=gw["session_idle_minutes"],
         max_message_length_telegram=gw["max_message_length_telegram"],
         max_message_length_discord=gw["max_message_length_discord"],
         stream_edit_interval_seconds=gw["stream_edit_interval_seconds"],
+        rate_limit=rate_limit_cfg,
     )
 
     runners = {
@@ -130,6 +152,13 @@ def load_config(
         )
         for name, rc in raw.get("runners", {}).items()
     }
+    for name, rc in runners.items():
+        if _DANGEROUS_SKIP_PERMISSIONS in rc.args:
+            logger.warning(
+                "Runner '%s' has %s enabled. "
+                "Chat-sourced prompts will bypass tool confirmation.",
+                name, _DANGEROUS_SKIP_PERMISSIONS,
+            )
 
     audit_raw = raw["audit"]
     audit = AuditConfig(path=audit_raw["path"], max_entries=audit_raw["max_entries"])

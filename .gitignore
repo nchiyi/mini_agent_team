@@ -4,6 +4,7 @@ __pycache__/
 venv/
 .vscode/
 secrets/
+secrets/.env-*
 data/
 __pycache__/
 .env

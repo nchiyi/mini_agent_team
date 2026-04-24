@@ -8,9 +8,17 @@ max_message_length_telegram = 4096
 max_message_length_discord = 2000
 stream_edit_interval_seconds = 1.5
 
+[gateway.rate_limit]
+enabled = true
+per_user_per_minute = 10
+burst = 3
+max_concurrent_dispatches = 5
+
 [runners.claude]
 path = "claude"
-args = ["--dangerously-skip-permissions"]
+args = []
+# Uncomment the next line only if you accept the risk of bypassing tool confirmations:
+# args = ["--dangerously-skip-permissions"]
 timeout_seconds = 300
 context_token_budget = 4000
 

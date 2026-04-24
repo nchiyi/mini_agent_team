@@ -5,6 +5,7 @@ Runs TelegramAdapter and/or DiscordAdapter concurrently via asyncio.gather().
 Includes Tier 1 permanent memory, Tier 3 SQLite history, and context assembly.
 """
 import asyncio
+import contextlib
 import logging
 import os
 from datetime import datetime, timezone, timedelta
@@ -27,6 +28,7 @@ from src.core.memory.context import ContextAssembler
 from src.skills.loader import SkillRegistry as ModuleRegistry, load_skills as load_modules
 from src.gateway.nlu import FastPathDetector
 from src.gateway.file_resolver import resolve_file_refs
+from src.gateway.rate_limit import RateLimiter
 from src.roles import build_role_prompt_prefix
 
 _DEFAULT_ROLE = "department-head"
@@ -152,7 +154,14 @@ def _build_shared(cfg: Config, audit: AuditLog):
     max_tokens = default_runner_cfg.context_token_budget if default_runner_cfg else 4000
     assembler = ContextAssembler(tier1=tier1, tier3=tier3, max_tokens=max_tokens)
     nlu_detector = FastPathDetector(set(runners.keys()))
-    return runners, module_registry, router, session_mgr, tier1, tier3, assembler, nlu_detector
+    rl_cfg = cfg.gateway.rate_limit
+    rate_limiter = RateLimiter(
+        per_user_per_minute=rl_cfg.per_user_per_minute,
+        burst=rl_cfg.burst,
+        max_concurrent=rl_cfg.max_concurrent_dispatches,
+        enabled=rl_cfg.enabled,
+    )
+    return runners, module_registry, router, session_mgr, tier1, tier3, assembler, nlu_detector, rate_limiter
 
 
 async def _dispatch_pipeline(
@@ -505,8 +514,12 @@ async def dispatch(
     module_registry: ModuleRegistry | None = None,
     cfg: "Config | None" = None,
     nlu_detector: "FastPathDetector | None" = None,
+    rate_limiter: "RateLimiter | None" = None,
 ) -> None:
     """Channel-agnostic gateway logic."""
+    if rate_limiter is not None and not rate_limiter.check(inbound.user_id):
+        await send_reply("⏱ 訊息頻率過高，請稍後再試。")
+        return
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
     cmd = router.parse(inbound.text)
     active_role = session_mgr.get_active_role(inbound.user_id, inbound.channel)
@@ -600,60 +613,63 @@ async def dispatch(
         await send_reply(f"Switched to {cmd.runner}")
         return
 
-    if cmd.is_module and module_registry:
-        await bridge.stream(
-            user_id=inbound.user_id,
-            chunks=module_registry.dispatch(
-                cmd.module_command, cmd.prompt, inbound.user_id, inbound.channel
-            ),
-        )
-        return
+    _sem = rate_limiter.semaphore if rate_limiter is not None else contextlib.nullcontext()
+    async with _sem:
+        if cmd.is_module and module_registry:
+            await bridge.stream(
+                user_id=inbound.user_id,
+                chunks=module_registry.dispatch(
+                    cmd.module_command, cmd.prompt, inbound.user_id, inbound.channel
+                ),
+            )
+            return
 
-    if cmd.is_pipeline:
-        await _dispatch_pipeline(
+        if cmd.is_pipeline:
+            await _dispatch_pipeline(
+                inbound=inbound, session=session, runners=runners,
+                tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
+                pipeline_runners=cmd.pipeline_runners, prompt=cmd.prompt,
+            )
+            if cfg:
+                await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
+            return
+
+        if cmd.is_discussion:
+            await _dispatch_discussion(
+                inbound=inbound, session=session, runners=runners,
+                tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
+                discussion_runners=cmd.discussion_runners,
+                discussion_rounds=cmd.discussion_rounds,
+                prompt=cmd.prompt,
+            )
+            if cfg:
+                await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
+            return
+
+        if cmd.is_debate:
+            await _dispatch_debate(
+                inbound=inbound, session=session, runners=runners,
+                tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
+                debate_runners=cmd.debate_runners, prompt=cmd.prompt,
+            )
+            if cfg:
+                await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
+            return
+
+        await _dispatch_single_runner(
             inbound=inbound, session=session, runners=runners,
-            tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
-            pipeline_runners=cmd.pipeline_runners, prompt=cmd.prompt,
+            bridge=bridge, tier3=tier3, assembler=assembler,
+            send_reply=send_reply, recent_turns=recent_turns,
+            role_slug=role_slug, cmd=cmd, cfg=cfg, tier1=tier1,
         )
-        if cfg:
-            await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
-                                 tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
-        return
-
-    if cmd.is_discussion:
-        await _dispatch_discussion(
-            inbound=inbound, session=session, runners=runners,
-            tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
-            discussion_runners=cmd.discussion_runners,
-            discussion_rounds=cmd.discussion_rounds,
-            prompt=cmd.prompt,
-        )
-        if cfg:
-            await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
-                                 tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
-        return
-
-    if cmd.is_debate:
-        await _dispatch_debate(
-            inbound=inbound, session=session, runners=runners,
-            tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
-            debate_runners=cmd.debate_runners, prompt=cmd.prompt,
-        )
-        if cfg:
-            await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
-                                 tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
-        return
-
-    await _dispatch_single_runner(
-        inbound=inbound, session=session, runners=runners,
-        bridge=bridge, tier3=tier3, assembler=assembler,
-        send_reply=send_reply, recent_turns=recent_turns,
-        role_slug=role_slug, cmd=cmd, cfg=cfg, tier1=tier1,
-    )
 
 
 async def run_telegram(cfg: Config, runners, module_registry, router, session_mgr,
-                       tier1, tier3, assembler, nlu_detector=None) -> None:
+                       tier1, tier3, assembler, nlu_detector=None,
+                       rate_limiter: "RateLimiter | None" = None) -> None:
     tg_app = Application.builder().token(cfg.telegram_token).build()
     adapter = TelegramAdapter(bot=tg_app.bot, allowed_user_ids=cfg.allowed_user_ids)
     bridge = StreamingBridge(adapter, edit_interval=cfg.gateway.stream_edit_interval_seconds)
@@ -706,6 +722,7 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
             module_registry=module_registry,
             cfg=cfg,
             nlu_detector=nlu_detector,
+            rate_limiter=rate_limiter,
         )
 
     async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -766,7 +783,8 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
 
 
 async def run_discord(cfg: Config, runners, module_registry, router, session_mgr,
-                      tier1, tier3, assembler, nlu_detector=None) -> None:
+                      tier1, tier3, assembler, nlu_detector=None,
+                      rate_limiter: "RateLimiter | None" = None) -> None:
     discord_bridges: dict[int, StreamingBridge] = {}
 
     async def gateway_handler(inbound: InboundMessage) -> None:
@@ -783,6 +801,7 @@ async def run_discord(cfg: Config, runners, module_registry, router, session_mgr
             module_registry=module_registry,
             cfg=cfg,
             nlu_detector=nlu_detector,
+            rate_limiter=rate_limiter,
         )
 
     dc_adapter = DiscordAdapter(
@@ -801,7 +820,7 @@ async def run_discord(cfg: Config, runners, module_registry, router, session_mgr
 async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.env") -> None:
     cfg = load_config(config_path=cfg_path, env_path=env_path)
     audit = AuditLog(audit_dir=cfg.audit.path, max_entries=cfg.audit.max_entries)
-    runners, module_registry, router, session_mgr, tier1, tier3, assembler, nlu_detector = _build_shared(cfg, audit)
+    runners, module_registry, router, session_mgr, tier1, tier3, assembler, nlu_detector, rate_limiter = _build_shared(cfg, audit)
     await tier3.init()
 
     # Evict idle sessions every 5 minutes to prevent unbounded memory growth
@@ -824,10 +843,12 @@ async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.e
     coroutines = []
     if cfg.telegram_token:
         coroutines.append(run_telegram(cfg, runners, module_registry, router,
-                                        session_mgr, tier1, tier3, assembler, nlu_detector))
+                                        session_mgr, tier1, tier3, assembler, nlu_detector,
+                                        rate_limiter=rate_limiter))
     if cfg.discord_token:
         coroutines.append(run_discord(cfg, runners, module_registry, router,
-                                       session_mgr, tier1, tier3, assembler, nlu_detector))
+                                       session_mgr, tier1, tier3, assembler, nlu_detector,
+                                       rate_limiter=rate_limiter))
 
     if not coroutines:
         logger.error("No tokens configured. Set TELEGRAM_BOT_TOKEN or DISCORD_BOT_TOKEN.")

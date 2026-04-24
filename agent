@@ -89,6 +89,14 @@ _mac_wait_running() {
     return 1
 }
 
+# POSIX-compatible in-place substitution (avoids macOS BSD sed -i'' backup files)
+_sed_inplace() {
+    local pattern="$1" file="$2" tmp
+    tmp=$(mktemp)
+    sed "$pattern" "$file" > "$tmp" && mv "$tmp" "$file"
+    chmod 600 "$file"
+}
+
 # ── service commands ──────────────────────────────────────────────────────
 
 case "${1:-}" in
@@ -210,13 +218,19 @@ case "${1:-}" in
         case "${2:-}" in
             on)
                 echo -e "${GREEN}🐞 Debug logs ON${NC}"
-                sed -i'' -e 's/DEBUG_LOG=.*/DEBUG_LOG=true/' "$ENV_FILE" 2>/dev/null || \
+                if grep -q 'DEBUG_LOG=' "$ENV_FILE" 2>/dev/null; then
+                    _sed_inplace 's/DEBUG_LOG=.*/DEBUG_LOG=true/' "$ENV_FILE"
+                else
                     echo 'DEBUG_LOG=true' >> "$ENV_FILE"
+                fi
                 ;;
             off)
                 echo -e "${GREEN}🤐 Debug logs OFF${NC}"
-                sed -i'' -e 's/DEBUG_LOG=.*/DEBUG_LOG=false/' "$ENV_FILE" 2>/dev/null || \
+                if grep -q 'DEBUG_LOG=' "$ENV_FILE" 2>/dev/null; then
+                    _sed_inplace 's/DEBUG_LOG=.*/DEBUG_LOG=false/' "$ENV_FILE"
+                else
                     echo 'DEBUG_LOG=false' >> "$ENV_FILE"
+                fi
                 ;;
             *) echo "Usage: ./agent debug [on|off]"; exit 1 ;;
         esac
@@ -232,7 +246,7 @@ case "${1:-}" in
         _set() {
             local key="$1" val="$2"
             if grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
-                sed -i'' -e "s|^${key}=.*|${key}=\"${val}\"|" "$ENV_FILE"
+                _sed_inplace "s|^${key}=.*|${key}=\"${val}\"|" "$ENV_FILE"
             else
                 echo "${key}=\"${val}\"" >> "$ENV_FILE"
             fi

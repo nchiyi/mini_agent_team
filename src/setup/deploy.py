@@ -4,7 +4,7 @@ from pathlib import Path
 _RUNNER_CONFIGS: dict[str, str] = {
     "claude": (
         '[runners.claude]\npath = "claude"\n'
-        'args = ["--dangerously-skip-permissions"]\n'
+        'args = []\n'
         "timeout_seconds = 300\ncontext_token_budget = 4000"
     ),
     "codex": (

@@ -10,7 +10,7 @@ stream_edit_interval_seconds = 1.5
 
 [runners.claude]
 path = "claude"
-args = ["--dangerously-skip-permissions"]
+args = []
 timeout_seconds = 300
 context_token_budget = 4000
 

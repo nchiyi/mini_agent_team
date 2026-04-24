@@ -9,7 +9,7 @@ from src.setup.state import (
 def test_load_state_returns_default_when_missing(tmp_path):
     state = load_state(str(tmp_path / "state.json"))
     assert state.completed_steps == []
-    assert state.channel == ""
+    assert state.channels == []
     assert state.telegram_token == ""
     assert state.allowed_user_ids == []
 
@@ -17,7 +17,7 @@ def test_load_state_returns_default_when_missing(tmp_path):
 def test_save_and_load_round_trip(tmp_path):
     path = str(tmp_path / "state.json")
     s = WizardState(
-        channel="telegram",
+        channels=["telegram"],
         telegram_token="abc",
         completed_steps=[1, 2],
         allowed_user_ids=[999],
@@ -28,7 +28,7 @@ def test_save_and_load_round_trip(tmp_path):
     )
     save_state(s, path)
     loaded = load_state(path)
-    assert loaded.channel == "telegram"
+    assert "telegram" in loaded.channels
     assert loaded.telegram_token == "abc"
     assert 1 in loaded.completed_steps
     assert 2 in loaded.completed_steps
@@ -77,9 +77,9 @@ def test_mark_step_done_idempotent():
 def test_load_state_ignores_unknown_keys(tmp_path):
     import json
     path = str(tmp_path / "state.json")
-    Path(path).write_text(json.dumps({"channel": "telegram", "future_key": "ignored"}))
+    Path(path).write_text(json.dumps({"channels": ["telegram"], "future_key": "ignored"}))
     state = load_state(path)
-    assert state.channel == "telegram"
+    assert "telegram" in state.channels
 
 
 def test_load_state_returns_default_on_corrupt_json(tmp_path):
@@ -87,4 +87,4 @@ def test_load_state_returns_default_on_corrupt_json(tmp_path):
     Path(path).write_text("{corrupt json}")
     state = load_state(path)
     assert state.completed_steps == []
-    assert state.channel == ""
+    assert state.channels == []
