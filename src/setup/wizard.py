@@ -151,6 +151,7 @@ async def _capture_telegram_user_id(token: str, timeout: int = 30) -> int | None
             captured.append(update.effective_user.id)
 
     print(f"  Send any message to your bot now (waiting {timeout}s)...")
+    print("  (Press Ctrl-C to skip and enter your ID manually)")
     app = Application.builder().token(token).build()
     app.add_handler(MessageHandler(filters.ALL, _handler))
     await app.initialize()
@@ -161,10 +162,14 @@ async def _capture_telegram_user_id(token: str, timeout: int = 30) -> int | None
             await asyncio.sleep(1)
             if captured:
                 break
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        pass
     finally:
-        await app.updater.stop()
-        await app.stop()
-        await app.shutdown()
+        for _cleanup in (app.updater.stop, app.stop, app.shutdown):
+            try:
+                await _cleanup()
+            except Exception:
+                pass
     return captured[0] if captured else None
 
 
