@@ -382,3 +382,7 @@ async def run_wizard(
     save_state(state, state_path)
     await step_8_launch(state, cwd, bg_tasks)
     save_state(state, state_path)
+
+
+if __name__ == "__main__":
+    asyncio.run(run_wizard(cwd=os.path.abspath(".")))
