@@ -57,10 +57,25 @@ if [ "$(_py_ver_num "$PYTHON_BIN")" -lt 311 ]; then
             exit 1
         fi
     elif [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "💡  macOS — run one of:"
-        echo "    brew install python@3.11"
-        echo "    or download from: https://www.python.org/downloads/"
-        exit 1
+        if command -v brew &>/dev/null; then
+            echo "💡  Detected macOS with Homebrew."
+            echo "    This will run: brew install python@3.11"
+            read -rp "🔧  Auto-install Python 3.11 now? [y/N]: " _DO_INSTALL
+            if [[ "$_DO_INSTALL" =~ ^[Yy]$ ]]; then
+                brew install python@3.11
+                PYTHON_BIN="$(brew --prefix python@3.11)/bin/python3.11"
+                PY_VER=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+                echo "✅  Python $PY_VER installed"
+            else
+                echo "👉  Manual install: brew install python@3.11"
+                exit 1
+            fi
+        else
+            echo "💡  macOS — run one of:"
+            echo "    brew install python@3.11"
+            echo "    or download from: https://www.python.org/downloads/"
+            exit 1
+        fi
     else
         echo "💡  Please install Python 3.11+: https://www.python.org/downloads/"
         exit 1
