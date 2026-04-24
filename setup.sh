@@ -136,7 +136,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=$CURRENT_DIR
-ExecStart=$CURRENT_DIR/venv/bin/python3 bot.py
+ExecStart=$CURRENT_DIR/venv/bin/python3 main.py
 Restart=always
 RestartSec=5
 # Ensure environment variables like PATH are passed correctly
