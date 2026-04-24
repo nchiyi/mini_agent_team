@@ -4,7 +4,7 @@ from pathlib import Path
 _RUNNER_CONFIGS: dict[str, str] = {
     "claude": (
         '[runners.claude]\npath = "claude"\n'
-        'args = ["--dangerously-skip-permissions", "--print"]\n'
+        'args = ["--dangerously-skip-permissions"]\n'
         "timeout_seconds = 300\ncontext_token_budget = 4000"
     ),
     "codex": (
@@ -13,7 +13,7 @@ _RUNNER_CONFIGS: dict[str, str] = {
         "timeout_seconds = 300\ncontext_token_budget = 4000"
     ),
     "gemini": (
-        '[runners.gemini]\npath = "gemini"\nargs = ["--approval-mode", "yolo", "--prompt"]\n'
+        '[runners.gemini]\npath = "gemini"\nargs = ["--approval-mode", "yolo"]\n'
         "timeout_seconds = 300\ncontext_token_budget = 4000"
     ),
     "kiro": (
