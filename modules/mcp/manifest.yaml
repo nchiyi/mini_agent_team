@@ -1,0 +1,7 @@
+name: mcp
+version: 1.0.0
+commands: [/mcp-list, /mcp]
+description: MCP server gateway — connect any MCP server as slash commands
+dependencies: [mcp]
+enabled: true
+timeout_seconds: 60

@@ -1,0 +1,19 @@
+# config/mcp_servers.toml
+# MCP server configuration for the gateway module.
+# Each [[servers]] block connects one MCP server.
+# Copy this file and fill in real server details.
+
+# Example: Google Drive MCP (stdio transport)
+# [[servers]]
+# name = "google-drive"
+# transport = "stdio"
+# command = ["npx", "-y", "@modelcontextprotocol/server-gdrive"]
+# env = { GDRIVE_CREDENTIALS = "secrets/gdrive.json" }
+# commands = ["/gdrive"]
+
+# Example: Custom SSE server
+# [[servers]]
+# name = "my-server"
+# transport = "sse"
+# url = "http://localhost:3000/sse"
+# commands = ["/custom"]

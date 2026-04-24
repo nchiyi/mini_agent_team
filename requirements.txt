@@ -25,3 +25,4 @@ discord.py>=2.0
 aiosqlite
 tiktoken
 pyyaml>=6.0
+mcp
