@@ -1,5 +1,5 @@
 #!/bin/bash
-# teltobot / agent management script
+# gateway-agent management script
 
 # Color definitions
 RED='\033[0;31m'
@@ -7,7 +7,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-SERVICE_NAME="telegram-agent"
+SERVICE_NAME="gateway-agent"
+ENV_FILE="secrets/.env"
 
 case "$1" in
     start)
@@ -33,11 +34,11 @@ case "$1" in
     debug)
         if [ "$2" == "on" ]; then
             echo -e "${GREEN}🐞 Turning Debug Logs ON...${NC}"
-            sed -i 's/DEBUG_LOG=false/DEBUG_LOG=true/' .env
+            sed -i 's/DEBUG_LOG=false/DEBUG_LOG=true/' "$ENV_FILE"
             systemctl --user restart $SERVICE_NAME
         elif [ "$2" == "off" ]; then
             echo -e "${GREEN}🤐 Turning Debug Logs OFF...${NC}"
-            sed -i 's/DEBUG_LOG=true/DEBUG_LOG=false/' .env
+            sed -i 's/DEBUG_LOG=true/DEBUG_LOG=false/' "$ENV_FILE"
             systemctl --user restart $SERVICE_NAME
         else
             echo -e "Usage: agent debug [on|off]"
@@ -45,23 +46,21 @@ case "$1" in
         ;;
     config)
         echo -e "${GREEN}⚙️ Interactive Configuration${NC}"
-        
-        # Ensure .env exists
-        if [ ! -f .env ]; then
-            if [ -f .env.example ]; then
-                cp .env.example .env
-            else
-                touch .env
-            fi
+
+        mkdir -p secrets
+        # Ensure secrets/.env exists
+        if [ ! -f "$ENV_FILE" ]; then
+            touch "$ENV_FILE"
+            chmod 600 "$ENV_FILE"
         fi
 
         # Ask for Telegram Bot Token
         read -p "Enter Telegram Bot Token (leave blank to skip): " input_token
         if [ ! -z "$input_token" ]; then
-            if grep -q "^TELEGRAM_BOT_TOKEN=" .env; then
-                sed -i "s/^TELEGRAM_BOT_TOKEN=.*/TELEGRAM_BOT_TOKEN=$input_token/" .env
+            if grep -q "^TELEGRAM_BOT_TOKEN=" "$ENV_FILE"; then
+                sed -i "s/^TELEGRAM_BOT_TOKEN=.*/TELEGRAM_BOT_TOKEN=$input_token/" "$ENV_FILE"
             else
-                echo "TELEGRAM_BOT_TOKEN=$input_token" >> .env
+                echo "TELEGRAM_BOT_TOKEN=$input_token" >> "$ENV_FILE"
             fi
             echo -e "${GREEN}✓ Token updated.${NC}"
         fi
@@ -69,17 +68,17 @@ case "$1" in
         # Ask for Ollama Cloud API Key
         read -p "Enter Ollama Cloud API Key (leave blank to skip): " input_key
         if [ ! -z "$input_key" ]; then
-            if grep -q "^OLLAMA_CLOUD_API_KEY=" .env; then
-                sed -i "s/^OLLAMA_CLOUD_API_KEY=.*/OLLAMA_CLOUD_API_KEY=$input_key/" .env
+            if grep -q "^OLLAMA_CLOUD_API_KEY=" "$ENV_FILE"; then
+                sed -i "s/^OLLAMA_CLOUD_API_KEY=.*/OLLAMA_CLOUD_API_KEY=$input_key/" "$ENV_FILE"
             else
-                echo "OLLAMA_CLOUD_API_KEY=$input_key" >> .env
+                echo "OLLAMA_CLOUD_API_KEY=$input_key" >> "$ENV_FILE"
             fi
             echo -e "${GREEN}✓ Cloud API Key updated.${NC}"
         fi
 
         # Show interactive selection menu
         echo -e "${YELLOW}Fetching accessible models for interactive menu...${NC}"
-        
+
         cat << 'EOF' > .temp_menu.py
 import urllib.request, json, os, curses
 
@@ -95,7 +94,7 @@ except:
 
 cloud_key = ''
 try:
-    with open('.env') as f:
+    with open('secrets/.env') as f:
         for line in f:
             if line.startswith('OLLAMA_CLOUD_API_KEY='):
                 cloud_key = line.strip().split('=', 1)[1]
@@ -134,10 +133,10 @@ def curses_menu(stdscr):
             if y > curses.LINES - 2:
                 # Naive scroll clipping for large lists
                 break
-            
+
             # Draw checkbox
             check = "[X]" if idx in selected_indices else "[ ]"
-            
+
             if idx == current_row:
                 stdscr.attron(curses.A_REVERSE)
                 stdscr.addstr(y, 2, f"{check} {model}")
@@ -176,7 +175,7 @@ def get_default_model(stdscr, allowed_list):
             y = idx + 2
             if y > curses.LINES - 2:
                 break
-            
+
             if idx == current_row:
                 stdscr.attron(curses.A_REVERSE)
                 stdscr.addstr(y, 4, model)
@@ -199,30 +198,30 @@ try:
     allowed_models = curses.wrapper(curses_menu)
     if allowed_models:
         default_model = curses.wrapper(get_default_model, allowed_models)
-        
-        # Write back to .env
+
+        # Write back to secrets/.env
         env_lines = []
         try:
-            with open('.env', 'r') as f:
+            with open('secrets/.env', 'r') as f:
                 env_lines = f.readlines()
         except:
             pass
-            
+
         new_env_lines = []
         for line in env_lines:
             if not line.startswith("DEFAULT_MODEL=") and not line.startswith("ALLOWED_MODELS="):
                 new_env_lines.append(line)
-                
+
         # Remove trailing newlines to append correctly
         if new_env_lines and not new_env_lines[-1].endswith("\n"):
             new_env_lines[-1] += "\n"
-            
+
         new_env_lines.append(f"ALLOWED_MODELS={','.join(allowed_models)}\n")
         new_env_lines.append(f"DEFAULT_MODEL={default_model}\n")
-        
-        with open('.env', 'w') as f:
+
+        with open('secrets/.env', 'w') as f:
             f.writelines(new_env_lines)
-            
+
         print(f"\n✅ Created whitelist with {len(allowed_models)} models.")
         print(f"✅ Set DEFAULT_MODEL to {default_model}.")
     else:
@@ -230,11 +229,11 @@ try:
 except Exception as e:
     print(f"\n⚠️ Interactive menu failed: {e}")
 EOF
-        
+
         python3 .temp_menu.py
         rm -f .temp_menu.py
 
-        echo -e "${GREEN}✅ Configuration saved to .env! Restart the agent to apply changes: ./agent restart${NC}"
+        echo -e "${GREEN}✅ Configuration saved to $ENV_FILE! Restart the agent to apply changes: ./agent restart${NC}"
         ;;
     *)
         echo "Usage: agent {start|stop|restart|status|logs|debug|config}"
