@@ -464,6 +464,7 @@ async def dispatch(
     if rate_limiter is not None and not rate_limiter.check(inbound.user_id):
         await send_reply("⏱ 訊息頻率過高，請稍後再試。")
         return
+    await session_mgr.restore_settings_if_needed(inbound.user_id, inbound.channel)
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
     cmd = router.parse(inbound.text)
     active_role = session_mgr.get_active_role(inbound.user_id, inbound.channel)

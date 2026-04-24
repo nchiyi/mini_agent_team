@@ -49,3 +49,53 @@ async def test_worktree_path():
     assert result == "data/worktrees/abc123-0"
     result2 = worktree_path("data", "abc123", 1)
     assert result2 == "data/worktrees/abc123-1"
+
+
+async def test_preflight_valid_repo(git_repo):
+    from src.agent_team.worktree import preflight
+    await preflight(str(git_repo))  # must not raise
+
+
+async def test_preflight_nonexistent_dir(tmp_path):
+    from src.agent_team.worktree import preflight
+    with pytest.raises(RuntimeError, match="does not exist"):
+        await preflight(str(tmp_path / "no_such_dir"))
+
+
+async def test_preflight_non_git_dir(tmp_path):
+    from src.agent_team.worktree import preflight
+    with pytest.raises(RuntimeError, match="not a git repository"):
+        await preflight(str(tmp_path))
+
+
+async def test_create_branch_collision(git_repo, tmp_path):
+    from src.agent_team.worktree import create
+    wt1 = str(tmp_path / "wt1")
+    wt2 = str(tmp_path / "wt2")
+    await create(base_repo=str(git_repo), path=wt1, branch="team/col-0")
+    # Second create with same branch name — should succeed via -B fallback
+    await create(base_repo=str(git_repo), path=wt2, branch="team/col-0")
+    assert Path(wt1).exists()
+    assert Path(wt2).exists()
+
+
+async def test_create_path_collision_is_noop(git_repo, tmp_path):
+    from src.agent_team.worktree import create
+    wt = str(tmp_path / "existing_wt")
+    await create(base_repo=str(git_repo), path=wt, branch="team/exist-0")
+    # Second call to same path: must not raise, must leave existing wt intact
+    await create(base_repo=str(git_repo), path=wt, branch="team/exist-1")
+    assert Path(wt).exists()
+
+
+async def test_list_leftover_worktrees(git_repo, tmp_path):
+    from src.agent_team.worktree import create, list_leftover_worktrees
+    wt = str(tmp_path / "worktrees" / "task-0")
+    await create(base_repo=str(git_repo), path=wt, branch="team/list-0")
+    leftovers = list_leftover_worktrees(str(tmp_path))
+    assert any("task-0" in p for p in leftovers)
+
+
+async def test_list_leftover_worktrees_empty(tmp_path):
+    from src.agent_team.worktree import list_leftover_worktrees
+    assert list_leftover_worktrees(str(tmp_path)) == []

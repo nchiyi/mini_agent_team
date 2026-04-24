@@ -80,6 +80,7 @@ def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
     )
     tier1 = Tier1Store(permanent_dir=cfg.memory.cold_permanent_path)
     tier3 = Tier3Store(db_path=cfg.memory.db_path)
+    session_mgr.attach_tier3(tier3)
     default_runner_cfg = cfg.runners.get(cfg.gateway.default_runner)
     max_tokens = default_runner_cfg.context_token_budget if default_runner_cfg else 4000
     assembler = ContextAssembler(tier1=tier1, tier3=tier3, max_tokens=max_tokens)

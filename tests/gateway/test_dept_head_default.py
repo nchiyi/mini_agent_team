@@ -42,6 +42,7 @@ async def test_dispatch_applies_dept_head_when_no_role_set():
     inbound.text = "summarise the project"
 
     session_mgr = MagicMock()
+    session_mgr.restore_settings_if_needed = AsyncMock()
     session = MagicMock()
     session.active_role = ""
     session.current_runner = "claude"

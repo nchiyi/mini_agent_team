@@ -98,3 +98,53 @@ async def test_context_build_messages_returns_structured_roles(tmp_path):
     ]
 
     await t3.close()
+
+
+async def test_tier1_truncation_drops_oldest_entries(tmp_path):
+    """ContextAssembler must drop oldest Tier1 entries, never slice mid-sentence."""
+    from src.core.memory.tier1 import Tier1Store
+    from src.core.memory.tier3 import Tier3Store
+    from src.core.memory.context import ContextAssembler
+
+    t1 = Tier1Store(permanent_dir=str(tmp_path / "tier1"))
+    t3 = Tier3Store(db_path=str(tmp_path / "db/history.db"))
+    await t3.init()
+
+    # Add many entries so they exceed a tiny budget
+    for i in range(20):
+        t1.remember(user_id=1, channel="telegram", content=f"Memory entry number {i:02d}")
+
+    # Very small budget: only a few entries can fit
+    assembler = ContextAssembler(tier1=t1, tier3=t3, max_tokens=4000, tier1_budget=30)
+    ctx = await assembler.build(user_id=1, channel="telegram", recent_turns=0)
+
+    # Result must start with the section header (not mid-string)
+    assert ctx.startswith("## Permanent Memory")
+    # Most-recent entries should be present; oldest should be dropped
+    assert "entry number 19" in ctx
+    assert "entry number 00" not in ctx
+
+    await t3.close()
+
+
+async def test_tier1_truncation_no_slicing(tmp_path):
+    """Verify no raw character-ratio slicing: every line in result is a complete entry."""
+    from src.core.memory.tier1 import Tier1Store
+    from src.core.memory.tier3 import Tier3Store
+    from src.core.memory.context import ContextAssembler
+
+    t1 = Tier1Store(permanent_dir=str(tmp_path / "tier1"))
+    t3 = Tier3Store(db_path=str(tmp_path / "db/history.db"))
+    await t3.init()
+
+    t1.remember(user_id=1, channel="telegram", content="Full sentence one.")
+    t1.remember(user_id=1, channel="telegram", content="Full sentence two.")
+
+    assembler = ContextAssembler(tier1=t1, tier3=t3, max_tokens=4000, tier1_budget=200)
+    ctx = await assembler.build(user_id=1, channel="telegram", recent_turns=0)
+
+    lines = [l for l in ctx.splitlines() if l.startswith("- ")]
+    for line in lines:
+        assert line.endswith(".")  # each line is a complete entry
+
+    await t3.close()

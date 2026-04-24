@@ -179,6 +179,38 @@ class Tier3Store:
         await self._db.commit()
         return count
 
+    async def get_setting(self, *, user_id: int, channel: str, key: str) -> str | None:
+        async with self._db.execute(
+            "SELECT value FROM settings WHERE user_id=? AND channel=? AND key=?",
+            (user_id, channel, key),
+        ) as cur:
+            row = await cur.fetchone()
+        return row["value"] if row else None
+
+    async def set_setting(self, *, user_id: int, channel: str, key: str, value: str) -> None:
+        await self._db.execute(
+            """INSERT INTO settings(user_id, channel, key, value) VALUES (?,?,?,?)
+               ON CONFLICT(user_id, channel, key) DO UPDATE SET value=excluded.value""",
+            (user_id, channel, key, value),
+        )
+        await self._db.commit()
+
+    async def get_active_role(self, *, user_id: int, channel: str) -> str:
+        return (await self.get_setting(user_id=user_id, channel=channel, key="active_role")) or ""
+
+    async def set_active_role(self, *, user_id: int, channel: str, role: str) -> None:
+        await self.set_setting(user_id=user_id, channel=channel, key="active_role", value=role)
+
+    async def get_voice_enabled(self, *, user_id: int, channel: str) -> bool:
+        val = await self.get_setting(user_id=user_id, channel=channel, key="voice_enabled")
+        return val == "true"
+
+    async def set_voice_enabled(self, *, user_id: int, channel: str, enabled: bool) -> None:
+        await self.set_setting(
+            user_id=user_id, channel=channel,
+            key="voice_enabled", value="true" if enabled else "false",
+        )
+
     async def get_last_distill_ts(self, *, user_id: int, channel: str) -> datetime | None:
         async with self._db.execute(
             "SELECT value FROM settings WHERE user_id=? AND channel=? AND key='last_distill_ts'",

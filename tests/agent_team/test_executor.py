@@ -131,7 +131,7 @@ async def test_run_p9_one_failure_continues(git_repo):
 
 async def test_run_p9_cleanup_successful_worktrees(git_repo):
     from src.agent_team.executor import run_p9
-    json_plan = '[{"agent":"echo","prompt":"hello","dod":"done"}]'
+    json_plan = '[{"agent":"echo","prompt":"hello","dod":"done"},{"agent":"echo","prompt":"world","dod":"done"}]'
     _ = [c async for c in run_p9(
         task_description="one task",
         task_id="test-cleanup",
@@ -143,6 +143,44 @@ async def test_run_p9_cleanup_successful_worktrees(git_repo):
         cwd=str(git_repo),
         data_dir=str(git_repo),
     )]
-    # Successful worktree should be cleaned up
+    # Successful worktrees should be cleaned up
     wt = Path(git_repo) / "worktrees" / "test-cleanup-0"
     assert not wt.exists()
+
+
+async def test_run_p9_summary_includes_returncode_and_dod(git_repo):
+    from src.agent_team.executor import run_p9
+    json_plan = '[{"agent":"echo","prompt":"hello","dod":"printed"},{"agent":"echo","prompt":"world","dod":"printed"}]'
+    chunks = [c async for c in run_p9(
+        task_description="two echos",
+        task_id="test-result",
+        planner_binary="python3",
+        planner_args=["-c", f"print('{json_plan}')"],
+        runner_binaries={"echo": "echo"},
+        runner_args={"echo": []},
+        timeout=10,
+        cwd=str(git_repo),
+        data_dir=str(git_repo),
+    )]
+    full = "".join(chunks)
+    assert "rc=0" in full
+    assert "dod=met" in full
+
+
+async def test_run_p9_failed_subtask_shows_leftover(git_repo):
+    from src.agent_team.executor import run_p9
+    json_plan = '[{"agent":"false","prompt":"fail","dod":"done"},{"agent":"echo","prompt":"ok","dod":"done"}]'
+    chunks = [c async for c in run_p9(
+        task_description="mixed",
+        task_id="test-leftover",
+        planner_binary="python3",
+        planner_args=["-c", f"print('{json_plan}')"],
+        runner_binaries={"false": "false", "echo": "echo"},
+        runner_args={"false": [], "echo": []},
+        timeout=10,
+        cwd=str(git_repo),
+        data_dir=str(git_repo),
+    )]
+    full = "".join(chunks)
+    assert "dod=unmet" in full
+    assert "Leftover worktrees" in full

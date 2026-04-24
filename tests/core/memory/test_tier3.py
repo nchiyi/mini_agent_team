@@ -170,3 +170,79 @@ async def test_tier3_usage_user_isolation(tmp_path):
     assert s2["claude"]["total"] == 1998
 
     await store.close()
+
+
+async def test_tier3_active_role_persistence(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    store = Tier3Store(db_path=str(tmp_path / "settings.db"))
+    await store.init()
+
+    assert await store.get_active_role(user_id=1, channel="telegram") == ""
+    await store.set_active_role(user_id=1, channel="telegram", role="code-auditor")
+    assert await store.get_active_role(user_id=1, channel="telegram") == "code-auditor"
+
+    # Overwrite
+    await store.set_active_role(user_id=1, channel="telegram", role="department-head")
+    assert await store.get_active_role(user_id=1, channel="telegram") == "department-head"
+
+    # Other (user_id, channel) unaffected
+    assert await store.get_active_role(user_id=2, channel="telegram") == ""
+
+    await store.close()
+
+
+async def test_tier3_voice_enabled_persistence(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    store = Tier3Store(db_path=str(tmp_path / "settings.db"))
+    await store.init()
+
+    assert await store.get_voice_enabled(user_id=1, channel="telegram") is False
+    await store.set_voice_enabled(user_id=1, channel="telegram", enabled=True)
+    assert await store.get_voice_enabled(user_id=1, channel="telegram") is True
+    await store.set_voice_enabled(user_id=1, channel="telegram", enabled=False)
+    assert await store.get_voice_enabled(user_id=1, channel="telegram") is False
+
+    await store.close()
+
+
+async def test_session_manager_restores_settings_from_db(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    from src.gateway.session import SessionManager
+
+    store = Tier3Store(db_path=str(tmp_path / "settings.db"))
+    await store.init()
+    await store.set_active_role(user_id=42, channel="telegram", role="code-auditor")
+    await store.set_voice_enabled(user_id=42, channel="telegram", enabled=True)
+
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    mgr.attach_tier3(store)
+
+    await mgr.restore_settings_if_needed(42, "telegram")
+
+    assert mgr.get_active_role(42, "telegram") == "code-auditor"
+    assert mgr.is_voice_enabled(42, "telegram") is True
+
+    # Second call is a no-op (settings already loaded)
+    await store.set_active_role(user_id=42, channel="telegram", role="new-role")
+    await mgr.restore_settings_if_needed(42, "telegram")
+    assert mgr.get_active_role(42, "telegram") == "code-auditor"
+
+    await store.close()
+
+
+async def test_session_manager_persists_role_change(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    from src.gateway.session import SessionManager
+
+    store = Tier3Store(db_path=str(tmp_path / "settings.db"))
+    await store.init()
+
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    mgr.attach_tier3(store)
+
+    mgr.set_active_role(5, "discord", "expert-architect")
+    # Give the background task a chance to run
+    await asyncio.sleep(0.05)
+    assert await store.get_active_role(user_id=5, channel="discord") == "expert-architect"
+
+    await store.close()

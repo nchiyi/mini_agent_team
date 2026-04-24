@@ -1,6 +1,16 @@
 # src/gateway/session.py
+from __future__ import annotations
+
+import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.core.memory.tier3 import Tier3Store
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -54,6 +64,12 @@ class SessionManager:
         self._sessions: dict[tuple[int, str], Session] = {}
         self._active_roles: dict[tuple[int, str], str] = {}
         self._voice_enabled: dict[tuple[int, str], bool] = {}
+        self._tier3: "Tier3Store | None" = None
+        self._settings_loaded: set[tuple[int, str]] = set()
+
+    def attach_tier3(self, tier3: "Tier3Store") -> None:
+        """Attach a Tier3Store so settings are persisted to SQLite."""
+        self._tier3 = tier3
 
     # ── role state ────────────────────────────────────────────────────────
 
@@ -69,6 +85,13 @@ class SessionManager:
         session = self._sessions.get(key)
         if session:
             session.active_role = role
+        if self._tier3 is not None:
+            try:
+                asyncio.get_event_loop().create_task(
+                    self._tier3.set_active_role(user_id=user_id, channel=channel, role=role)
+                )
+            except RuntimeError:
+                pass
 
     def clear_active_role(self, user_id: int, channel: str) -> None:
         self.set_active_role(user_id, channel, "")
@@ -80,6 +103,34 @@ class SessionManager:
 
     def set_voice_enabled(self, user_id: int, channel: str, enabled: bool) -> None:
         self._voice_enabled[(user_id, channel)] = enabled
+        if self._tier3 is not None:
+            try:
+                asyncio.get_event_loop().create_task(
+                    self._tier3.set_voice_enabled(user_id=user_id, channel=channel, enabled=enabled)
+                )
+            except RuntimeError:
+                pass
+
+    # ── settings restore ──────────────────────────────────────────────────
+
+    async def restore_settings_if_needed(self, user_id: int, channel: str) -> None:
+        """Load persisted settings from DB once per (user_id, channel) per process."""
+        key = (user_id, channel)
+        if key in self._settings_loaded or self._tier3 is None:
+            return
+        self._settings_loaded.add(key)
+        try:
+            role = await self._tier3.get_active_role(user_id=user_id, channel=channel)
+            if role:
+                self._active_roles[key] = role
+                session = self._sessions.get(key)
+                if session:
+                    session.active_role = role
+            voice = await self._tier3.get_voice_enabled(user_id=user_id, channel=channel)
+            if voice:
+                self._voice_enabled[key] = voice
+        except Exception:
+            logger.debug("Failed to restore settings for %s/%s", user_id, channel, exc_info=True)
 
     # ── session lifecycle ─────────────────────────────────────────────────
 

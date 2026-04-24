@@ -22,6 +22,17 @@ class SubTask:
 
 
 @dataclass
+class SubTaskResult:
+    subtask_id: str
+    status: str          # "done" | "failed" | "timeout"
+    returncode: int
+    stdout_snippet: str  # last 500 chars of output
+    changed_files: list[str] = field(default_factory=list)
+    worktree_path: str = ""
+    dod_verdict: str = ""  # "met" | "unmet" | "unknown"
+
+
+@dataclass
 class TeamTask:
     id: str
     mode: TaskMode

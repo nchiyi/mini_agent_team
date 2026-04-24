@@ -66,13 +66,23 @@ class ContextAssembler:
         self._t3_budget = min(tier3_budget, max_tokens - self._t1_budget)
 
     def _build_tier1_text(self, user_id: int, channel: str) -> str:
-        t1_text = self._t1.render_for_context(user_id, channel)
-        if not t1_text:
+        entries = self._t1.list_entries(user_id, channel)
+        if not entries:
             return ""
-        if count_tokens(t1_text) <= self._t1_budget:
-            return t1_text
-        ratio = self._t1_budget / count_tokens(t1_text)
-        return t1_text[: int(len(t1_text) * ratio)]
+        # Build text entry-by-entry from most recent, stop before exceeding budget.
+        # This avoids mid-sentence character-ratio slicing.
+        selected: list[str] = []
+        used = 0
+        for entry in reversed(entries):
+            line = f"- {entry['content']}"
+            cost = count_tokens(line)
+            if used + cost > self._t1_budget:
+                break
+            selected.insert(0, line)
+            used += cost
+        if not selected:
+            return ""
+        return "## Permanent Memory\n" + "\n".join(selected)
 
     async def _select_recent_turns(
         self, *, user_id: int, channel: str, recent_turns: int

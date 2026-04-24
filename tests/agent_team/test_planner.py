@@ -45,7 +45,7 @@ async def test_parse_subtasks_missing_dod_defaults_empty():
 async def test_plan_uses_binary_and_returns_subtasks(tmp_path):
     from src.agent_team.planner import plan
     # python3 -c "print(...)" outputs JSON regardless of the prompt argument
-    json_out = '[{"agent":"codex","prompt":"build it","dod":"done"}]'
+    json_out = '[{"agent":"codex","prompt":"build it","dod":"done"},{"agent":"claude","prompt":"review it","dod":"reviewed"}]'
     subtasks = await plan(
         task_description="build something",
         task_id="plan-test",
@@ -54,7 +54,7 @@ async def test_plan_uses_binary_and_returns_subtasks(tmp_path):
         timeout=10,
         cwd=str(tmp_path),
     )
-    assert len(subtasks) == 1
+    assert len(subtasks) == 2
     assert subtasks[0].agent == "codex"
     assert subtasks[0].id == "plan-test-0"
 
@@ -81,5 +81,52 @@ async def test_plan_subprocess_failure_raises(tmp_path):
             binary="python3",
             args=["-c", "import sys; sys.exit(1)"],
             timeout=5,
+            cwd=str(tmp_path),
+        )
+
+
+async def test_parse_subtasks_fenced_json():
+    from src.agent_team.planner import parse_subtasks
+    output = (
+        "Here is my plan:\n"
+        "```json\n"
+        '[{"agent":"codex","prompt":"impl","dod":"done"},'
+        '{"agent":"claude","prompt":"review","dod":"reviewed"}]\n'
+        "```\n"
+    )
+    subtasks = parse_subtasks(output, task_id="fence-test")
+    assert len(subtasks) == 2
+    assert subtasks[0].agent == "codex"
+    assert subtasks[1].agent == "claude"
+
+
+async def test_plan_too_few_subtasks_raises(tmp_path):
+    from src.agent_team.planner import plan
+    json_out = '[{"agent":"codex","prompt":"solo","dod":"done"}]'
+    with pytest.raises(RuntimeError, match="2-4 subtasks"):
+        await plan(
+            task_description="tiny task",
+            task_id="count-test",
+            binary="python3",
+            args=["-c", f"print('{json_out}')"],
+            timeout=10,
+            cwd=str(tmp_path),
+        )
+
+
+async def test_plan_too_many_subtasks_raises(tmp_path):
+    from src.agent_team.planner import plan
+    items = ','.join(
+        f'{{"agent":"echo","prompt":"task {i}","dod":"done"}}'
+        for i in range(5)
+    )
+    json_out = f"[{items}]"
+    with pytest.raises(RuntimeError, match="2-4 subtasks"):
+        await plan(
+            task_description="huge task",
+            task_id="count-test-max",
+            binary="python3",
+            args=["-c", f"print('{json_out}')"],
+            timeout=10,
             cwd=str(tmp_path),
         )

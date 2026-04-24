@@ -21,31 +21,45 @@ def _planner_prompt_prefix(cwd: str) -> str:
     )
 
 
+def _strip_fences(text: str) -> str:
+    """Extract content from a fenced code block if present."""
+    m = re.search(r'```(?:json)?\s*\n(.*?)```', text, re.DOTALL)
+    return m.group(1) if m else text
+
+
+def _build_subtasks_from_raw(raw: list, task_id: str) -> list[SubTask]:
+    subtasks = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"Subtask {i} is not an object: {item!r}")
+        role = item.get("role", "")
+        runner = item.get("runner", item.get("agent", ""))
+        prompt = item.get("prompt", "")
+        if not runner or not prompt:
+            raise ValueError(
+                f"Subtask {i} missing required field 'runner/agent' or 'prompt'. Item: {item}"
+            )
+        subtasks.append(SubTask(
+            id=f"{task_id}-{i}",
+            agent=runner,
+            role=role,
+            prompt=prompt,
+            dod=item.get("dod", ""),
+        ))
+    return subtasks
+
+
 def parse_subtasks(output: str, task_id: str) -> list[SubTask]:
-    for match in re.finditer(r'\[', output):
-        start = match.start()
-        try:
-            raw, _end = json.JSONDecoder().raw_decode(output, start)
-            if isinstance(raw, list):
-                subtasks = []
-                for i, item in enumerate(raw):
-                    role = item.get("role", "")
-                    runner = item.get("runner", item.get("agent", ""))
-                    prompt = item.get("prompt", "")
-                    if not runner or not prompt:
-                        raise ValueError(
-                            f"Subtask {i} missing required field 'runner/agent' or 'prompt'. Item: {item}"
-                        )
-                    subtasks.append(SubTask(
-                        id=f"{task_id}-{i}",
-                        agent=runner,
-                        role=role,
-                        prompt=prompt,
-                        dod=item.get("dod", ""),
-                    ))
-                return subtasks
-        except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
-            continue
+    candidates = [output, _strip_fences(output)]
+    for text in candidates:
+        for match in re.finditer(r'\[', text):
+            start = match.start()
+            try:
+                raw, _end = json.JSONDecoder().raw_decode(text, start)
+                if isinstance(raw, list):
+                    return _build_subtasks_from_raw(raw, task_id)
+            except json.JSONDecodeError:
+                continue
     raise ValueError(f"Planner output contains no valid JSON array. Output: {output[:300]}")
 
 
@@ -88,15 +102,21 @@ async def plan(
             proc.kill()
             await proc.wait()
 
+    output = "".join(chunks)
     if proc.returncode != 0:
-        output_snippet = "".join(chunks)[:300]
         # Claude-code often outputs lots of ansi, try to find JSON anyway
         try:
-            return parse_subtasks("".join(chunks), task_id)
+            subtasks = parse_subtasks(output, task_id)
         except Exception:
             raise RuntimeError(
                 f"Planner subprocess exited with code {proc.returncode}. "
-                f"Output: {output_snippet}"
+                f"Output: {output[:300]}"
             )
+    else:
+        subtasks = parse_subtasks(output, task_id)
 
-    return parse_subtasks("".join(chunks), task_id)
+    if not (2 <= len(subtasks) <= 4):
+        raise RuntimeError(
+            f"Planner must return 2-4 subtasks; got {len(subtasks)}"
+        )
+    return subtasks

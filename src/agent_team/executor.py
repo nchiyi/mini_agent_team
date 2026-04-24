@@ -3,7 +3,7 @@ import logging
 from typing import AsyncGenerator
 
 from src.agent_team import worktree as wt
-from src.agent_team.models import SubTask
+from src.agent_team.models import SubTask, SubTaskResult
 from src.agent_team.planner import plan as _plan
 from src.roles import build_role_prompt_prefix
 
@@ -123,6 +123,23 @@ async def run_p10(
         yield chunk
 
 
+async def _changed_files(worktree_path: str) -> list[str]:
+    """Return files changed relative to HEAD in a worktree."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "diff", "--name-only", "HEAD",
+            cwd=worktree_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            return [f for f in stdout.decode().splitlines() if f]
+    except Exception:
+        pass
+    return []
+
+
 async def _collect_subtask(
     subtask: "SubTask",
     runner_binaries: dict[str, str],
@@ -131,13 +148,17 @@ async def _collect_subtask(
     cwd: str,
     data_dir: str,
     index: int,
-) -> tuple["SubTask", list[str]]:
+) -> tuple["SubTask", "SubTaskResult", list[str]]:
     binary = runner_binaries.get(subtask.agent, subtask.agent)
     args = runner_args.get(subtask.agent, [])
     task_id = subtask.id.rsplit("-", 1)[0]
     subtask.worktree_path = wt.worktree_path(data_dir, task_id, index)
 
-    chunks = []
+    chunks: list[str] = []
+    returncode = -1
+    changed: list[str] = []
+    timed_out = False
+
     try:
         await wt.create(base_repo=cwd, path=subtask.worktree_path, branch=f"team/{subtask.id}")
         subtask.status = "running"
@@ -150,18 +171,39 @@ async def _collect_subtask(
             role=subtask.role,
             role_base_dir=cwd,
         )
+        timed_out = any("[timed out" in c for c in raw_chunks)
         chunks = [f"[subtask-{index}|{subtask.role}] {c}" for c in raw_chunks]
-        if returncode != 0:
+        if timed_out:
+            subtask.status = "timeout"
+            subtask.result = f"timed out after {timeout}s"
+        elif returncode != 0:
             subtask.status = "failed"
             subtask.result = f"exited with code {returncode}"
         else:
             subtask.status = "done"
+            changed = await _changed_files(subtask.worktree_path)
     except Exception as e:
         subtask.status = "failed"
         subtask.result = str(e)
         chunks.append(f"[subtask-{index}] ERROR: {e}\n")
 
-    return subtask, chunks
+    stdout_snippet = "".join(chunks)[-500:] if chunks else ""
+    dod_verdict = "unknown"
+    if subtask.status == "done":
+        dod_verdict = "met"
+    elif subtask.status in ("failed", "timeout"):
+        dod_verdict = "unmet"
+
+    sr = SubTaskResult(
+        subtask_id=subtask.id,
+        status=subtask.status,
+        returncode=returncode,
+        stdout_snippet=stdout_snippet,
+        changed_files=changed,
+        worktree_path=subtask.worktree_path,
+        dod_verdict=dod_verdict,
+    )
+    return subtask, sr, chunks
 
 
 async def run_p9(
@@ -204,22 +246,31 @@ async def run_p9(
         if isinstance(result, Exception):
             yield f"[P9] Subtask error: {result}\n"
         else:
-            _, chunks = result
+            _, _sr, chunks = result
             for chunk in chunks:
                 yield chunk
 
     yield "[P9] Summary:\n"
+    leftover_paths: list[str] = []
     for result in results:
         if isinstance(result, Exception):
             yield f"[P9]   ✗ error: {result}\n"
         else:
-            subtask, _ = result
+            subtask, sr, _ = result
             if subtask.status == "done":
-                yield f"[P9]   ✓ subtask {subtask.id} ({subtask.role}) done\n"
+                files_str = ", ".join(sr.changed_files) if sr.changed_files else "(none)"
+                yield f"[P9]   ✓ {subtask.id} ({subtask.role}) rc={sr.returncode} dod={sr.dod_verdict} changed={files_str}\n"
                 try:
                     await wt.remove(subtask.worktree_path, base_repo=cwd)
                 except Exception:
-                    pass
+                    leftover_paths.append(subtask.worktree_path)
             else:
-                yield f"[P9]   ✗ subtask {subtask.id} ({subtask.role}) failed: {subtask.result}\n"
-                yield f"[P9]   Worktree preserved at: {subtask.worktree_path}\n"
+                yield (
+                    f"[P9]   ✗ {subtask.id} ({subtask.role}) {subtask.status} "
+                    f"rc={sr.returncode} dod={sr.dod_verdict}: {subtask.result}\n"
+                )
+                leftover_paths.append(subtask.worktree_path)
+    if leftover_paths:
+        yield "[P9] Leftover worktrees (manual cleanup required):\n"
+        for p in leftover_paths:
+            yield f"[P9]   {p}\n"
