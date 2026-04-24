@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# When run via curl | bash, stdin is a pipe so interactive prompts don't work.
+# Re-exec from a temp file so stdin is restored to the terminal.
+if [ ! -t 0 ]; then
+    _TMPSCRIPT=$(mktemp /tmp/mat-install.XXXXXX.sh)
+    cat > "$_TMPSCRIPT"
+    chmod +x "$_TMPSCRIPT"
+    exec bash "$_TMPSCRIPT" "$@"
+fi
+
 REPO="https://github.com/nchiyi/mini_agent_team.git"
 DIR="mini_agent_team"
 
