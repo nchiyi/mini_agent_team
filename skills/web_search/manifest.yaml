@@ -1,0 +1,7 @@
+name: web_search
+version: 1.0.0
+commands: [/search, /web]
+description: 網路搜尋（DuckDuckGo）
+dependencies: [duckduckgo-search]
+enabled: true
+timeout_seconds: 30

@@ -4,8 +4,8 @@ pytestmark = pytest.mark.asyncio
 
 
 def _make_registry(commands: list[str], timeout: int = 5):
-    from src.modules.loader import ModuleRegistry, LoadedModule
-    from src.modules.manifest import ModuleManifest
+    from src.skills.loader import ModuleRegistry, LoadedModule
+    from src.skills.manifest import ModuleManifest
 
     async def handler(command, args, user_id, channel):
         yield f"result:{command}:{args}"
@@ -33,8 +33,8 @@ async def test_registry_dispatch_unknown_command_yields_error():
 
 async def test_registry_dispatch_timeout():
     import asyncio
-    from src.modules.loader import ModuleRegistry, LoadedModule
-    from src.modules.manifest import ModuleManifest
+    from src.skills.loader import ModuleRegistry, LoadedModule
+    from src.skills.manifest import ModuleManifest
 
     async def slow_handler(command, args, user_id, channel):
         await asyncio.sleep(10)
@@ -51,8 +51,8 @@ async def test_registry_dispatch_timeout():
 
 
 async def test_registry_conflict_raises():
-    from src.modules.loader import ModuleRegistry, LoadedModule
-    from src.modules.manifest import ModuleManifest
+    from src.skills.loader import ModuleRegistry, LoadedModule
+    from src.skills.manifest import ModuleManifest
 
     async def h(*a):
         yield "x"

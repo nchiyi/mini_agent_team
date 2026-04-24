@@ -21,9 +21,12 @@ from src.gateway.streaming import StreamingBridge
 from src.core.memory.tier1 import Tier1Store
 from src.core.memory.tier3 import Tier3Store
 from src.core.memory.context import ContextAssembler
-from src.modules.loader import ModuleRegistry, load_modules
+from src.skills.loader import SkillRegistry as ModuleRegistry, load_skills as load_modules
 from src.gateway.nlu import FastPathDetector
+from src.gateway.file_resolver import resolve_file_refs
 from src.roles import build_role_prompt_prefix
+
+_DEFAULT_ROLE = "department-head"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,7 +53,7 @@ def _build_shared(cfg: Config, audit: AuditLog):
         )
         for name, rc in cfg.runners.items()
     }
-    module_registry = load_modules(cfg.modules_dir)
+    module_registry = load_modules(cfg.skills_dir)
     router = Router(
         known_runners=set(runners.keys()),
         default_runner=cfg.gateway.default_runner,
@@ -329,7 +332,8 @@ async def dispatch(
     active_role = get_active_role(inbound.user_id, inbound.channel)
     if active_role:
         session.active_role = active_role
-    role_slug = session.active_role or cmd.role
+    # Department Head is the default L1 entry point when no role is explicitly set
+    role_slug = session.active_role or cmd.role or _DEFAULT_ROLE
 
     if not inbound.text.startswith("/") and not any([
         cmd.is_pipeline, cmd.is_discussion, cmd.is_debate,
@@ -444,7 +448,8 @@ async def dispatch(
         user_id=inbound.user_id, channel=inbound.channel,
         recent_turns=recent_turns,
     )
-    prompt = _apply_role_prompt(cmd.prompt, role_slug, session.cwd)
+    resolved_prompt = await resolve_file_refs(cmd.prompt, session.cwd)
+    prompt = _apply_role_prompt(resolved_prompt, role_slug, session.cwd)
     full_prompt = (context + "\n\n" + prompt) if context else prompt
 
     try:

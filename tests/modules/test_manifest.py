@@ -1,7 +1,7 @@
 # tests/modules/test_manifest.py
 import pytest
 from pathlib import Path
-from src.modules.manifest import ModuleManifest, parse_manifest
+from src.skills.manifest import ModuleManifest, parse_manifest
 
 
 def _write(tmp_path, content: str) -> Path:

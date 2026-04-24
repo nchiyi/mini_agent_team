@@ -1,8 +1,8 @@
 # tests/gateway/test_router_modules.py
 import pytest
 from src.gateway.router import Router, ParsedCommand
-from src.modules.loader import ModuleRegistry, LoadedModule
-from src.modules.manifest import ModuleManifest
+from src.skills.loader import ModuleRegistry, LoadedModule
+from src.skills.manifest import ModuleManifest
 
 
 def _make_registry(commands: list[str]) -> ModuleRegistry:

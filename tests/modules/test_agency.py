@@ -9,10 +9,10 @@ async def _collect(gen):
 
 
 async def test_agency_list_uses_roster(monkeypatch):
-    from modules.agency.handler import handle
+    from skills.agency.handler import handle
 
     monkeypatch.setattr(
-        "modules.agency.handler.load_roles",
+        "skills.agency.handler.load_roles",
         lambda: {
             "code-auditor": {
                 "name": "Code Auditor",
@@ -27,11 +27,11 @@ async def test_agency_list_uses_roster(monkeypatch):
 
 
 async def test_agency_use_sets_active_role(monkeypatch):
-    from modules.agency.handler import handle
+    from skills.agency.handler import handle
     from src.gateway.session import get_active_role, clear_active_role
 
     monkeypatch.setattr(
-        "modules.agency.handler.load_roles",
+        "skills.agency.handler.load_roles",
         lambda: {
             "code-auditor": {
                 "name": "Code Auditor",
@@ -47,10 +47,10 @@ async def test_agency_use_sets_active_role(monkeypatch):
 
 
 async def test_agency_clear_resets_active_role(monkeypatch):
-    from modules.agency.handler import handle
+    from skills.agency.handler import handle
     from src.gateway.session import set_active_role, get_active_role
 
-    monkeypatch.setattr("modules.agency.handler.load_roles", lambda: {})
+    monkeypatch.setattr("skills.agency.handler.load_roles", lambda: {})
 
     set_active_role(1, "telegram", "code-auditor")
     output = await _collect(handle("/agency", "clear", 1, "telegram"))

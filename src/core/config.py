@@ -49,7 +49,8 @@ class Config:
     discord_token: str = ""
     allowed_user_ids: list[int] = field(default_factory=list)
     default_cwd: str = ""
-    modules_dir: str = "modules"
+    skills_dir: str = "skills"
+    modules_dir: str = "skills"  # backward-compat alias
 
 
 def load_config(
@@ -101,7 +102,7 @@ def load_config(
     allowed_raw = os.environ.get("ALLOWED_USER_IDS", "")
     allowed = [int(x.strip()) for x in allowed_raw.split(",") if x.strip().isdigit()]
 
-    modules_dir = raw.get("modules", {}).get("dir", "modules")
+    skills_dir = raw.get("skills", {}).get("dir", None) or raw.get("modules", {}).get("dir", "skills")
 
     return Config(
         gateway=gateway,
@@ -112,5 +113,6 @@ def load_config(
         discord_token=os.environ.get("DISCORD_BOT_TOKEN", ""),
         allowed_user_ids=allowed,
         default_cwd=os.environ.get("DEFAULT_CWD", str(Path.home())),
-        modules_dir=modules_dir,
+        skills_dir=skills_dir,
+        modules_dir=skills_dir,
     )
