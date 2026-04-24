@@ -141,9 +141,27 @@ ALLOWED_USER_IDS=123456789,987654321  # 必填，空白則鎖定所有人
 ### `config/config.toml` 重要參數
 ```toml
 [gateway]
-default_runner = "claude"
-session_idle_minutes = 60
-stream_edit_interval_seconds = 1.5
+default_runner = "claude"          # 預設使用的 AI Agent
+session_idle_minutes = 60          # 閒置幾分鐘後重置 session
+stream_edit_interval_seconds = 1.5 # 串流更新間隔（秒）
+
+[runners.claude]
+path = "claude"
+args = ["--dangerously-skip-permissions"]
+timeout_seconds = 300
+context_token_budget = 4000        # 注入 context 的 token 上限
+
+[runners.codex]
+path = "codex"
+args = ["exec", "--full-auto", "--skip-git-repo-check"]
+timeout_seconds = 300
+context_token_budget = 4000
+
+[runners.gemini]
+path = "gemini"
+args = ["--approval-mode", "yolo"]
+timeout_seconds = 300
+context_token_budget = 4000
 
 [memory]
 db_path = "data/db/history.db"

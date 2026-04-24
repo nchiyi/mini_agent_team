@@ -9,11 +9,11 @@ _RUNNER_CONFIGS: dict[str, str] = {
     ),
     "codex": (
         '[runners.codex]\npath = "codex"\n'
-        'args = ["--approval-policy", "auto"]\n'
+        'args = ["exec", "--full-auto", "--skip-git-repo-check"]\n'
         "timeout_seconds = 300\ncontext_token_budget = 4000"
     ),
     "gemini": (
-        '[runners.gemini]\npath = "gemini"\nargs = []\n'
+        '[runners.gemini]\npath = "gemini"\nargs = ["--approval-mode", "yolo"]\n'
         "timeout_seconds = 300\ncontext_token_budget = 4000"
     ),
     "kiro": (

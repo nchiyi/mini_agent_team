@@ -16,13 +16,13 @@ context_token_budget = 4000
 
 [runners.codex]
 path = "codex"
-args = ["exec", "--skip-git-repo-check"]
+args = ["exec", "--full-auto", "--skip-git-repo-check"]
 timeout_seconds = 300
 context_token_budget = 4000
 
 [runners.gemini]
 path = "gemini"
-args = []
+args = ["--approval-mode", "yolo"]
 timeout_seconds = 300
 context_token_budget = 4000
 

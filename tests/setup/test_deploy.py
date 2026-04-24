@@ -29,6 +29,14 @@ def test_write_config_toml_includes_runner_sections(tmp_path):
     assert "[runners.codex]" not in content
 
 
+def test_write_config_toml_uses_auto_approve_defaults(tmp_path):
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {"default_runner": "claude", "runners": ["codex", "gemini"]})
+    content = Path(path).read_text()
+    assert 'args = ["exec", "--full-auto", "--skip-git-repo-check"]' in content
+    assert 'args = ["--approval-mode", "yolo"]' in content
+
+
 def test_write_env_file_creates_file(tmp_path):
     path = str(tmp_path / "secrets/.env")
     write_env_file(path, {"TELEGRAM_BOT_TOKEN": "abc"})
