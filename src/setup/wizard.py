@@ -39,8 +39,15 @@ def _err(msg: str) -> None:
 
 def _prompt(msg: str, default: str = "") -> str:
     suffix = f" [{default}]" if default else ""
+    prompt_text = f"{msg}{suffix}: "
     try:
-        val = input(f"{msg}{suffix}: ").strip()
+        if not sys.stdin.isatty():
+            with open("/dev/tty") as _tty:
+                sys.stdout.write(prompt_text)
+                sys.stdout.flush()
+                val = _tty.readline().rstrip("\n").strip()
+        else:
+            val = input(prompt_text).strip()
     except (EOFError, KeyboardInterrupt):
         print("\nSetup cancelled.")
         sys.exit(0)
