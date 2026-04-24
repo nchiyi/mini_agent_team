@@ -43,7 +43,7 @@ if [ "$(_py_ver_num "$PYTHON_BIN")" -lt 311 ]; then
     if [[ "$OSTYPE" == "linux-gnu"* ]] && command -v apt &>/dev/null; then
         echo "💡  Detected Ubuntu/Debian."
         echo "    This will run: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.11 python3.11-venv"
-        read -rp "🔧  Auto-install Python 3.11 now? [y/N]: " _DO_INSTALL
+        read -rp "🔧  Auto-install Python 3.11 now? [y/N]: " _DO_INSTALL </dev/tty
         if [[ "$_DO_INSTALL" =~ ^[Yy]$ ]]; then
             sudo add-apt-repository -y ppa:deadsnakes/ppa
             sudo apt install -y python3.11 python3.11-venv
@@ -60,7 +60,7 @@ if [ "$(_py_ver_num "$PYTHON_BIN")" -lt 311 ]; then
         if command -v brew &>/dev/null; then
             echo "💡  Detected macOS with Homebrew."
             echo "    This will run: brew install python@3.11"
-            read -rp "🔧  Auto-install Python 3.11 now? [y/N]: " _DO_INSTALL
+            read -rp "🔧  Auto-install Python 3.11 now? [y/N]: " _DO_INSTALL </dev/tty
             if [[ "$_DO_INSTALL" =~ ^[Yy]$ ]]; then
                 brew install python@3.11
                 PYTHON_BIN="$(brew --prefix python@3.11)/bin/python3.11"
