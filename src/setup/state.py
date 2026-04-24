@@ -6,7 +6,7 @@ from pathlib import Path
 @dataclass
 class WizardState:
     completed_steps: list[int] = field(default_factory=list)
-    channel: str = ""
+    channels: list[str] = field(default_factory=list)
     telegram_token: str = ""
     discord_token: str = ""
     allowed_user_ids: list[int] = field(default_factory=list)
@@ -37,7 +37,7 @@ def save_state(state: WizardState, path: str) -> None:
         with open(path, "w") as f:
             json.dump({
                 "completed_steps": state.completed_steps,
-                "channel": state.channel,
+                "channels": state.channels,
                 "telegram_token": state.telegram_token,
                 "discord_token": state.discord_token,
                 "allowed_user_ids": state.allowed_user_ids,

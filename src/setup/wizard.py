@@ -54,26 +54,44 @@ def _prompt(msg: str, default: str = "") -> str:
     return val or default
 
 
+_ALL_CHANNELS = ["telegram", "discord"]
+
+
 async def step_1_channel(state: WizardState) -> None:
     if is_step_done(state, 1):
-        _ok(f"Step 1 done (channel: {state.channel})")
+        _ok(f"Step 1 done (channels: {', '.join(state.channels)})")
         return
     _hdr(1, "Channel Selection")
-    print("  1. Telegram only\n  2. Discord only\n  3. Both")
+    selected: set[str] = set()
+
     while True:
-        choice = _prompt("Choose", "1")
-        if choice == "1":
-            state.channel = "telegram"
+        print("")
+        for i, ch in enumerate(_ALL_CHANNELS, 1):
+            mark = "x" if ch in selected else " "
+            print(f"  [{mark}] {i}. {ch.capitalize()}")
+        print("")
+        raw = _prompt("Toggle channels (e.g. 1  or  1 2), Enter to confirm")
+        if not raw:
+            if not selected:
+                _err("Select at least one channel.")
+                continue
             break
-        elif choice == "2":
-            state.channel = "discord"
-            break
-        elif choice == "3":
-            state.channel = "both"
-            break
-        else:
-            _err("Enter 1, 2, or 3")
-    _ok(f"Channel: {state.channel}")
+        for token in raw.split():
+            if token.isdigit():
+                idx = int(token) - 1
+                if 0 <= idx < len(_ALL_CHANNELS):
+                    ch = _ALL_CHANNELS[idx]
+                    if ch in selected:
+                        selected.discard(ch)
+                    else:
+                        selected.add(ch)
+                else:
+                    _err(f"Invalid option: {token}")
+            else:
+                _err(f"Invalid input: {token!r}")
+
+    state.channels = [ch for ch in _ALL_CHANNELS if ch in selected]
+    _ok(f"Channels: {', '.join(state.channels)}")
     mark_step_done(state, 1)
 
 
@@ -82,7 +100,7 @@ async def step_2_token(state: WizardState) -> None:
         _ok("Step 2 done (tokens validated)")
         return
     _hdr(2, "Bot Token")
-    if state.channel in ("telegram", "both"):
+    if "telegram" in state.channels:
         _attempts = 0
         while True:
             hint = "  (type 's' to skip validation)" if _attempts >= 1 else ""
@@ -108,7 +126,7 @@ async def step_2_token(state: WizardState) -> None:
                 break
             _attempts += 1
             _err("Invalid token. Try again.")
-    if state.channel in ("discord", "both"):
+    if "discord" in state.channels:
         _attempts = 0
         while True:
             hint = "  (type 's' to skip validation)" if _attempts >= 1 else ""
@@ -178,7 +196,7 @@ async def step_3_allowlist(state: WizardState) -> None:
         _ok(f"Step 3 done (user IDs: {state.allowed_user_ids})")
         return
     _hdr(3, "Allowlist — Authorised User IDs")
-    if state.channel in ("telegram", "both") and state.telegram_token:
+    if "telegram" in state.channels and state.telegram_token:
         uid = await _capture_telegram_user_id(state.telegram_token)
         if uid:
             state.allowed_user_ids = [uid]
