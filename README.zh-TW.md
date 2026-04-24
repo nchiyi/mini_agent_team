@@ -1,304 +1,149 @@
-# mini_agent_team
+# mini_agent_team (Project MAGI)
 
-多頻道 AI 閘道平台，透過 Telegram 和 Discord 連接本機 CLI AI Agent（Claude Code、Codex、Gemini 等）。從手機傳訊息，直接呼叫本機的 AI Agent，回覆即時串流、記憶跨對話持久保存。
+**隨身攜帶的 AI 軟體公司** — 透過 Telegram 與 Discord 連接本機強大 CLI Agent（Claude Code、Gemini CLI 等）。具備「虛擬企業 (Agency)」架構、雙層持久記憶與自動精煉機制。
 
 > English documentation: [README.md](README.md)
 
 ---
 
-## 系統架構圖
+## 系統架構圖 (Project MAGI)
 
 ```mermaid
-flowchart TD
-    TG[📱 Telegram] -->|訊息| TA[TelegramAdapter]
-    DC[🎮 Discord] -->|訊息| DA[DiscordAdapter]
-
-    TA --> GW[Gateway / Router\n指令解析 + 路由]
-    DA --> GW
-
-    GW -->|/remember /forget| T1[(Tier 1\n永久記憶\nJSONL 每用戶每頻道)]
-    GW -->|/recall| T3[(Tier 3\nSQLite WAL\nFTS5 全文搜尋)]
-    GW -->|/status| SM[SessionManager\n對話狀態]
-
-    GW -->|prompt + context| CTX[ContextAssembler\nTier1 + Tier3 歷史注入]
-    CTX --> CR[CLIRunner\n非同步 subprocess]
-
-    CR -->|subprocess| CL[🤖 Claude Code]
-    CR -->|subprocess| CX[🤖 Codex]
-    CR -->|subprocess| GM[🤖 Gemini CLI]
-    CR -->|subprocess| CU[🤖 自訂 Runner]
-
-    CR -->|串流 chunks| SB[StreamingBridge\n即時編輯訊息]
-    SB --> TA
-    SB --> DA
-
-    CR --> AL[AuditLog\n每日 JSONL 稽核紀錄]
-
-    subgraph Memory["記憶系統"]
-        T1
-        T3
+flowchart TB
+    %% 外部平台
+    subgraph Clients ["接入終端 (Clients)"]
+        TG["📱 <b>Telegram</b>"]
+        DC["🎮 <b>Discord</b>"]
+    end
+    
+    subgraph Gateway ["智能中樞 (MAGI Gateway)"]
+        direction TB
+        Adapter["🔌 <b>多平台適配器</b><br/>(Adapters)"]
+        Router["🚦 <b>語義路由 (NLU)</b><br/>(Semantic Router)"]
+        Session["⏳ <b>對話 Session</b><br/>(State Manager)"]
     end
 
-    subgraph Runners["CLI Runners"]
-        CL
-        CX
-        GM
-        CU
+    subgraph Agency ["虛擬企業 (Virtual Agency)"]
+        direction LR
+        Role1["👨‍💻 <b>Code Auditor</b>"]
+        Role2["🕵️ <b>Bug Hunter</b>"]
+        Role3["🚀 <b>DevOps</b>"]
+        Roster{{"📋 <b>Roster DNA庫</b>"}}
     end
+
+    subgraph Memory ["雙層持久記憶 (Memory)"]
+        direction LR
+        T1[("📝 <b>Tier 1: 永久筆記</b><br/>事實 & 自動摘要")]
+        T3[("📚 <b>Tier 3: 歷史存檔</b><br/>SQLite FTS5 檢索")]
+        Distill{"♻️ <b>自動精煉</b><br/>(Distillation)"}
+    end
+
+    subgraph Execution ["執行矩陣 (Execution Matrix)"]
+        direction TB
+        Orchestrator{"🎭 <b>協作編排</b><br/>Discuss / Debate / Relay"}
+        Runner["🤖 <b>CLI Runners</b><br/>Claude / Gemini / Codex"]
+    end
+
+    %% 連接線
+    Clients --> Adapter
+    Adapter --> Router
+    Router --> Session
+    Session --> Roster
+    Roster --> Orchestrator
+    Orchestrator <--> Memory
+    Orchestrator --> Runner
+    
+    T3 -.->|超過閾值| Distill
+    Distill -.->|生成摘要| T1
+
+    Runner -- "Streaming" --> Adapter
+
+    %% 樣式美化
+    classDef platform fill:#f0f7ff,stroke:#0052cc,color:#0052cc,stroke-width:2px
+    classDef magi fill:#fff9f0,stroke:#d4a017,color:#d4a017,stroke-width:2px
+    classDef agency fill:#fdf2f2,stroke:#c53030,color:#c53030,stroke-width:2px
+    classDef memory fill:#f3faf7,stroke:#2f855a,color:#2f855a,stroke-width:2px
+    classDef exec fill:#f9f5ff,stroke:#6b46c1,color:#6b46c1,stroke-width:2px
+    
+    class Clients,TG,DC platform
+    class Gateway,Adapter,Router,Session magi
+    class Agency,Role1,Role2,Role3,Roster agency
+    class Memory,T1,T3,Distill memory
+    class Execution,Orchestrator,Runner exec
 ```
 
 ---
 
-## 功能特色
+## 核心亮點
 
-- **多平台支援**：Telegram + Discord 在同一個 process 同時運行
-- **動態切換 Agent**：對話中隨時用 `/claude`、`/codex`、`/gemini` 切換 AI Runner
-- **即時串流回覆**：回覆訊息邊生成邊更新，不用等到最後
-- **雙層持久記憶**：永久筆記（Tier 1）+ 可搜尋的對話歷史（Tier 3）
-- **模組插件系統**：丟一個資料夾進 `modules/` 就能擴充功能
-- **互動式安裝精靈**：一鍵設定 `python3 -m src.setup.wizard`
-- **稽核日誌**：所有 Runner 呼叫自動記錄到每日 JSONL 檔
+### 🏛️ 虛擬企業架構 (Virtual Agency)
+不僅是聊天，而是建立一個具備「職位 DNA」的專家團隊。透過 `roster/*.md` 定義角色的使命與規則，系統會根據您的語義輸入（例如：「這段程式碼幫我過一遍」）自動切換到最適合的專家角色（如 `code-auditor`）。
+
+### 🧠 記憶精煉 (Memory Distillation)
+解決長對話導致的 Context 爆炸問題。當歷史對話過長時，系統會自動在背景啟動摘要程序，將過往細節壓縮成精煉事實並轉入 Tier 1 永久記憶，確保 AI 永遠記得重要的決策。
+
+### 🎭 多 Agent 協作 (Orchestration)
+內建「討論 (Discuss)」、「辯論 (Debate)」與「中繼 (Relay)」模式。您可以讓 Claude 與 Gemini 針對同一個架構問題進行辯論，產出更全面、低偏見的開發建議。
+
+### ⚡ 極致串流體驗 (Streaming)
+採用獨家 Streaming Bridge，無論是 CLI 工具產生的即時進度還是長篇代碼生成，都能在手機端即時跳動顯示，無需漫長等待。
 
 ---
 
 ## 快速開始
 
 ### 前置需求
+- Python 3.12+
+- 已安裝任一 CLI Agent：`claude` (Claude Code) 或 `gemini` (Gemini CLI)。
+- Telegram/Discord Bot Token。
 
-- Python 3.11+
-- 至少安裝一個 CLI Agent：`claude`、`codex` 或 `gemini`
-- Telegram Bot Token（透過 [@BotFather](https://t.me/botfather)）和/或 Discord Bot Token
-
-### 安裝
-
-```bash
-git clone https://github.com/nchiyi/mini_agent_team.git
-cd mini_agent_team
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 設定
-
-**一行指令安裝**（clone + venv + 安裝套件 + 互動精靈）：
-
+### 一鍵式安裝 (推薦)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh | bash
 ```
 
-或手動逐步執行：
+---
 
-```bash
-git clone https://github.com/nchiyi/mini_agent_team.git
-cd mini_agent_team
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python3 -m src.setup.wizard
-```
+## 指令百科 (Command Encyclopedia)
 
-### 啟動
-
-```bash
-cd mini_agent_team && source venv/bin/activate && python3 main.py
-```
+| 分類 | 指令 | 說明 |
+|------|------|------|
+| **專家系統** | `/claude`, `/gemini` | 直接呼叫特定 AI Runner |
+| | `/use <slug>` | 手動切換至 Roster 中的特定專家角色 |
+| **協作模式** | `/discuss <r1,r2> [p]` | 多 Agent 腦力激盪 |
+| | `/debate <r1,r2> [p]` | 多 Agent 對比辯論 |
+| | `/relay <r1,r2> [p]` | 鏈式流水線處理 |
+| **記憶操作** | `/remember <text>` | 存入永久事實 (Tier 1) |
+| | `/recall <query>` | 全文搜尋歷史對話 (Tier 3) |
+| **系統控制** | `/status`, `/usage` | 查看系統運行狀況與 Token 統計 |
+| | `/new` 或 `/reset` | 重置當前 Session 與 Context |
+| | `/cancel` | 立即停止目前的 AI 輸出 |
+| | `/voice on/off` | 開啟或關閉語音轉文字功能 |
 
 ---
 
-## 設定說明
+## 專案結構 (Directory Blueprint)
 
-### `secrets/.env`
-
-```env
-TELEGRAM_BOT_TOKEN=你的 Telegram Token
-DISCORD_BOT_TOKEN=你的 Discord Token      # 選填
-ALLOWED_USER_IDS=123456789,987654321      # 必填，空白則鎖定所有人
-```
-
-> **安全提示**：`ALLOWED_USER_IDS` 為必填欄位。留空代表**鎖定 Bot，所有人都無法使用**（不是開放給所有人）。
-
-### `config/config.toml` 重要參數
-
-```toml
-[gateway]
-default_runner = "claude"          # 預設使用的 AI Agent
-session_idle_minutes = 60          # 閒置幾分鐘後重置 session
-stream_edit_interval_seconds = 1.5 # 串流更新間隔（秒）
-
-[runners.claude]
-path = "claude"
-args = ["--dangerously-skip-permissions"]
-timeout_seconds = 300
-context_token_budget = 4000        # 注入 context 的 token 上限
-
-[runners.codex]
-path = "codex"
-args = ["exec", "-s", "danger-full-access"]
-timeout_seconds = 300
-context_token_budget = 4000
-
-[runners.gemini]
-path = "gemini"
-args = []
-timeout_seconds = 300
-context_token_budget = 4000
-
-[memory]
-db_path = "data/db/history.db"
-cold_permanent_path = "data/memory/cold/permanent"
-tier3_context_turns = 20           # 每次注入幾輪歷史對話
-
-[audit]
-path = "data/audit"
-max_entries = 1000
-```
-
----
-
-## Bot 指令
-
-| 指令 | 說明 |
-|------|------|
-| `/remember <內容>` | 儲存永久筆記到記憶 |
-| `/forget <關鍵字>` | 刪除含關鍵字的永久筆記 |
-| `/recall <查詢>` | 全文搜尋對話歷史 |
-| `/status` | 顯示目前 Runner、Token 用量、Session 資訊 |
-| `/claude` | 切換到 Claude Code |
-| `/codex` | 切換到 Codex |
-| `/gemini` | 切換到 Gemini CLI |
-| `/new` | 開始新 Session |
-
-其他所有訊息都會轉發給目前的 Runner，回覆串流回來。
-
----
-
-## 記憶系統詳解
-
-| 層級 | 儲存方式 | 範圍 | 用途 |
-|------|---------|------|------|
-| Tier 1 | JSONL 檔案（每用戶每頻道一個） | 永久 | `/remember` 儲存的重要筆記 |
-| Tier 3 | SQLite WAL + FTS5 索引 | 長期 | 可搜尋的完整對話歷史 |
-
-**Context 注入順序（每次呼叫 Runner 前）：**
-1. Tier 1 永久筆記（最多 `tier1_budget` tokens）
-2. 最近 N 輪對話歷史（最多 `tier3_context_turns` 輪，有 token 上限）
-
-兩層記憶都以 `(user_id, channel)` 為 key，Telegram 和 Discord 之間的資料完全隔離。
-
----
-
-## 串流運作方式
-
-```
-Runner 輸出第一個 chunk
-    → send() 建立新訊息，取得 message_id
-    → 後續 chunks 每隔 edit_interval 秒 edit() 同一則訊息
-    → 最終確認送出完整回覆
-    → 若回覆超過平台字數限制（Telegram 4096 / Discord 2000）
-      → 超出部分用 send() 續傳，不截斷
-```
-
----
-
-## 模組插件系統
-
-在 `modules/` 下新增一個資料夾，裡面放 `handler.py`，export 一個 `AsyncGenerator` handler，啟動時自動載入。
-
-### 內建模組
-
-| 模組 | 說明 |
-|------|------|
-| `dev_agent` | 複雜程式任務委派給 sub-agent，使用 git worktree 隔離 |
-| `web_search` | DuckDuckGo 或 Tavily 即時網路搜尋 |
-| `vision` | 圖片描述與分析（多模態 API） |
-
----
-
-## 部署方式
-
-### systemd（用戶服務，推薦）
-
-安裝精靈會自動生成 systemd unit file：
-
-```bash
-python3 -m src.setup.wizard
-systemctl --user enable --now gateway-agent
-systemctl --user status gateway-agent
-journalctl --user -u gateway-agent -f  # 查看 log
-```
-
-### Docker Compose
-
-```bash
-docker compose up -d
-docker compose logs -f
-```
-
----
-
-## 專案結構
-
-```
+```text
 mini_agent_team/
-├── main.py                    # 入口點，啟動 Telegram/Discord adapter
-├── requirements.txt
-├── config/
-│   ├── config.toml            # 由精靈生成
-│   └── config.toml.example
-├── secrets/
-│   └── .env                   # Bot tokens（chmod 600，不 commit）
-├── data/                      # 執行時資料（gitignore）
-│   ├── db/history.db          # Tier 3 SQLite 資料庫
-│   ├── memory/cold/permanent/ # Tier 1 JSONL 檔案
-│   └── audit/                 # 每日稽核 log
-├── modules/                   # 插件目錄
-│   ├── dev_agent/
-│   ├── web_search/
-│   └── vision/
-└── src/
-    ├── channels/
-    │   ├── base.py            # BaseAdapter 介面
-    │   ├── telegram.py        # Telegram adapter（python-telegram-bot）
-    │   └── discord_adapter.py # Discord adapter（discord.py）
-    ├── gateway/
-    │   ├── router.py          # 指令解析 + 路由
-    │   ├── session.py         # 用戶 session 狀態 + 閒置清理
-    │   └── streaming.py       # 即時串流橋接
-    ├── core/
-    │   ├── config.py          # TOML + .env 設定載入
-    │   └── memory/
-    │       ├── tier1.py       # 永久記憶（JSONL，同步）
-    │       ├── tier3.py       # SQLite 歷史 + FTS5 + 非同步寫入佇列
-    │       └── context.py     # Token-aware context 組裝
-    ├── runners/
-    │   ├── cli_runner.py      # 非同步 subprocess runner + 串流
-    │   └── audit.py           # 非同步稽核 logger（有 asyncio.Lock）
-    ├── modules/
-    │   └── loader.py          # 模組自動探索
-    ├── agent_team/            # 多 Agent 協作（planner + executor）
-    └── setup/
-        ├── wizard.py          # 互動式安裝精靈
-        ├── deploy.py          # 設定檔 / systemd / Docker 寫入器
-        └── installer.py       # CLI 工具安裝（npm-based）
+├── main.py                # 核心入口 (The Brain)
+├── roster/                # 專家角色 DNA 定義庫
+├── src/
+│   ├── gateway/           # 語義路由與 NLU 核心
+│   ├── core/memory/       # 雙層記憶與精煉邏輯
+│   ├── agent_team/        # 多 Agent 協作模式實作
+│   └── runners/           # CLI Subprocess 非同步監控
+├── modules/               # 功能插件 (Web Search, Vision)
+└── config/                # 系統配置與部署腳本
 ```
 
 ---
 
-## 安全設計
+## 安全設計與政策
 
-- `ALLOWED_USER_IDS` **fail-closed**：空白 = 鎖定所有人（而非開放所有人）
-- `secrets/.env` 由精靈以 `chmod 600` 寫入，避免他人讀取
-- Exception 不轉發給用戶，只回覆通用錯誤訊息，防止洩漏內部資訊
-- 記憶以 `(user_id, channel)` 隔離，Telegram 和 Discord 不互相存取
-- Discord 回覆路由使用 per-user `asyncio.Lock`，防止同一用戶的回覆傳到錯誤頻道
-
----
-
-## 工具使用政策
-
-> 在 mini_agent_team (MAT) 架構下，若工具是以個人帳號授權且條款未明確支持多人代理使用，則僅允許作為擁有者本人之遠端控制工具，不得提供給團隊成員或外部客戶共用。
-
-> 目前 MAT 正式建議接入工具以 **Gemini CLI** 為優先；Claude Code CLI 與 Codex CLI 僅限擁有者本人自用遙控；Kiro 暫不納入支援名單。
+- **隱私至上**：記憶數據嚴格以 `(user_id, channel)` 進行物理隔離。
+- **Fail-Closed**：`ALLOWED_USER_IDS` 為空時系統自動鎖定，防止未授權存取。
+- **使用規範**：本平台僅限作為個人帳號之遠端控制工具。嚴禁將受版權保護的 CLI 工具（如 Claude Code）提供給多用戶代理使用。
 
 ---
 

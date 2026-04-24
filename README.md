@@ -1,285 +1,152 @@
-# mini_agent_team
+# mini_agent_team (Project MAGI)
 
-A versatile multi-channel AI gateway that bridges Telegram and Discord to local CLI-based AI agents such as Claude Code, Codex, and Gemini. Interact with your preferred AI agents directly from your mobile device with persistent memory, full-text search capabilities, and a modular plugin architecture.
+**The Pocket AI Software Company** — Bridge powerful local CLI agents (Claude Code, Gemini CLI, etc.) to Telegram and Discord. Featuring a "Virtual Agency" architecture, dual-tier persistent memory, and automated distillation.
 
 > 繁體中文說明請見 [README.zh-TW.md](README.zh-TW.md)
 
 ---
 
-## Architecture
+## Architecture (Project MAGI)
 
 ```mermaid
-flowchart TD
-    TG[📱 Telegram] -->|message| TA[TelegramAdapter]
-    DC[🎮 Discord] -->|message| DA[DiscordAdapter]
-
-    TA --> GW[Gateway / Router]
-    DA --> GW
-
-    GW -->|/remember /forget| T1[(Tier 1\nPermanent Memory\nJSONL per user/channel)]
-    GW -->|/recall| T3[(Tier 3\nSQLite WAL\nFTS5 Search)]
-    GW -->|/status| SM[SessionManager]
-
-    GW -->|prompt + context| CTX[ContextAssembler\nTier1 + Tier3 history]
-    CTX --> CR[CLIRunner]
-
-    CR -->|subprocess| CL[🤖 Claude Code]
-    CR -->|subprocess| CX[🤖 Codex]
-    CR -->|subprocess| GM[🤖 Gemini CLI]
-    CR -->|subprocess| CU[🤖 Custom Runner]
-
-    CR -->|streaming chunks| SB[StreamingBridge\nlive-edit messages]
-    SB --> TA
-    SB --> DA
-
-    CR --> AL[AuditLog\ndaily JSONL]
-
-    subgraph Memory["Memory System"]
-        T1
-        T3
+flowchart TB
+    %% External Platforms
+    subgraph Clients ["Clients"]
+        TG["📱 <b>Telegram</b>"]
+        DC["🎮 <b>Discord</b>"]
+    end
+    
+    subgraph Gateway ["MAGI Gateway"]
+        direction TB
+        Adapter["🔌 <b>Multi-platform Adapters</b>"]
+        Router["🚦 <b>Semantic Router (NLU)</b>"]
+        Session["⏳ <b>State Manager</b>"]
     end
 
-    subgraph Runners["CLI Runners"]
-        CL
-        CX
-        GM
-        CU
+    subgraph Agency ["Virtual Agency"]
+        direction LR
+        Role1["👨‍💻 <b>Code Auditor</b>"]
+        Role2["🕵️ <b>Bug Hunter</b>"]
+        Role3["🚀 <b>DevOps</b>"]
+        Roster{{"📋 <b>Roster DNA</b>"}}
     end
+
+    subgraph Memory ["Memory System"]
+        direction LR
+        T1[("📝 <b>Tier 1: Permanent</b><br/>Facts & Summaries")]
+        T3[("📚 <b>Tier 3: Archive</b><br/>SQLite FTS5 Search")]
+        Distill{"♻️ <b>Distillation</b>"}
+    end
+
+    subgraph Execution ["Execution Matrix"]
+        direction TB
+        Orchestrator{"🎭 <b>Orchestration</b><br/>Discuss / Debate / Relay"}
+        Runner["🤖 <b>CLI Runners</b><br/>Claude / Gemini / Codex"]
+    end
+
+    %% Flows
+    Clients --> Adapter
+    Adapter --> Router
+    Router --> Session
+    Session --> Roster
+    Roster --> Orchestrator
+    Orchestrator <--> Memory
+    Orchestrator --> Runner
+    
+    T3 -.->|Threshold Reached| Distill
+    Distill -.->|Summarize| T1
+
+    Runner -- "Streaming" --> Adapter
+
+    %% Styling
+    classDef platform fill:#f0f7ff,stroke:#0052cc,color:#0052cc,stroke-width:2px
+    classDef magi fill:#fff9f0,stroke:#d4a017,color:#d4a017,stroke-width:2px
+    classDef agency fill:#fdf2f2,stroke:#c53030,color:#c53030,stroke-width:2px
+    classDef memory fill:#f3faf7,stroke:#2f855a,color:#2f855a,stroke-width:2px
+    classDef exec fill:#f9f5ff,stroke:#6b46c1,color:#6b46c1,stroke-width:2px
+    
+    class Clients,TG,DC platform
+    class Gateway,Adapter,Router,Session magi
+    class Agency,Role1,Role2,Role3,Roster agency
+    class Memory,T1,T3,Distill memory
+    class Execution,Orchestrator,Runner exec
 ```
 
 ---
 
 ## Key Features
 
-- **Multi-Platform Support**: Seamlessly integrate Telegram and Discord within a single process.
-- **Dynamic Agent Switching**: Hot-swap between different AI runners at runtime using commands like `/claude`, `/codex`, or `/gemini`.
-- **Real-time Streaming**: Enjoy live message updates as the runner generates output chunks.
-- **Advanced Persistent Memory**: Dual-tier storage featuring permanent user notes and searchable conversation history.
-- **Modular Plugin System**: Easily extend functionality with drop-in modules for web search, computer vision, and specialized dev agents.
-- **Interactive Setup**: Streamlined configuration via a built-in interactive wizard (`python -m src.setup.wizard`).
-- **Comprehensive Audit Logs**: Maintain accountability with append-only daily JSONL logs of all runner interactions.
+### 🏛️ Virtual Agency Architecture
+More than just a chatbot — build an expert team with specific "Job DNA". Define mission and rules in `roster/*.md`, and the system will automatically route your natural language requests (e.g., "Audit this code for security") to the most suitable role (e.g., `code-auditor`).
+
+### 🧠 Memory Distillation
+Solve the "context explosion" problem. When conversation history grows too long, the system automatically summarizes older turns into permanent facts (Tier 1), ensuring the AI remembers key decisions without bloating the prompt.
+
+### 🎭 Multi-Agent Orchestration
+Built-in **Discuss**, **Debate**, and **Relay** modes. Let Claude and Gemini debate an architectural decision to provide you with balanced, high-fidelity development advice.
+
+### ⚡ Extreme Streaming
+Powered by our custom Streaming Bridge, you can see real-time progress from CLI tools and long code generations instantly on your mobile device, reducing latency and improving interactivity.
 
 ---
 
 ## Quick Start
 
 ### Prerequisites
+- Python 3.12+
+- At least one CLI Agent installed: `claude` (Claude Code) or `gemini` (Gemini CLI).
+- Telegram and/or Discord Bot Token.
 
-- Python 3.11+
-- At least one CLI agent installed: `claude`, `codex`, or `gemini`
-- A Telegram Bot Token (via [@BotFather](https://t.me/botfather)) and/or a Discord Bot Token.
-
-### Installation
-
-**One-liner** (clone + venv + dependencies + interactive wizard):
-
+### One-liner Installation (Recommended)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh | bash
 ```
 
-Or step by step:
-
-```bash
-git clone https://github.com/nchiyi/mini_agent_team.git
-cd mini_agent_team
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python3 -m src.setup.wizard
-```
-
-### Execution
-
-```bash
-cd mini_agent_team && source venv/bin/activate && python3 main.py
-```
-
 ---
 
-## Detailed Configuration
+## Command Encyclopedia
 
-### `secrets/.env`
-
-```env
-TELEGRAM_BOT_TOKEN=your_telegram_token
-DISCORD_BOT_TOKEN=your_discord_token      # optional
-ALLOWED_USER_IDS=123456789,987654321      # required — leave empty to lock the bot
-```
-
-> **Security Note:** The `ALLOWED_USER_IDS` field is mandatory. An empty list will lock the bot, preventing any unauthorized access.
-
-### `config/config.toml`
-
-Key configuration parameters:
-
-```toml
-[gateway]
-default_runner = "claude"
-session_idle_minutes = 60
-stream_edit_interval_seconds = 1.5
-
-[runners.claude]
-path = "claude"
-args = ["--dangerously-skip-permissions"]
-timeout_seconds = 300
-context_token_budget = 4000
-
-[runners.codex]
-path = "codex"
-args = ["exec", "-s", "danger-full-access"]
-timeout_seconds = 300
-context_token_budget = 4000
-
-[runners.gemini]
-path = "gemini"
-args = []
-timeout_seconds = 300
-context_token_budget = 4000
-
-[memory]
-db_path = "data/db/history.db"
-cold_permanent_path = "data/memory/cold/permanent"
-tier3_context_turns = 20
-
-[audit]
-path = "data/audit"
-max_entries = 1000
-```
-
----
-
-## Bot Commands
-
-| Command | Description |
-|---------|-------------|
-| `/remember <text>` | Save a permanent note to your memory |
-| `/forget <keyword>` | Remove permanent notes matching the keyword |
-| `/recall <query>` | Perform a full-text search of your conversation history |
-| `/status` | View current runner, token usage, and session information |
-| `/claude` | Switch to the Claude Code runner |
-| `/codex` | Switch to the Codex runner |
-| `/gemini` | Switch to the Gemini CLI runner |
-| `/new` | Terminate the current session and start fresh |
-
-*All other messages are automatically forwarded to the active runner and streamed back to the user.*
-
----
-
-## Memory System Architecture
-
-| Tier | Storage Engine | Scope | Purpose |
-|------|----------------|-------|---------|
-| Tier 1 | Per-user JSONL file | Per user + per channel | High-priority permanent facts saved with `/remember` |
-| Tier 3 | SQLite WAL + FTS5 | Per user + per channel | Searchable long-term conversation history |
-
-**Context Injection Order:**
-1. Tier 1 permanent notes (up to `tier1_budget` tokens)
-2. Most recent Tier 3 turns (up to `tier3_context_turns` turns, token-capped)
-
-Both tiers are scoped per `(user_id, channel)` to prevent cross-platform data leakage.
-
----
-
-## Module System
-
-Extend the gateway by placing module directories under `modules/`. Each module must contain a `handler.py` that exports an `AsyncGenerator` handler. Modules are automatically discovered during the startup sequence.
-
-### Included Modules
-
-| Module | Description |
-|--------|-------------|
-| `dev_agent` | Delegates complex coding tasks to a sub-agent with git worktree isolation |
-| `web_search` | Real-time web search via DuckDuckGo or Tavily API |
-| `vision` | Image description and analysis via multimodal APIs |
-
----
-
-## Deployment
-
-### Systemd (User Service)
-
-The setup wizard can automatically generate a systemd unit file:
-
-```bash
-python3 -m src.setup.wizard
-systemctl --user enable --now gateway-agent
-systemctl --user status gateway-agent
-```
-
-### Docker Compose
-
-```bash
-docker compose up -d
-docker compose logs -f
-```
+| Category | Command | Description |
+|----------|---------|-------------|
+| **Expert System** | `/claude`, `/gemini` | Call a specific AI runner directly |
+| | `/use <slug>` | Manually switch to a specific Roster role |
+| **Collaboration** | `/discuss <r1,r2> [p]` | Multi-agent brainstorming session |
+| | `/debate <r1,r2> [p]` | Comparative debate between agents |
+| | `/relay <r1,r2> [p]` | Sequential agent pipeline |
+| **Memory** | `/remember <text>` | Save a permanent fact (Tier 1) |
+| | `/recall <query>` | Full-text search of history (Tier 3) |
+| **System** | `/status`, `/usage` | Check system health and token stats |
+| | `/new` or `/reset` | Reset current session and context |
+| | `/cancel` | Immediately stop AI generation |
+| | `/voice on/off` | Toggle speech-to-text functionality |
 
 ---
 
 ## Project Structure
 
-```
+```text
 mini_agent_team/
-├── main.py                    # Entry point — starts Telegram/Discord adapters
-├── requirements.txt
-├── config/
-│   ├── config.toml            # Generated by wizard
-│   └── config.toml.example
-├── secrets/
-│   └── .env                   # Bot tokens (chmod 600, never commit)
-├── data/                      # Runtime data (gitignored)
-│   ├── db/history.db          # Tier 3 SQLite database
-│   ├── memory/cold/permanent/ # Tier 1 JSONL files
-│   └── audit/                 # Daily audit logs
-├── modules/                   # Drop-in plugins directory
-│   ├── dev_agent/
-│   ├── web_search/
-│   └── vision/
-└── src/
-    ├── channels/
-    │   ├── base.py            # BaseAdapter interface
-    │   ├── telegram.py        # Telegram adapter (python-telegram-bot)
-    │   └── discord_adapter.py # Discord adapter (discord.py)
-    ├── gateway/
-    │   ├── router.py          # Command parsing and routing
-    │   ├── session.py         # Per-user session state + idle cleanup
-    │   └── streaming.py       # Live-edit streaming bridge
-    ├── core/
-    │   ├── config.py          # TOML + .env config loader
-    │   └── memory/
-    │       ├── tier1.py       # Permanent memory (JSONL, sync)
-    │       ├── tier3.py       # SQLite history + FTS5 + async write queue
-    │       └── context.py     # Token-aware context assembler
-    ├── runners/
-    │   ├── cli_runner.py      # Async subprocess runner with streaming
-    │   └── audit.py           # Async audit logger with file lock
-    ├── modules/
-    │   └── loader.py          # Module auto-discovery
-    ├── agent_team/            # Multi-agent orchestration (planner + executor)
-    └── setup/
-        ├── wizard.py          # Interactive setup wizard
-        ├── deploy.py          # Config / systemd / Docker file writers
-        └── installer.py       # CLI tool installer (npm-based)
+├── main.py                # Core entry point (The Brain)
+├── roster/                # Expert Role DNA definitions
+├── src/
+│   ├── gateway/           # NLU & Semantic routing core
+│   ├── core/memory/       # Dual-tier storage & distillation
+│   ├── agent_team/        # Orchestration logic
+│   └── runners/           # Async CLI monitoring
+├── modules/               # Plugins (Web Search, Vision)
+└── config/                # System config & deployment scripts
 ```
 
 ---
 
-## Security
+## Security & Policy
 
-- `ALLOWED_USER_IDS` is **fail-closed**: an empty list locks the bot to all users.
-- `secrets/.env` is written with `chmod 600` by the wizard.
-- Raw exceptions are never forwarded to chat — only a generic error message is shown.
-- Memory is scoped per `(user_id, channel)` — no cross-platform data leakage.
-- Discord reply routing uses per-user locks to prevent response misdirection.
-
----
-
-## Tool Usage Policy
-
-> Under the mini_agent_team (MAT) architecture, any tool authorized via a personal account whose terms do not explicitly support multi-user proxy usage is permitted only as a remote-control tool for the owner. It must not be shared with team members or external clients.
-
-> The current MAT recommended integration is **Gemini CLI** as the primary option. Claude Code CLI and Codex CLI are restricted to owner-only personal remote control. Kiro is not supported.
+- **Privacy First**: Memory is strictly isolated by `(user_id, channel)`.
+- **Fail-Closed**: `ALLOWED_USER_IDS` is mandatory; empty list locks the bot.
+- **Policy**: This platform is for personal remote control only. Multi-user proxying of licensed CLI tools like Claude Code is strictly prohibited.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License.
+MIT License
