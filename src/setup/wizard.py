@@ -83,11 +83,19 @@ async def step_2_token(state: WizardState) -> None:
         return
     _hdr(2, "Bot Token")
     if state.channel in ("telegram", "both"):
+        _attempts = 0
         while True:
-            token = _prompt("Telegram bot token")
+            hint = "  (type 's' to skip validation)" if _attempts >= 1 else ""
+            token = _prompt(f"Telegram bot token{hint}")
             if not token:
                 _err("Token required")
                 continue
+            if token.lower() == "s":
+                token = _prompt("Telegram bot token (saved without validation)")
+                if token:
+                    state.telegram_token = token
+                    _warn("Validation skipped — token saved as-is")
+                break
             print("  Validating...")
             result = validate_telegram_token(token)
             if result.skipped:
@@ -98,13 +106,22 @@ async def step_2_token(state: WizardState) -> None:
                 state.telegram_token = token
                 _ok("Telegram token valid")
                 break
+            _attempts += 1
             _err("Invalid token. Try again.")
     if state.channel in ("discord", "both"):
+        _attempts = 0
         while True:
-            token = _prompt("Discord bot token")
+            hint = "  (type 's' to skip validation)" if _attempts >= 1 else ""
+            token = _prompt(f"Discord bot token{hint}")
             if not token:
                 _err("Token required")
                 continue
+            if token.lower() == "s":
+                token = _prompt("Discord bot token (saved without validation)")
+                if token:
+                    state.discord_token = token
+                    _warn("Validation skipped — token saved as-is")
+                break
             print("  Validating...")
             result = validate_discord_token(token)
             if result.skipped:
@@ -115,6 +132,7 @@ async def step_2_token(state: WizardState) -> None:
                 state.discord_token = token
                 _ok("Discord token valid")
                 break
+            _attempts += 1
             _err("Invalid token. Try again.")
     mark_step_done(state, 2)
 
