@@ -49,7 +49,11 @@ fi
 PY_VER=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "not found")
 
 if [ "$(_py_ver_num "$PYTHON_BIN")" -lt 311 ]; then
-    echo "❌  Python $PY_VER found, but 3.11+ is required."
+    if [ "$PY_VER" = "not found" ]; then
+        echo "❌  Python not found. 3.11+ is required."
+    else
+        echo "❌  Python $PY_VER found, but 3.11+ is required."
+    fi
     echo ""
     if [[ "$OSTYPE" == "linux-gnu"* ]] && command -v apt &>/dev/null; then
         echo "💡  Detected Ubuntu/Debian."

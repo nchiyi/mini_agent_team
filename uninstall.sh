@@ -25,8 +25,16 @@ echo ""
 echo "Project directory: $PROJECT_DIR"
 echo ""
 
+# ── Sanity check ─────────────────────────
+if [ ! -f "$PROJECT_DIR/main.py" ]; then
+    echo "❌  $PROJECT_DIR does not look like a mini_agent_team installation (main.py not found)."
+    echo "    Usage: bash uninstall.sh [/path/to/mini_agent_team]"
+    exit 1
+fi
+
 # ── Confirm ───────────────────────────────
-read -rp "⚠️   This will stop the bot and remove the project. Continue? [y/N]: " _CONFIRM
+printf "⚠️   This will stop the bot and remove the project. Continue? [y/N]: " >/dev/tty
+read -r _CONFIRM </dev/tty
 if [[ ! "$_CONFIRM" =~ ^[Yy]$ ]]; then
     echo "Aborted."
     exit 0
@@ -58,7 +66,8 @@ fi
 
 # ── Ask about data ────────────────────────
 echo ""
-read -rp "🗂️   Keep conversation data/history? [Y/n]: " _KEEP_DATA
+printf "🗂️   Keep conversation data/history? [Y/n]: " >/dev/tty
+read -r _KEEP_DATA </dev/tty
 _KEEP_DATA="${_KEEP_DATA:-Y}"
 
 # ── Remove project ────────────────────────

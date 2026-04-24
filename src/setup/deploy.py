@@ -95,7 +95,13 @@ def write_config_toml(path: str, config: dict) -> None:
 def write_env_file(path: str, env: dict) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f"{k}={str(v).replace(chr(10), '').replace(chr(13), '')}" for k, v in env.items()]
+    lines = [
+        '{k}="{v}"'.format(
+            k=k,
+            v=str(v).replace(chr(10), "").replace(chr(13), "").replace('"', '\\"'),
+        )
+        for k, v in env.items()
+    ]
     content = "\n".join(lines) + "\n" if lines else ""
     p.write_text(content)
     p.chmod(0o600)

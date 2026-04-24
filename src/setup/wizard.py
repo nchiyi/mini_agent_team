@@ -42,9 +42,9 @@ def _prompt(msg: str, default: str = "") -> str:
     prompt_text = f"{msg}{suffix}: "
     try:
         if not sys.stdin.isatty():
-            with open("/dev/tty") as _tty:
-                sys.stdout.write(prompt_text)
-                sys.stdout.flush()
+            with open("/dev/tty", "r+") as _tty:
+                _tty.write(prompt_text)
+                _tty.flush()
                 val = _tty.readline().rstrip("\n").strip()
         else:
             val = input(prompt_text).strip()
@@ -381,7 +381,6 @@ async def run_wizard(
     await step_7_deploy(state)
     save_state(state, state_path)
     await step_8_launch(state, cwd, bg_tasks)
-    save_state(state, state_path)
 
 
 if __name__ == "__main__":
