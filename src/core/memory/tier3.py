@@ -45,6 +45,15 @@ class Tier3Store:
         VALUES ('delete', old.id, old.content);
     END
     """
+    _CREATE_SETTINGS = """
+    CREATE TABLE IF NOT EXISTS settings (
+        user_id INTEGER NOT NULL,
+        channel TEXT    NOT NULL,
+        key     TEXT    NOT NULL,
+        value   TEXT    NOT NULL,
+        PRIMARY KEY (user_id, channel, key)
+    )
+    """
 
     def __init__(self, db_path: str):
         self._path = Path(db_path)
@@ -61,6 +70,7 @@ class Tier3Store:
         await self._db.execute(self._CREATE_FTS)
         await self._db.execute(self._CREATE_TRIGGER_AI)
         await self._db.execute(self._CREATE_TRIGGER_AD)
+        await self._db.execute(self._CREATE_SETTINGS)
         await self._db.commit()
         self._db.row_factory = aiosqlite.Row
         self._writer_task = asyncio.create_task(self._writer_loop())
@@ -116,6 +126,60 @@ class Tier3Store:
         ) as cur:
             rows = await cur.fetchall()
         return [{"role": r["role"], "content": r["content"], "ts": r["ts"]} for r in rows]
+
+    async def count_turns(self, *, user_id: int, channel: str) -> int:
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM turns WHERE user_id=? AND channel=?",
+            (user_id, channel),
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
+    async def get_oldest_turns(
+        self, *, user_id: int, channel: str, n: int
+    ) -> list[dict[str, Any]]:
+        """Return the n oldest turns with their row ids."""
+        async with self._db.execute(
+            """SELECT id, role, content, ts FROM turns
+               WHERE user_id=? AND channel=?
+               ORDER BY id ASC LIMIT ?""",
+            (user_id, channel, n),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [{"id": r["id"], "role": r["role"], "content": r["content"], "ts": r["ts"]} for r in rows]
+
+    async def prune_before_id(self, *, user_id: int, channel: str, before_id: int) -> int:
+        """Delete all turns with id <= before_id for this user/channel. Returns count deleted."""
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM turns WHERE user_id=? AND channel=? AND id<=?",
+            (user_id, channel, before_id),
+        ) as cur:
+            row = await cur.fetchone()
+        count = row[0] if row else 0
+        await self._db.execute(
+            "DELETE FROM turns WHERE user_id=? AND channel=? AND id<=?",
+            (user_id, channel, before_id),
+        )
+        await self._db.commit()
+        return count
+
+    async def get_last_distill_ts(self, *, user_id: int, channel: str) -> datetime | None:
+        async with self._db.execute(
+            "SELECT value FROM settings WHERE user_id=? AND channel=? AND key='last_distill_ts'",
+            (user_id, channel),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return datetime.fromisoformat(row["value"])
+
+    async def set_last_distill_ts(self, *, user_id: int, channel: str, ts: datetime) -> None:
+        await self._db.execute(
+            """INSERT INTO settings(user_id, channel, key, value) VALUES (?,?,'last_distill_ts',?)
+               ON CONFLICT(user_id, channel, key) DO UPDATE SET value=excluded.value""",
+            (user_id, channel, ts.isoformat()),
+        )
+        await self._db.commit()
 
     async def close(self) -> None:
         if self._writer_task:

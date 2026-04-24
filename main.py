@@ -6,6 +6,7 @@ Includes Tier 1 permanent memory, Tier 3 SQLite history, and context assembly.
 """
 import asyncio
 import logging
+from datetime import datetime, timezone, timedelta
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 
@@ -36,6 +37,67 @@ def _apply_role_prompt(prompt: str, role_slug: str, base_dir: str) -> str:
     prefix = build_role_prompt_prefix(role_slug, base_dir)
     return prefix + prompt if prefix else prompt
 
+
+async def _maybe_distill(
+    *,
+    user_id: int,
+    channel: str,
+    tier1: "Tier1Store",
+    tier3: "Tier3Store",
+    runners: dict,
+    cfg: "Config",
+) -> None:
+    """Summarise oldest turns into Tier1 when history exceeds distill_trigger_turns."""
+    trigger = cfg.memory.distill_trigger_turns
+    count = await tier3.count_turns(user_id=user_id, channel=channel)
+    if count <= trigger:
+        return
+
+    last_ts = await tier3.get_last_distill_ts(user_id=user_id, channel=channel)
+    now = datetime.now(timezone.utc)
+    if last_ts is not None and (now - last_ts) < timedelta(minutes=30):
+        return
+
+    to_summarise = count - trigger
+    oldest = await tier3.get_oldest_turns(user_id=user_id, channel=channel, n=to_summarise)
+    if not oldest:
+        return
+
+    transcript = "\n".join(
+        f"{t['role'].upper()}: {t['content']}" for t in oldest
+    )
+    summary_prompt = (
+        "Summarise the following conversation turns into a concise paragraph "
+        "that preserves key facts, decisions, and context. "
+        "Write in third person. Be brief.\n\n" + transcript
+    )
+
+    default_runner = runners.get(cfg.gateway.default_runner)
+    if default_runner is None:
+        logger.warning("_maybe_distill: default runner not found, skipping")
+        return
+
+    try:
+        chunks: list[str] = []
+        async for chunk in default_runner.run(
+            prompt=summary_prompt, user_id=user_id, channel=channel, cwd="."
+        ):
+            chunks.append(chunk)
+        summary = "".join(chunks).strip()
+    except Exception:
+        logger.error("_maybe_distill: summarisation failed", exc_info=True)
+        return
+
+    if summary:
+        tier1.remember(
+            user_id=user_id, channel=channel,
+            content=f"[session_summary] {summary}",
+        )
+
+    last_id = oldest[-1]["id"]
+    pruned = await tier3.prune_before_id(user_id=user_id, channel=channel, before_id=last_id)
+    await tier3.set_last_distill_ts(user_id=user_id, channel=channel, ts=now)
+    logger.info("Distilled %d turns into Tier1 for user=%s channel=%s", pruned, user_id, channel)
 
 
 def _build_shared(cfg: Config, audit: AuditLog):
@@ -322,6 +384,7 @@ async def dispatch(
     send_reply,
     recent_turns: int,
     module_registry: ModuleRegistry | None = None,
+    cfg: "Config | None" = None,
 ) -> None:
     """Channel-agnostic gateway logic."""
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
@@ -406,6 +469,9 @@ async def dispatch(
             tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
             pipeline_runners=cmd.pipeline_runners, prompt=cmd.prompt,
         )
+        if cfg:
+            await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                 tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
         return
 
     if cmd.is_discussion:
@@ -416,6 +482,9 @@ async def dispatch(
             discussion_rounds=cmd.discussion_rounds,
             prompt=cmd.prompt,
         )
+        if cfg:
+            await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                 tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
         return
 
     if cmd.is_debate:
@@ -424,6 +493,9 @@ async def dispatch(
             tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
             debate_runners=cmd.debate_runners, prompt=cmd.prompt,
         )
+        if cfg:
+            await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                 tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
         return
 
     explicit_runner = False
@@ -467,6 +539,9 @@ async def dispatch(
                 user_id=inbound.user_id, channel=inbound.channel,
                 role="assistant", content=response,
             )
+            if cfg:
+                await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
     except TimeoutError:
         await send_reply("Runner timed out.")
     except Exception as e:
@@ -500,6 +575,7 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
             lambda t: adapter.send(user_id, t),
             recent_turns=cfg.memory.tier3_context_turns,
             module_registry=module_registry,
+            cfg=cfg,
         )
 
     tg_app.add_handler(MessageHandler(filters.TEXT, on_message))
@@ -530,6 +606,7 @@ async def run_discord(cfg: Config, runners, module_registry, router, session_mgr
             lambda t: dc_adapter.send(inbound.user_id, t),
             recent_turns=cfg.memory.tier3_context_turns,
             module_registry=module_registry,
+            cfg=cfg,
         )
 
     dc_adapter = DiscordAdapter(

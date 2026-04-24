@@ -68,3 +68,61 @@ async def test_tier3_fts_search(tmp_path):
     assert any("memory" in r["content"] or "sqlite" in r["content"] for r in results)
 
     await store.close()
+
+
+async def test_tier3_count_turns(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    store = Tier3Store(db_path=str(tmp_path / "history.db"))
+    await store.init()
+
+    assert await store.count_turns(user_id=1, channel="telegram") == 0
+    await store.save_turn(user_id=1, channel="telegram", role="user", content="a")
+    await store.save_turn(user_id=1, channel="telegram", role="assistant", content="b")
+    assert await store.count_turns(user_id=1, channel="telegram") == 2
+    assert await store.count_turns(user_id=1, channel="discord") == 0
+
+    await store.close()
+
+
+async def test_tier3_prune_before_id(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    store = Tier3Store(db_path=str(tmp_path / "history.db"))
+    await store.init()
+
+    for i in range(5):
+        await store.save_turn(user_id=1, channel="telegram", role="user", content=f"msg {i}")
+
+    oldest = await store.get_oldest_turns(user_id=1, channel="telegram", n=3)
+    assert len(oldest) == 3
+    cutoff_id = oldest[-1]["id"]
+
+    pruned = await store.prune_before_id(user_id=1, channel="telegram", before_id=cutoff_id)
+    assert pruned == 3
+    assert await store.count_turns(user_id=1, channel="telegram") == 2
+
+    remaining = await store.get_recent(user_id=1, channel="telegram", n=10)
+    assert all("msg 3" in r["content"] or "msg 4" in r["content"] for r in remaining)
+
+    await store.close()
+
+
+async def test_tier3_distill_timestamp(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    from datetime import datetime, timezone
+    store = Tier3Store(db_path=str(tmp_path / "history.db"))
+    await store.init()
+
+    assert await store.get_last_distill_ts(user_id=1, channel="telegram") is None
+
+    now = datetime.now(timezone.utc)
+    await store.set_last_distill_ts(user_id=1, channel="telegram", ts=now)
+    retrieved = await store.get_last_distill_ts(user_id=1, channel="telegram")
+    assert retrieved is not None
+    assert abs((retrieved - now).total_seconds()) < 1
+
+    later = datetime.now(timezone.utc)
+    await store.set_last_distill_ts(user_id=1, channel="telegram", ts=later)
+    updated = await store.get_last_distill_ts(user_id=1, channel="telegram")
+    assert updated > retrieved
+
+    await store.close()
