@@ -61,3 +61,17 @@ def test_route_unknown_slash_falls_back_to_default():
     cmd = router.parse("/unknown do something")
     assert cmd.runner == "claude"
     assert "/unknown do something" in cmd.prompt
+
+
+def test_route_voice_on():
+    router = Router(known_runners={"claude"}, default_runner="claude")
+    cmd = router.parse("/voice on")
+    assert cmd.is_voice_on is True
+    assert cmd.is_voice_off is False
+
+
+def test_route_voice_off():
+    router = Router(known_runners={"claude"}, default_runner="claude")
+    cmd = router.parse("/voice off")
+    assert cmd.is_voice_off is True
+    assert cmd.is_voice_on is False

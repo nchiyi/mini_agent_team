@@ -6,6 +6,8 @@ Includes Tier 1 permanent memory, Tier 3 SQLite history, and context assembly.
 """
 import asyncio
 import logging
+import os
+from pathlib import Path
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 
@@ -364,6 +366,16 @@ async def dispatch(
         session_mgr.clear_active_role(inbound.user_id, inbound.channel)
         await send_reply("New session started.")
         return
+    if cmd.is_voice_on:
+        from src.gateway.session import set_voice_enabled
+        set_voice_enabled(inbound.user_id, inbound.channel, True)
+        await send_reply("Voice replies enabled. Send a voice message or text to try.")
+        return
+    if cmd.is_voice_off:
+        from src.gateway.session import set_voice_enabled
+        set_voice_enabled(inbound.user_id, inbound.channel, False)
+        await send_reply("Voice replies disabled.")
+        return
     if cmd.is_status:
         mod_names = module_registry.get_names() if module_registry else []
         # Build context to measure current token usage
@@ -480,9 +492,11 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
     adapter = TelegramAdapter(bot=tg_app.bot, allowed_user_ids=cfg.allowed_user_ids)
     bridge = StreamingBridge(adapter, edit_interval=cfg.gateway.stream_edit_interval_seconds)
 
-    async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not update.message or not update.message.text:
-            return
+    upload_dir = Path("data/uploads")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    async def _handle_inbound(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
+                               text: str, attachments: list[str]) -> None:
         user_id = update.effective_user.id
         if not adapter.is_authorized(user_id):
             await update.message.reply_text("Unauthorized.")
@@ -491,18 +505,67 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
         inbound = InboundMessage(
             user_id=user_id,
             channel="telegram",
-            text=update.message.text.strip(),
+            text=text,
             message_id=str(update.message.message_id),
+            attachments=attachments,
         )
+
+        from src.gateway.session import is_voice_enabled
+        voice_reply = is_voice_enabled(user_id, "telegram")
+
+        async def send_text_and_voice(t: str) -> str:
+            msg_id = await adapter.send(user_id, t)
+            if voice_reply and t.strip():
+                from src.voice.tts import synthesise
+                audio_path = await synthesise(t, voice=cfg.voice.tts_voice)
+                if audio_path:
+                    try:
+                        await context.bot.send_voice(chat_id=user_id, voice=open(audio_path, "rb"))
+                    except Exception:
+                        logger.warning("Failed to send voice reply", exc_info=True)
+                    finally:
+                        import os as _os
+                        _os.unlink(audio_path)
+            return msg_id
+
         await dispatch(
             inbound, bridge, session_mgr, router, runners,
             tier1, tier3, assembler,
-            lambda t: adapter.send(user_id, t),
+            send_text_and_voice,
             recent_turns=cfg.memory.tier3_context_turns,
             module_registry=module_registry,
         )
 
+    async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+        msg = update.message
+        text = (msg.text or msg.caption or "").strip()
+        if not text:
+            return
+        await _handle_inbound(update, context, text=text, attachments=[])
+
+    async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message or not update.message.voice:
+            return
+        user_id = update.effective_user.id
+        if not adapter.is_authorized(user_id):
+            await update.message.reply_text("Unauthorized.")
+            return
+        voice = update.message.voice
+        tg_file = await context.bot.get_file(voice.file_id)
+        dest = upload_dir / f"{user_id}_{voice.file_unique_id}.ogg"
+        await tg_file.download_to_drive(str(dest))
+        from src.voice.stt import transcribe
+        text = await transcribe(str(dest), provider=cfg.voice.stt_provider)
+        if not text:
+            await update.message.reply_text("(Could not transcribe voice message.)")
+            return
+        await update.message.reply_text(f"[Transcribed]: {text}")
+        await _handle_inbound(update, context, text=text, attachments=[])
+
     tg_app.add_handler(MessageHandler(filters.TEXT, on_message))
+    tg_app.add_handler(MessageHandler(filters.VOICE, on_voice))
     async with tg_app:
         await tg_app.start()
         await tg_app.updater.start_polling()

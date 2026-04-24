@@ -17,6 +17,7 @@ class Session:
 
 
 _ACTIVE_ROLES: dict[tuple[int, str], str] = {}
+_VOICE_ENABLED: dict[tuple[int, str], bool] = {}
 
 
 def get_active_role(user_id: int, channel: str) -> str:
@@ -33,6 +34,14 @@ def set_active_role(user_id: int, channel: str, role: str) -> None:
 
 def clear_active_role(user_id: int, channel: str) -> None:
     set_active_role(user_id, channel, "")
+
+
+def is_voice_enabled(user_id: int, channel: str) -> bool:
+    return _VOICE_ENABLED.get((user_id, channel), False)
+
+
+def set_voice_enabled(user_id: int, channel: str, enabled: bool) -> None:
+    _VOICE_ENABLED[(user_id, channel)] = enabled
 
 
 class SessionManager:

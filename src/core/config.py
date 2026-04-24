@@ -40,11 +40,19 @@ class MemoryConfig:
 
 
 @dataclass
+class VoiceConfig:
+    stt_provider: str = "groq"
+    tts_provider: str = "edge-tts"
+    tts_voice: str = "zh-TW-HsiaoChenNeural"
+
+
+@dataclass
 class Config:
     gateway: GatewayConfig
     runners: dict[str, RunnerConfig]
     audit: AuditConfig
     memory: MemoryConfig
+    voice: VoiceConfig = field(default_factory=VoiceConfig)
     telegram_token: str = ""
     discord_token: str = ""
     allowed_user_ids: list[int] = field(default_factory=list)
@@ -103,11 +111,19 @@ def load_config(
 
     modules_dir = raw.get("modules", {}).get("dir", "modules")
 
+    voice_raw = raw.get("voice", {})
+    voice = VoiceConfig(
+        stt_provider=voice_raw.get("stt_provider", "groq"),
+        tts_provider=voice_raw.get("tts_provider", "edge-tts"),
+        tts_voice=voice_raw.get("tts_voice", "zh-TW-HsiaoChenNeural"),
+    )
+
     return Config(
         gateway=gateway,
         runners=runners,
         audit=audit,
         memory=memory,
+        voice=voice,
         telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
         discord_token=os.environ.get("DISCORD_BOT_TOKEN", ""),
         allowed_user_ids=allowed,
