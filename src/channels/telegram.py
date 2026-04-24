@@ -2,6 +2,7 @@
 import logging
 from telegram import Bot, Message
 from telegram.error import TelegramError
+from src.channels.auth import AuthPolicy
 from src.channels.base import BaseAdapter, InboundMessage
 
 logger = logging.getLogger(__name__)
@@ -9,12 +10,19 @@ MAX_LEN = 4096
 
 
 class TelegramAdapter(BaseAdapter):
-    def __init__(self, bot: Bot, allowed_user_ids: list[int]):
+    def __init__(self, bot: Bot, allowed_user_ids: list[int], allow_all_users: bool = False):
         self._bot = bot
-        self._allowed = set(allowed_user_ids)
+        self._auth = AuthPolicy(allowed_user_ids, allow_all_users)
 
     def is_authorized(self, user_id: int) -> bool:
-        return bool(self._allowed) and user_id in self._allowed
+        authorized = self._auth.is_authorized(user_id)
+        if not authorized:
+            logger.debug("telegram auth denied user_id=%s (mode=%s)", user_id, self._auth.mode)
+        return authorized
+
+    @property
+    def auth_mode(self) -> str:
+        return self._auth.mode
 
     async def send(self, user_id: int, text: str) -> str:
         chunks = self._split(text)

@@ -29,12 +29,14 @@ def test_write_config_toml_includes_runner_sections(tmp_path):
     assert "[runners.codex]" not in content
 
 
-def test_write_config_toml_uses_auto_approve_defaults(tmp_path):
+def test_write_config_toml_uses_safe_empty_args(tmp_path):
     path = str(tmp_path / "config.toml")
     write_config_toml(path, {"default_runner": "claude", "runners": ["codex", "gemini"]})
     content = Path(path).read_text()
-    assert 'args = ["exec", "--full-auto", "--skip-git-repo-check"]' in content
-    assert 'args = ["--approval-mode", "yolo"]' in content
+    # Dangerous flags must NOT appear in generated config — safe empty args by default
+    assert "--full-auto" not in content
+    assert "--approval-mode" not in content
+    assert 'args = []' in content
 
 
 def test_write_env_file_creates_file(tmp_path):

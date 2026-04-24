@@ -1,33 +1,12 @@
 # src/modules/manifest.py
-from dataclasses import dataclass
-from pathlib import Path
+# Deprecated: use src.skills.manifest instead.
+import warnings
+warnings.warn(
+    "src.modules.manifest is deprecated; import from src.skills.manifest",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-import yaml
+from src.skills.manifest import SkillManifest as ModuleManifest, parse_manifest  # noqa: F401, E402
 
-
-@dataclass
-class ModuleManifest:
-    name: str
-    version: str
-    commands: list[str]
-    description: str
-    dependencies: list[str]
-    enabled: bool
-    timeout_seconds: int
-
-
-def parse_manifest(path: Path) -> ModuleManifest:
-    with open(path) as f:
-        data = yaml.safe_load(f)
-    commands = data["commands"]
-    if not isinstance(commands, list):
-        raise ValueError(f"'commands' must be a list, got {type(commands).__name__}")
-    return ModuleManifest(
-        name=data["name"],
-        version=data.get("version", "0.0.0"),
-        commands=commands,
-        description=data.get("description", ""),
-        dependencies=data.get("dependencies", []),
-        enabled=data.get("enabled", True),
-        timeout_seconds=data.get("timeout_seconds", 30),
-    )
+__all__ = ["ModuleManifest", "parse_manifest"]

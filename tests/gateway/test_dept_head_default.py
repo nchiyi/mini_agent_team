@@ -69,8 +69,9 @@ async def test_dispatch_applies_dept_head_when_no_role_set():
     tier1 = MagicMock()
     bridge = AsyncMock()
 
-    with patch.object(main, "_apply_role_prompt", side_effect=capturing_apply), \
-         patch.object(main, "resolve_file_refs", new=AsyncMock(return_value="summarise the project")):
+    import src.gateway.dispatcher as dispatcher_mod
+    with patch.object(dispatcher_mod, "apply_role_prompt", side_effect=capturing_apply), \
+         patch.object(dispatcher_mod, "resolve_file_refs", new=AsyncMock(return_value="summarise the project")):
         await main.dispatch(
             inbound=inbound,
             bridge=bridge,

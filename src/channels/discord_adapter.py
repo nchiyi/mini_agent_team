@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Callable, Awaitable
 import discord
+from src.channels.auth import AuthPolicy
 from src.channels.base import BaseAdapter, InboundMessage
 
 _UPLOAD_DIR = Path("data/uploads")
@@ -38,12 +39,13 @@ class DiscordAdapter(BaseAdapter):
         allow_bot_messages: str = "off",
         allow_user_messages: str = "all",
         trusted_bot_ids: list[int] | None = None,
+        allow_all_users: bool = False,
     ):
         intents = discord.Intents.default()
         intents.message_content = True
         self._client = discord.Client(intents=intents)
         self._token = token
-        self._allowed = set(allowed_user_ids)
+        self._auth = AuthPolicy(allowed_user_ids, allow_all_users)
         self._allowed_channels: set[int] = set(allowed_channel_ids or [])
         self._allow_bot_messages = allow_bot_messages if allow_bot_messages in _ALLOW_OPTS else "off"
         self._allow_user_messages = allow_user_messages if allow_user_messages in _ALLOW_OPTS else "all"
@@ -81,6 +83,7 @@ class DiscordAdapter(BaseAdapter):
             else:
                 user_id = message.author.id
                 if not self.is_authorized(user_id):
+                    logger.debug("discord auth denied user_id=%s (mode=%s)", user_id, self._auth.mode)
                     await message.channel.send("Unauthorized.")
                     return
                 if self._allow_user_messages == "off":
@@ -123,7 +126,11 @@ class DiscordAdapter(BaseAdapter):
                     self._dispatch_channel.pop(user_id, None)
 
     def is_authorized(self, user_id: int) -> bool:
-        return not self._allowed or user_id in self._allowed
+        return self._auth.is_authorized(user_id)
+
+    @property
+    def auth_mode(self) -> str:
+        return self._auth.mode
 
     async def send(self, user_id: int, text: str) -> str:
         channel = self._dispatch_channel.get(user_id) or self._user_channel.get(user_id)

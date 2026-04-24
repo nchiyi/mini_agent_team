@@ -58,7 +58,7 @@ async def plan(
     cwd: str = ".",
 ) -> list[SubTask]:
     if args is None:
-        args = ["--dangerously-skip-permissions"]
+        args = []
 
     prompt = _planner_prompt_prefix(cwd) + task_description
     cmd = [binary] + args + [prompt]

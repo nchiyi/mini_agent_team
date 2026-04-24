@@ -11,12 +11,18 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_RUNNER_ARGS: dict[str, list[str]] = {
     "claude": [],
-    "codex": ["exec", "--full-auto", "--skip-git-repo-check"],
-    "gemini": ["--approval-mode", "yolo"],
+    "codex": [],
+    "gemini": [],
     "kiro": [],
 }
 
 _DANGEROUS_SKIP_PERMISSIONS = "--dangerously-skip-permissions"
+_DANGEROUS_RUNNER_ARGS: frozenset[str] = frozenset({
+    "--dangerously-skip-permissions",
+    "--full-auto",
+    "--skip-git-repo-check",
+    "yolo",  # --approval-mode yolo
+})
 
 _LEGACY_RUNNER_ARGS: dict[str, list[list[str]]] = {
     "codex": [
@@ -95,6 +101,7 @@ class Config:
     telegram_token: str = ""
     discord_token: str = ""
     allowed_user_ids: list[int] = field(default_factory=list)
+    allow_all_users: bool = False
     default_cwd: str = ""
     skills_dir: str = "skills"
     modules_dir: str = "skills"  # backward-compat alias
@@ -153,11 +160,12 @@ def load_config(
         for name, rc in raw.get("runners", {}).items()
     }
     for name, rc in runners.items():
-        if _DANGEROUS_SKIP_PERMISSIONS in rc.args:
+        dangerous = [a for a in rc.args if a in _DANGEROUS_RUNNER_ARGS]
+        if dangerous:
             logger.warning(
-                "Runner '%s' has %s enabled. "
-                "Chat-sourced prompts will bypass tool confirmation.",
-                name, _DANGEROUS_SKIP_PERMISSIONS,
+                "Runner '%s' uses privileged args %s — "
+                "chat-sourced prompts will have elevated permissions.",
+                name, dangerous,
             )
 
     audit_raw = raw["audit"]
@@ -193,6 +201,14 @@ def load_config(
         trusted_bot_ids=[int(x) for x in disc_raw.get("trusted_bot_ids", [])],
     )
 
+    allow_all_raw = raw.get("gateway", {}).get("allow_all_users", False)
+    allow_all_users = bool(allow_all_raw) or os.environ.get("ALLOW_ALL_USERS", "").lower() == "true"
+    if allow_all_users:
+        logger.warning(
+            "allow_all_users is enabled — bot accepts messages from ANY user. "
+            "Set ALLOWED_USER_IDS or disable allow_all_users to restrict access."
+        )
+
     return Config(
         gateway=gateway,
         runners=runners,
@@ -203,6 +219,7 @@ def load_config(
         telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
         discord_token=os.environ.get("DISCORD_BOT_TOKEN", ""),
         allowed_user_ids=allowed,
+        allow_all_users=allow_all_users,
         default_cwd=os.environ.get("DEFAULT_CWD", str(Path.home())),
         skills_dir=skills_dir,
         modules_dir=skills_dir,

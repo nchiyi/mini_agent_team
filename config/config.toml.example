@@ -7,6 +7,7 @@ session_idle_minutes = 60
 max_message_length_telegram = 4096
 max_message_length_discord = 2000
 stream_edit_interval_seconds = 1.5
+# allow_all_users = false  # Set to true only for single-user local dev (no ALLOWED_USER_IDS needed)
 
 [gateway.rate_limit]
 enabled = true
@@ -24,13 +25,17 @@ context_token_budget = 4000
 
 [runners.codex]
 path = "codex"
-args = ["exec", "--full-auto", "--skip-git-repo-check"]
+args = []
+# Uncomment for fully-automated mode (bypasses confirmations — review risk before enabling):
+# args = ["exec", "--full-auto", "--skip-git-repo-check"]
 timeout_seconds = 300
 context_token_budget = 4000
 
 [runners.gemini]
 path = "gemini"
-args = ["--approval-mode", "yolo"]
+args = []
+# Uncomment for auto-approval mode (bypasses confirmations — review risk before enabling):
+# args = ["--approval-mode", "yolo"]
 timeout_seconds = 300
 context_token_budget = 4000
 
@@ -46,8 +51,9 @@ cold_session_path = "data/memory/cold/session"
 tier3_context_turns = 20
 distill_trigger_turns = 20
 
-[modules]
-dir = "modules"
+[skills]
+dir = "skills"
+# [modules] is a deprecated alias for [skills] and still accepted
 
 [voice]
 stt_provider = "groq"          # "groq" | "faster-whisper"

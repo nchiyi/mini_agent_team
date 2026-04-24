@@ -28,17 +28,25 @@ def test_discord_split_at_newline():
     assert "b" in chunks[1]
 
 
-def test_discord_is_authorized_empty_allowlist():
-    from src.channels.discord_adapter import DiscordAdapter
-    # Empty allowlist → everyone allowed
-    adapter = DiscordAdapter.__new__(DiscordAdapter)
-    adapter._allowed = set()
-    assert adapter.is_authorized(12345) is True
+def test_discord_is_authorized_empty_allowlist_denies_all():
+    from src.channels.auth import AuthPolicy
+    # Empty allowlist without allow_all_users → conservative: deny all
+    policy = AuthPolicy(allowed_user_ids=[], allow_all_users=False)
+    assert policy.is_authorized(12345) is False
+    assert policy.mode == "unset"
+
+
+def test_discord_is_authorized_allow_all_users():
+    from src.channels.auth import AuthPolicy
+    # allow_all_users=True overrides empty allowlist
+    policy = AuthPolicy(allowed_user_ids=[], allow_all_users=True)
+    assert policy.is_authorized(12345) is True
+    assert policy.mode == "open"
 
 
 def test_discord_is_authorized_with_allowlist():
-    from src.channels.discord_adapter import DiscordAdapter
-    adapter = DiscordAdapter.__new__(DiscordAdapter)
-    adapter._allowed = {111, 222}
-    assert adapter.is_authorized(111) is True
-    assert adapter.is_authorized(999) is False
+    from src.channels.auth import AuthPolicy
+    policy = AuthPolicy(allowed_user_ids=[111, 222])
+    assert policy.is_authorized(111) is True
+    assert policy.is_authorized(999) is False
+    assert policy.mode == "strict"

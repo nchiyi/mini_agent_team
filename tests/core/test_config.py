@@ -115,8 +115,9 @@ distill_trigger_turns = 20
     from src.core.config import load_config
     cfg = load_config(config_path=str(config_file), env_path=None)
 
-    assert cfg.runners["codex"].args == ["exec", "--full-auto", "--skip-git-repo-check"]
-    assert cfg.runners["gemini"].args == ["--approval-mode", "yolo"]
+    # Legacy args are upgraded to the new safe default (empty list)
+    assert cfg.runners["codex"].args == []
+    assert cfg.runners["gemini"].args == []
 
 
 def test_config_keeps_custom_runner_args(tmp_path):
