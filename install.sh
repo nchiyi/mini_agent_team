@@ -115,4 +115,4 @@ echo "✅  Dependencies installed"
 echo ""
 echo "🧙  Launching setup wizard..."
 echo ""
-./venv/bin/python3 -m src.setup.wizard
+./venv/bin/python3 -m src.setup.wizard </dev/tty
