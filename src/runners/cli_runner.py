@@ -1,7 +1,10 @@
 # src/runners/cli_runner.py
 import asyncio
+from pathlib import Path
 from typing import AsyncIterator
 from src.runners.audit import AuditLog
+
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 
 class CLIRunner:
@@ -27,16 +30,29 @@ class CLIRunner:
         user_id: int,
         channel: str,
         cwd: str,
+        attachments: list[str] | None = None,
     ) -> AsyncIterator[str]:
+        effective_prompt = prompt
+        extra_args: list[str] = []
+
+        if attachments:
+            supports_image_flag = "claude" in self.binary or "claude" in self.name
+            for path in attachments:
+                ext = Path(path).suffix.lower()
+                if supports_image_flag and ext in _IMAGE_EXTS:
+                    extra_args += ["--image", path]
+                else:
+                    effective_prompt = f"[attached file: {path}]\n\n" + effective_prompt
+
         await self._audit.write(
             user_id=user_id,
             channel=channel,
             runner=self.name,
-            prompt=prompt,
+            prompt=effective_prompt,
             cwd=cwd,
         )
 
-        cmd = [self.binary] + self.args + [prompt]
+        cmd = [self.binary] + extra_args + self.args + [effective_prompt]
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.DEVNULL,

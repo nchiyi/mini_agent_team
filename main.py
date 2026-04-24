@@ -6,7 +6,9 @@ Includes Tier 1 permanent memory, Tier 3 SQLite history, and context assembly.
 """
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 
@@ -533,6 +535,7 @@ async def dispatch(
                 user_id=inbound.user_id,
                 channel=inbound.channel,
                 cwd=session.cwd,
+                attachments=inbound.attachments or None,
             ):
                 response_chunks.append(chunk)
                 yield chunk
@@ -560,19 +563,50 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
     adapter = TelegramAdapter(bot=tg_app.bot, allowed_user_ids=cfg.allowed_user_ids)
     bridge = StreamingBridge(adapter, edit_interval=cfg.gateway.stream_edit_interval_seconds)
 
+    upload_dir = Path("data/uploads")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    async def _download_tg_file(tg_file, filename: str) -> str:
+        dest = upload_dir / filename
+        await tg_file.download_to_drive(str(dest))
+        return str(dest)
+
     async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not update.message or not update.message.text:
+        if not update.message:
             return
+        msg = update.message
         user_id = update.effective_user.id
         if not adapter.is_authorized(user_id):
-            await update.message.reply_text("Unauthorized.")
+            await msg.reply_text("Unauthorized.")
             return
+
+        text = (msg.text or msg.caption or "").strip()
+        attachments: list[str] = []
+
+        if msg.photo:
+            largest = max(msg.photo, key=lambda p: p.file_size or 0)
+            tg_file = await context.bot.get_file(largest.file_id)
+            ext = Path(tg_file.file_path or "photo.jpg").suffix or ".jpg"
+            path = await _download_tg_file(tg_file, f"{user_id}_{largest.file_unique_id}{ext}")
+            attachments.append(path)
+
+        if msg.document:
+            doc = msg.document
+            tg_file = await context.bot.get_file(doc.file_id)
+            ext = Path(doc.file_name or "file").suffix or ""
+            path = await _download_tg_file(tg_file, f"{user_id}_{doc.file_unique_id}{ext}")
+            attachments.append(path)
+
+        if not text and not attachments:
+            return
+
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         inbound = InboundMessage(
             user_id=user_id,
             channel="telegram",
-            text=update.message.text.strip(),
-            message_id=str(update.message.message_id),
+            text=text or "(no text)",
+            message_id=str(msg.message_id),
+            attachments=attachments,
         )
         await dispatch(
             inbound, bridge, session_mgr, router, runners,
@@ -583,7 +617,7 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
             cfg=cfg,
         )
 
-    tg_app.add_handler(MessageHandler(filters.TEXT, on_message))
+    tg_app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.Document.ALL, on_message))
     async with tg_app:
         await tg_app.start()
         await tg_app.updater.start_polling()

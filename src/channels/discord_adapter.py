@@ -1,9 +1,12 @@
 # src/channels/discord_adapter.py
 import asyncio
 import logging
+from pathlib import Path
 from typing import Callable, Awaitable
 import discord
 from src.channels.base import BaseAdapter, InboundMessage
+
+_UPLOAD_DIR = Path("data/uploads")
 
 logger = logging.getLogger(__name__)
 MAX_LEN = 2000
@@ -43,12 +46,21 @@ class DiscordAdapter(BaseAdapter):
             async with self._user_locks[user_id]:
                 self._dispatch_channel[user_id] = message.channel
                 try:
+                    attachments: list[str] = []
+                    if message.attachments:
+                        _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+                        for att in message.attachments:
+                            ext = Path(att.filename).suffix or ""
+                            dest = _UPLOAD_DIR / f"{user_id}_{att.id}{ext}"
+                            await att.save(dest)
+                            attachments.append(str(dest))
                     await gateway_handler(
                         InboundMessage(
                             user_id=user_id,
                             channel="discord",
-                            text=message.content,
+                            text=message.content or "(no text)",
                             message_id=str(message.id),
+                            attachments=attachments,
                         )
                     )
                 finally:
