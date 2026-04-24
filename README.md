@@ -92,37 +92,80 @@ flowchart TB
 ## Quick Start
 
 ### Prerequisites
-- **Python 3.11+**
+
+- **Git**
 - **CLI Agents**: Install at least one: `claude` (Claude Code), `gemini` (Gemini CLI), or `codex`.
 - **Tokens**: A Telegram and/or Discord Bot Token.
+- **Python 3.11+**: Required to run. If you have an older version, the installer will offer to upgrade automatically.
 
-### Installation
+### One-liner Install
 
-#### 1. Automatic Installation (One-liner)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh | bash
 ```
 
-#### 2. Manual Installation
+The installer handles everything end-to-end:
+
+1. **Clones** (or updates) the repository
+2. **Checks Python** — if < 3.11, offers to auto-install via `deadsnakes` PPA (Ubuntu) or `brew` (macOS)
+3. **Creates a virtual environment** and installs dependencies
+4. **Launches the setup wizard** (8 guided steps):
+   - Channel selection (Telegram / Discord / Both)
+   - Bot token input & validation
+   - Allowlist — captures your Telegram user ID automatically
+   - CLI tools selection (claude, codex, gemini, kiro)
+   - Search mode (FTS5 keyword or FTS5 + embeddings)
+   - Update notifications
+   - Deploy mode (foreground / systemd / docker)
+   - Writes config, starts the bot
+
+When the wizard finishes the bot is **already running** — no extra commands needed.
+
+### Manual Install
+
 ```bash
-# Clone the repository
 git clone https://github.com/nchiyi/mini_agent_team.git
 cd mini_agent_team
-
-# Create virtual environment
 python3 -m venv venv && source venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the setup wizard
 python3 -m src.setup.wizard
 ```
 
-### Execution
+---
+
+## Managing the Bot
+
+### Foreground mode
+The bot runs directly in your terminal. Press `Ctrl-C` to stop.
+
+### Systemd mode
 ```bash
-python3 main.py
+systemctl --user status  gateway-agent   # status
+systemctl --user stop    gateway-agent   # stop
+systemctl --user restart gateway-agent   # restart
+journalctl --user -u gateway-agent -f    # live logs
 ```
+
+### Docker mode
+```bash
+docker compose ps        # status
+docker compose logs -f   # live logs
+docker compose down      # stop
+```
+
+---
+
+## Uninstall
+
+```bash
+bash ~/mini_agent_team/uninstall.sh
+```
+
+The uninstaller will:
+- Stop and remove the systemd service (if configured)
+- Stop the Docker container (if running)
+- Ask whether to **keep or delete** your conversation data
+- Remove the project directory
 
 ---
 
@@ -131,8 +174,8 @@ python3 main.py
 ### `secrets/.env`
 ```env
 TELEGRAM_BOT_TOKEN=your_token
-DISCORD_BOT_TOKEN=your_token (optional)
-ALLOWED_USER_IDS=123456789,987654321  # Mandatory: Locks the bot
+DISCORD_BOT_TOKEN=your_token   # optional
+ALLOWED_USER_IDS=123456789,987654321  # required — locks the bot to these IDs
 ```
 
 ### `config/config.toml` (Key Parameters)
@@ -160,10 +203,9 @@ args = ["--approval-mode", "yolo"]
 timeout_seconds = 300
 context_token_budget = 4000
 
-
 [memory]
 db_path = "data/db/history.db"
-distill_trigger_turns = 20  # Automatic summary after N turns
+distill_trigger_turns = 20  # auto-summarize after N turns
 ```
 
 ---
@@ -188,16 +230,19 @@ distill_trigger_turns = 20  # Automatic summary after N turns
 ```text
 mini_agent_team/
 ├── main.py                # Core entry point
+├── install.sh             # One-liner installer
+├── uninstall.sh           # Full uninstaller
 ├── roster/                # Expert Role DNA definitions (.md)
 ├── src/
 │   ├── channels/          # TG/DC Adapters
 │   ├── gateway/           # Routing, Session & Streaming bridge
 │   ├── core/memory/       # Dual-tier storage & distillation
 │   ├── runners/           # CLI Subprocess wrappers
+│   ├── setup/             # Setup wizard & deploy helpers
 │   └── agent_team/        # Orchestration logic
 ├── modules/               # Plugin directory (Web Search, Vision)
 ├── data/                  # Runtime data (Database, Logs)
-└── config/                # System config & scripts
+└── config/                # System config
 ```
 
 ---

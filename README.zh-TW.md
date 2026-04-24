@@ -94,38 +94,80 @@ flowchart TB
 ## 快速開始 (Quick Start)
 
 ### 前置需求
-- **Python 3.11+**
-- **CLI Agents**: 至少安裝 `claude` (Claude Code), `gemini` (Gemini CLI) 或 `codex` 其中之一。
-- **Tokens**: Telegram Bot Token 和/或 Discord Bot Token。
 
-### 安裝方式
+- **Git**
+- **CLI Agents**：至少安裝以下其一：`claude`（Claude Code）、`gemini`（Gemini CLI）或 `codex`。
+- **Tokens**：Telegram Bot Token 和/或 Discord Bot Token。
+- **Python 3.11+**：執行環境所需。若本機版本較舊，安裝程式會自動提示升級。
 
-#### 1. 自動安裝 (一鍵腳本)
+### 一鍵安裝
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh | bash
 ```
 
-#### 2. 手動安裝 (逐步執行)
+安裝程式會全程自動處理：
+
+1. **Clone**（或更新）專案程式碼
+2. **檢查 Python 版本** — 若 < 3.11，提示自動安裝（Ubuntu 使用 deadsnakes PPA，macOS 使用 brew）
+3. **建立虛擬環境**並安裝所有套件
+4. **啟動設定精靈**（8 個引導步驟）：
+   - 選擇接入頻道（Telegram / Discord / 兩者）
+   - 輸入並驗證 Bot Token
+   - 設定授權白名單（自動捕捉你的 Telegram 用戶 ID）
+   - 選擇 CLI 工具（claude, codex, gemini, kiro）
+   - 選擇搜尋模式（FTS5 關鍵字 或 FTS5 + 向量嵌入）
+   - 更新通知設定
+   - 選擇部署方式（前景執行 / systemd / Docker）
+   - 寫入設定檔並啟動
+
+精靈完成後 Bot **已在執行中** — 無需任何額外指令。
+
+### 手動安裝
+
 ```bash
-# 複製專案
 git clone https://github.com/nchiyi/mini_agent_team.git
 cd mini_agent_team
-
-# 建立虛擬環境
-python3 -m venv venv
-source venv/bin/activate
-
-# 安裝套件
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-
-# 執行設定精靈
 python3 -m src.setup.wizard
 ```
 
-### 啟動應用
+---
+
+## Bot 管理指令
+
+### 前景模式 (Foreground)
+Bot 直接在終端機中運行，按 `Ctrl-C` 停止。
+
+### Systemd 模式
 ```bash
-python3 main.py
+systemctl --user status  gateway-agent   # 查看狀態
+systemctl --user stop    gateway-agent   # 停止
+systemctl --user restart gateway-agent   # 重啟
+journalctl --user -u gateway-agent -f    # 即時日誌
 ```
+
+### Docker 模式
+```bash
+docker compose ps        # 查看狀態
+docker compose logs -f   # 即時日誌
+docker compose down      # 停止
+```
+
+---
+
+## 移除安裝 (Uninstall)
+
+```bash
+bash ~/mini_agent_team/uninstall.sh
+```
+
+移除程式將會：
+- 停止並移除 systemd 服務（如有設定）
+- 停止 Docker 容器（如有執行）
+- 詢問是否**保留或刪除**對話資料（保留時自動備份）
+- 刪除整個專案目錄
 
 ---
 
@@ -134,7 +176,7 @@ python3 main.py
 ### `secrets/.env`
 ```env
 TELEGRAM_BOT_TOKEN=你的Token
-DISCORD_BOT_TOKEN=你的Token (選填)
+DISCORD_BOT_TOKEN=你的Token   # 選填
 ALLOWED_USER_IDS=123456789,987654321  # 必填，空白則鎖定所有人
 ```
 
@@ -190,6 +232,8 @@ distill_trigger_turns = 20  # 超過 N 輪自動啟動精煉
 ```text
 mini_agent_team/
 ├── main.py                # 核心入口 (The Brain)
+├── install.sh             # 一鍵安裝腳本
+├── uninstall.sh           # 完整移除腳本
 ├── roster/                # 專家角色 DNA 定義庫 (.md)
 ├── src/
 │   ├── channels/          # TG/DC 適配器實作
@@ -197,10 +241,11 @@ mini_agent_team/
 │   ├── core/
 │   │   └── memory/        # 雙層記憶 (Tier 1/3) 與精煉邏輯
 │   ├── runners/           # CLI Subprocess 執行封裝
+│   ├── setup/             # 設定精靈與部署輔助工具
 │   └── agent_team/        # 多 Agent 協作模式邏輯
 ├── modules/               # 擴充外掛 (Web Search, Vision)
 ├── data/                  # 執行時數據 (Database, Logs)
-└── config/                # 設定檔與自動化腳本
+└── config/                # 設定檔
 ```
 
 ---
@@ -208,7 +253,7 @@ mini_agent_team/
 ## 安全設計
 
 - **隱私隔離**：記憶以 `(user_id, channel)` 嚴格隔離，防止數據洩漏。
-- **權限黑名單**：`ALLOWED_USER_IDS` 為強制性設定，預設 fail-closed。
+- **權限白名單**：`ALLOWED_USER_IDS` 為強制性設定，預設 fail-closed。
 - **使用規範**：本工具僅限作為個人帳號之遠端控制工具。嚴禁將個人授權之 CLI Agent 提供給多人代理使用。
 
 ---
