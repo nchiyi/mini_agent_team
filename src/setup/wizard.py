@@ -22,7 +22,7 @@ _X = "\033[0m"
 
 
 def _hdr(n: int, title: str) -> None:
-    print(f"\n{_B}[{n}/8] {title}{_X}")
+    print(f"\n{_B}[{n}/9] {title}{_X}")
 
 
 def _ok(msg: str) -> None:
@@ -275,24 +275,109 @@ async def step_5_search(state: WizardState) -> asyncio.Task | None:
     return None
 
 
-async def step_6_updates(state: WizardState) -> None:
+_OPTIONAL_GROUPS: list[tuple[str, str, list[str]]] = [
+    ("discord_voice", "Discord 語音頻道  (PyNaCl)",             ["PyNaCl"]),
+    ("voice",         "語音輸入/輸出 STT/TTS  (groq, edge-tts)", ["groq", "edge-tts"]),
+    ("browser",       "瀏覽器技能  (playwright, html2text)",     ["playwright", "html2text"]),
+    ("tavily",        "Tavily 高級搜尋  (tavily-python)",        ["tavily-python"]),
+]
+
+
+def _pkg_installed(pkg: str) -> bool:
+    import importlib.util
+    name = pkg.split("[")[0].replace("-", "_").lower()
+    return importlib.util.find_spec(name) is not None
+
+
+async def _pip_install(packages: list[str]) -> bool:
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "pip", "install", "--quiet", *packages,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        _warn(f"pip install failed: {stderr.decode(errors='replace').strip()}")
+        return False
+    return True
+
+
+async def step_6_optional(state: WizardState) -> None:
     if is_step_done(state, 6):
-        _ok(f"Step 6 done (update notifications: {state.update_notifications})")
+        _ok(f"Step 6 done (optional: {state.optional_packages or 'none'})")
         return
-    _hdr(6, "Update Notifications")
+    _hdr(6, "Optional Features")
+    selected: set[str] = set()
+
+    while True:
+        print("")
+        for i, (key, label, pkgs) in enumerate(_OPTIONAL_GROUPS, 1):
+            mark = "x" if key in selected else " "
+            status = _G + "installed" + _X if all(_pkg_installed(p) for p in pkgs) else _Y + "not installed" + _X
+            print(f"  [{mark}] {i}. {label}  — {status}")
+        print("")
+        raw = _prompt("Toggle options (e.g. 1 2), Enter to confirm (skip = none)")
+        if not raw:
+            break
+        for token in raw.split():
+            if token.isdigit():
+                idx = int(token) - 1
+                if 0 <= idx < len(_OPTIONAL_GROUPS):
+                    key = _OPTIONAL_GROUPS[idx][0]
+                    if key in selected:
+                        selected.discard(key)
+                    else:
+                        selected.add(key)
+                else:
+                    _err(f"Invalid option: {token}")
+
+    to_install: list[str] = []
+    for key, _, pkgs in _OPTIONAL_GROUPS:
+        if key in selected:
+            for p in pkgs:
+                if not _pkg_installed(p):
+                    to_install.append(p)
+    state.optional_packages = list(selected)
+
+    if to_install:
+        print(f"  Installing: {', '.join(to_install)}")
+        ok = await _pip_install(to_install)
+        if ok:
+            _ok(f"Installed: {', '.join(to_install)}")
+        # post-install: playwright needs browser download
+        if "browser" in selected and "playwright" in to_install:
+            print("  Downloading Playwright browsers (chromium)...")
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "playwright", "install", "chromium",
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.communicate()
+    elif selected:
+        _ok("All selected packages already installed")
+    else:
+        _ok("No optional packages selected")
+
+    mark_step_done(state, 6)
+
+
+async def step_7_updates(state: WizardState) -> None:
+    if is_step_done(state, 7):
+        _ok(f"Step 7 done (update notifications: {state.update_notifications})")
+        return
+    _hdr(7, "Update Notifications")
     print("  Check for new GitHub releases on startup and print a notice.")
     print("  (Never auto-updates — you control when to update.)")
     choice = _prompt("Enable? (y/n)", "y")
     state.update_notifications = choice.lower() != "n"
     _ok(f"Update notifications: {'on' if state.update_notifications else 'off'}")
-    mark_step_done(state, 6)
+    mark_step_done(state, 7)
 
 
-async def step_7_deploy(state: WizardState) -> None:
-    if is_step_done(state, 7):
-        _ok(f"Step 7 done (deploy: {state.deploy_mode})")
+async def step_8_deploy(state: WizardState) -> None:
+    if is_step_done(state, 8):
+        _ok(f"Step 8 done (deploy: {state.deploy_mode})")
         return
-    _hdr(7, "Deploy Mode")
+    _hdr(8, "Deploy Mode")
     print("  1. foreground  — run in terminal (Ctrl-C to stop)")
     print("  2. systemd     — user service, auto-restart, survives logout")
     print("  3. docker      — docker compose (requires Docker)")
@@ -304,7 +389,7 @@ async def step_7_deploy(state: WizardState) -> None:
     else:
         state.deploy_mode = "foreground"
     _ok(f"Deploy mode: {state.deploy_mode}")
-    mark_step_done(state, 7)
+    mark_step_done(state, 8)
 
 
 def _print_completion_systemd(cwd: str) -> None:
@@ -334,15 +419,15 @@ def _print_completion_docker(cwd: str) -> None:
     print(f"{_B}{'='*52}{_X}\n")
 
 
-async def step_8_launch(
+async def step_9_launch(
     state: WizardState,
     cwd: str,
     bg_tasks: list[asyncio.Task],
 ) -> None:
-    if is_step_done(state, 8):
+    if is_step_done(state, 9):
         _ok("Already configured — skipping launch step.")
         return
-    _hdr(8, "Writing config and launching")
+    _hdr(9, "Writing config and launching")
     if bg_tasks:
         print("  Waiting for background installs to complete...")
         results = await asyncio.gather(*bg_tasks, return_exceptions=True)
@@ -369,7 +454,7 @@ async def step_8_launch(
         env["ALLOWED_USER_IDS"] = ",".join(str(i) for i in state.allowed_user_ids)
     env["DEFAULT_CWD"] = cwd
     write_env_file(os.path.join(cwd, "secrets", ".env"), env)
-    mark_step_done(state, 8)
+    mark_step_done(state, 9)
     if state.deploy_mode == "systemd":
         write_systemd_unit(cwd)
         r1 = subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
@@ -430,11 +515,13 @@ async def run_wizard(
     if ollama_task:
         bg_tasks.append(ollama_task)
     save_state(state, state_path)
-    await step_6_updates(state)
+    await step_6_optional(state)
     save_state(state, state_path)
-    await step_7_deploy(state)
+    await step_7_updates(state)
     save_state(state, state_path)
-    await step_8_launch(state, cwd, bg_tasks)
+    await step_8_deploy(state)
+    save_state(state, state_path)
+    await step_9_launch(state, cwd, bg_tasks)
 
 
 if __name__ == "__main__":

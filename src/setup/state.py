@@ -14,6 +14,7 @@ class WizardState:
     search_mode: str = "fts5"
     update_notifications: bool = True
     deploy_mode: str = "foreground"
+    optional_packages: list[str] = field(default_factory=list)
 
 
 _FIELDS = set(WizardState.__dataclass_fields__)
@@ -45,6 +46,7 @@ def save_state(state: WizardState, path: str) -> None:
                 "search_mode": state.search_mode,
                 "update_notifications": state.update_notifications,
                 "deploy_mode": state.deploy_mode,
+                "optional_packages": state.optional_packages,
             }, f, indent=2)
     except OSError as e:
         raise RuntimeError(f"Cannot save wizard state to {path}: {e}") from e

@@ -122,7 +122,8 @@ _is_configured() {
 import json, sys
 try:
     d = json.load(open('data/setup-state.json'))
-    sys.exit(0 if 8 in d.get('completed_steps', []) else 1)
+    steps = d.get('completed_steps', [])
+    sys.exit(0 if 8 in steps or 9 in steps else 1)
 except Exception:
     sys.exit(1)
 " 2>/dev/null
