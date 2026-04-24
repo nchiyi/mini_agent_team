@@ -30,7 +30,7 @@ from src.gateway.file_resolver import resolve_file_refs
 from src.roles import build_role_prompt_prefix
 
 _DEFAULT_ROLE = "department-head"
-_role_prompt_cache: dict[str, str] = {}
+_role_prompt_cache: dict[str, tuple[float, str]] = {}  # slug -> (mtime, prefix)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,10 +40,25 @@ logger = logging.getLogger("main")
 
 
 def _apply_role_prompt(prompt: str, role_slug: str, base_dir: str) -> str:
-    if role_slug not in _role_prompt_cache:
-        _role_prompt_cache[role_slug] = build_role_prompt_prefix(role_slug, base_dir)
-    prefix = _role_prompt_cache[role_slug]
+    role_file = Path(base_dir) / "roster" / f"{role_slug}.md"
+    try:
+        mtime = role_file.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    cached = _role_prompt_cache.get(role_slug)
+    if cached is None or cached[0] != mtime:
+        prefix = build_role_prompt_prefix(role_slug, base_dir)
+        _role_prompt_cache[role_slug] = (mtime, prefix)
+    else:
+        prefix = cached[1]
     return prefix + prompt if prefix else prompt
+
+
+async def _session_cleanup_loop(session_mgr, interval_seconds: int = 300) -> None:
+    """Periodically evict sessions that have been idle past the configured timeout."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        session_mgr.release_idle()
 
 
 async def _maybe_distill(
@@ -769,6 +784,9 @@ async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.e
     audit = AuditLog(audit_dir=cfg.audit.path, max_entries=cfg.audit.max_entries)
     runners, module_registry, router, session_mgr, tier1, tier3, assembler, nlu_detector = _build_shared(cfg, audit)
     await tier3.init()
+
+    # Evict idle sessions every 5 minutes to prevent unbounded memory growth
+    asyncio.create_task(_session_cleanup_loop(session_mgr, interval_seconds=300))
 
     # Warm up RoleRouter (loads roster + FastEmbed if available) before first message arrives
     router._role_router.warm_up()

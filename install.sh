@@ -36,10 +36,16 @@ _py_ver_num() { "$1" -c 'import sys; print(sys.version_info.major * 100 + sys.ve
 
 PYTHON_BIN="python3"
 
-# Prefer an explicitly versioned binary if the default is too old
+# Prefer an explicitly versioned binary if the default is too old.
+# Also probe common Homebrew and pyenv locations that may not be in PATH.
 if [ "$(_py_ver_num python3)" -lt 311 ]; then
-    for _candidate in python3.13 python3.12 python3.11; do
-        if command -v "$_candidate" &>/dev/null && [ "$(_py_ver_num "$_candidate")" -ge 311 ]; then
+    for _candidate in \
+        python3.13 python3.12 python3.11 \
+        /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11 \
+        /usr/local/bin/python3.13 /usr/local/bin/python3.12 /usr/local/bin/python3.11 \
+        "$HOME/.pyenv/shims/python3.13" "$HOME/.pyenv/shims/python3.12" "$HOME/.pyenv/shims/python3.11"; do
+        if { command -v "$_candidate" &>/dev/null || [ -x "$_candidate" ]; } && \
+           [ "$(_py_ver_num "$_candidate")" -ge 311 ]; then
             PYTHON_BIN="$_candidate"
             break
         fi
