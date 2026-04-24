@@ -7,7 +7,7 @@ _SCRIPT_URL="https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/insta
 # When run via curl | bash, stdin is a pipe so interactive prompts don't work.
 # Re-download the full script and re-exec once; _MAT_REEXEC prevents looping.
 if [ ! -t 0 ] && [ -z "${_MAT_REEXEC:-}" ]; then
-    _TMPSCRIPT=$(mktemp /tmp/mat-install.XXXXXX.sh)
+    _TMPSCRIPT=$(mktemp /tmp/mat-install.XXXXXX)
     curl -fsSL "$_SCRIPT_URL" -o "$_TMPSCRIPT"
     chmod +x "$_TMPSCRIPT"
     export _MAT_REEXEC=1
