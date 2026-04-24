@@ -435,4 +435,8 @@ async def run_wizard(
 
 
 if __name__ == "__main__":
-    asyncio.run(run_wizard(cwd=os.path.abspath(".")))
+    import argparse
+    _ap = argparse.ArgumentParser(description="Gateway Agent setup wizard")
+    _ap.add_argument("--reset", action="store_true", help="Wipe saved state and start from step 1")
+    _args = _ap.parse_args()
+    asyncio.run(run_wizard(cwd=os.path.abspath("."), reset=_args.reset))

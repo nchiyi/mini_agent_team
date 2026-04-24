@@ -115,8 +115,53 @@ pip install --quiet --upgrade pip
 pip install --quiet -r requirements.txt
 echo "✅  Dependencies installed"
 
-# ── 5. wizard ─────────────────────────────
-echo ""
-echo "🧙  Launching setup wizard..."
-echo ""
-./venv/bin/python3 -m src.setup.wizard </dev/tty
+# ── 5. first-run check ────────────────────
+_is_configured() {
+    local env="secrets/.env"
+    [ -f "$env" ] && grep -qE "^(TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN)=" "$env"
+}
+
+if _is_configured; then
+    echo ""
+    echo "╔══════════════════════════════════════╗"
+    echo "║  mini_agent_team is already set up   ║"
+    echo "╚══════════════════════════════════════╝"
+    echo ""
+    echo "  1. Start bot (foreground)"
+    echo "  2. Restart service (systemd)"
+    echo "  3. Update tokens / settings  (./agent config)"
+    echo "  4. Reconfigure from scratch  (re-run wizard)"
+    echo "  5. Exit"
+    echo ""
+    printf "Choose [1]: " >/dev/tty
+    read -r _MGMT </dev/tty
+    _MGMT="${_MGMT:-1}"
+    echo ""
+    case "$_MGMT" in
+        1)
+            echo "🚀  Starting bot..."
+            exec ./venv/bin/python3 main.py
+            ;;
+        2)
+            systemctl --user restart gateway-agent 2>/dev/null \
+                && echo "✅  gateway-agent restarted" \
+                || echo "⚠️   systemd service not found — try option 1 to run in foreground"
+            ;;
+        3)
+            ./agent config </dev/tty
+            ;;
+        4)
+            echo "🔄  Resetting wizard state..."
+            ./venv/bin/python3 -m src.setup.wizard --reset </dev/tty
+            ;;
+        *)
+            echo "👋  Bye."
+            ;;
+    esac
+else
+    # ── 5. wizard (first run) ──────────────
+    echo ""
+    echo "🧙  Launching setup wizard..."
+    echo ""
+    ./venv/bin/python3 -m src.setup.wizard </dev/tty
+fi
