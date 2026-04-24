@@ -6,6 +6,34 @@ from src.runners.audit import AuditLog
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
+# (runner-name-fragment, error-substring, fix-command)
+# Matched case-insensitively against each output line.
+_AUTH_PATTERNS: list[tuple[str, str, str]] = [
+    ("claude", "not logged in",          "claude login"),
+    ("claude", "please run /login",       "claude login"),
+    ("codex",  "not logged in",           "codex login"),
+    ("codex",  "please run codex login",  "codex login"),
+    ("codex",  "authentication required", "codex login"),
+    ("codex",  "incorrect api key",       "codex login"),
+    ("codex",  "no credentials",          "codex login"),
+    ("gemini", "please set an auth method","gemini auth login"),
+    ("gemini", "gemini_api_key",          "gemini auth login  (or set GEMINI_API_KEY)"),
+    ("gemini", "not authenticated",       "gemini auth login"),
+    ("kiro",   "not signed in",           "kiro login"),
+    ("kiro",   "not logged in",           "kiro login"),
+    ("kiro",   "please run /login",       "kiro login"),
+    ("kiro",   "sign in to continue",     "kiro login"),
+]
+
+
+def _check_auth_error(runner_name: str, line: str) -> str | None:
+    lower_line = line.lower()
+    lower_name = runner_name.lower()
+    for name_frag, pattern, fix in _AUTH_PATTERNS:
+        if name_frag in lower_name and pattern in lower_line:
+            return fix
+    return None
+
 
 class CLIRunner:
     def __init__(
@@ -68,7 +96,17 @@ class CLIRunner:
                     line = await proc.stdout.readline()
                     if not line:
                         break
-                    yield line.decode("utf-8", errors="replace")
+                    decoded = line.decode("utf-8", errors="replace")
+                    fix = _check_auth_error(self.name, decoded)
+                    if fix:
+                        proc.kill()
+                        await proc.wait()
+                        yield (
+                            f"⚠️ {self.name} is not logged in.\n"
+                            f"Run `{fix}` on the server, then restart the bot."
+                        )
+                        return
+                    yield decoded
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
