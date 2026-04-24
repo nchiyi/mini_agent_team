@@ -150,9 +150,7 @@ if _is_configured; then
             exec ./venv/bin/python3 main.py
             ;;
         2)
-            systemctl --user restart gateway-agent 2>/dev/null \
-                && echo "✅  gateway-agent restarted" \
-                || echo "⚠️   systemd service not found — try option 1 to run in foreground"
+            ./agent restart
             ;;
         3)
             ./agent config </dev/tty
