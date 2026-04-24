@@ -10,7 +10,7 @@ stream_edit_interval_seconds = 1.5
 
 [runners.claude]
 path = "claude"
-args = ["--dangerously-skip-permissions"]
+args = ["--dangerously-skip-permissions", "--print"]
 timeout_seconds = 300
 context_token_budget = 4000
 
@@ -22,7 +22,7 @@ context_token_budget = 4000
 
 [runners.gemini]
 path = "gemini"
-args = ["--approval-mode", "yolo"]
+args = ["--approval-mode", "yolo", "--prompt"]
 timeout_seconds = 300
 context_token_budget = 4000
 

@@ -93,6 +93,10 @@ class RoleRouter:
     # Public API
     # ------------------------------------------------------------------
 
+    def warm_up(self) -> None:
+        """Call at bot startup so the first real message has no cold-start penalty."""
+        self._lazy_init()
+
     def route(self, text: str, threshold: float | None = None) -> str | None:
         """
         Return the best matching role slug, or None if confidence is below threshold.

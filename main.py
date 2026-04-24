@@ -30,6 +30,7 @@ from src.gateway.file_resolver import resolve_file_refs
 from src.roles import build_role_prompt_prefix
 
 _DEFAULT_ROLE = "department-head"
+_role_prompt_cache: dict[str, str] = {}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,7 +40,9 @@ logger = logging.getLogger("main")
 
 
 def _apply_role_prompt(prompt: str, role_slug: str, base_dir: str) -> str:
-    prefix = build_role_prompt_prefix(role_slug, base_dir)
+    if role_slug not in _role_prompt_cache:
+        _role_prompt_cache[role_slug] = build_role_prompt_prefix(role_slug, base_dir)
+    prefix = _role_prompt_cache[role_slug]
     return prefix + prompt if prefix else prompt
 
 
@@ -133,7 +136,8 @@ def _build_shared(cfg: Config, audit: AuditLog):
     default_runner_cfg = cfg.runners.get(cfg.gateway.default_runner)
     max_tokens = default_runner_cfg.context_token_budget if default_runner_cfg else 4000
     assembler = ContextAssembler(tier1=tier1, tier3=tier3, max_tokens=max_tokens)
-    return runners, module_registry, router, session_mgr, tier1, tier3, assembler
+    nlu_detector = FastPathDetector(set(runners.keys()))
+    return runners, module_registry, router, session_mgr, tier1, tier3, assembler, nlu_detector
 
 
 async def _dispatch_pipeline(
@@ -409,6 +413,7 @@ async def dispatch(
     recent_turns: int,
     module_registry: ModuleRegistry | None = None,
     cfg: "Config | None" = None,
+    nlu_detector: "FastPathDetector | None" = None,
 ) -> None:
     """Channel-agnostic gateway logic."""
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
@@ -422,7 +427,8 @@ async def dispatch(
     if not inbound.text.startswith("/") and not any([
         cmd.is_pipeline, cmd.is_discussion, cmd.is_debate,
     ]):
-        nlu_cmd = FastPathDetector(set(runners.keys())).detect(inbound.text)
+        _detector = nlu_detector or FastPathDetector(set(runners.keys()))
+        nlu_cmd = _detector.detect(inbound.text)
         if nlu_cmd is not None:
             cmd = nlu_cmd
 
@@ -612,7 +618,7 @@ async def dispatch(
 
 
 async def run_telegram(cfg: Config, runners, module_registry, router, session_mgr,
-                       tier1, tier3, assembler) -> None:
+                       tier1, tier3, assembler, nlu_detector=None) -> None:
     tg_app = Application.builder().token(cfg.telegram_token).build()
     adapter = TelegramAdapter(bot=tg_app.bot, allowed_user_ids=cfg.allowed_user_ids)
     bridge = StreamingBridge(adapter, edit_interval=cfg.gateway.stream_edit_interval_seconds)
@@ -665,6 +671,7 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
             recent_turns=cfg.memory.tier3_context_turns,
             module_registry=module_registry,
             cfg=cfg,
+            nlu_detector=nlu_detector,
         )
 
     async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -725,7 +732,7 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
 
 
 async def run_discord(cfg: Config, runners, module_registry, router, session_mgr,
-                      tier1, tier3, assembler) -> None:
+                      tier1, tier3, assembler, nlu_detector=None) -> None:
     discord_bridges: dict[int, StreamingBridge] = {}
 
     async def gateway_handler(inbound: InboundMessage) -> None:
@@ -741,6 +748,7 @@ async def run_discord(cfg: Config, runners, module_registry, router, session_mgr
             recent_turns=cfg.memory.tier3_context_turns,
             module_registry=module_registry,
             cfg=cfg,
+            nlu_detector=nlu_detector,
         )
 
     dc_adapter = DiscordAdapter(
@@ -755,8 +763,16 @@ async def run_discord(cfg: Config, runners, module_registry, router, session_mgr
 async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.env") -> None:
     cfg = load_config(config_path=cfg_path, env_path=env_path)
     audit = AuditLog(audit_dir=cfg.audit.path, max_entries=cfg.audit.max_entries)
-    runners, module_registry, router, session_mgr, tier1, tier3, assembler = _build_shared(cfg, audit)
+    runners, module_registry, router, session_mgr, tier1, tier3, assembler, nlu_detector = _build_shared(cfg, audit)
     await tier3.init()
+
+    # Warm up RoleRouter (loads roster + FastEmbed if available) before first message arrives
+    router._role_router.warm_up()
+
+    # Pre-populate role prompt cache for all known roles
+    from src.roles import load_roles as _load_roles
+    for _slug in _load_roles(cfg.default_cwd):
+        _apply_role_prompt("", _slug, cfg.default_cwd)
 
     if not cfg.allowed_user_ids:
         logger.warning(
@@ -767,10 +783,10 @@ async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.e
     coroutines = []
     if cfg.telegram_token:
         coroutines.append(run_telegram(cfg, runners, module_registry, router,
-                                        session_mgr, tier1, tier3, assembler))
+                                        session_mgr, tier1, tier3, assembler, nlu_detector))
     if cfg.discord_token:
         coroutines.append(run_discord(cfg, runners, module_registry, router,
-                                       session_mgr, tier1, tier3, assembler))
+                                       session_mgr, tier1, tier3, assembler, nlu_detector))
 
     if not coroutines:
         logger.error("No tokens configured. Set TELEGRAM_BOT_TOKEN or DISCORD_BOT_TOKEN.")
