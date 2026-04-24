@@ -195,49 +195,49 @@ async def test_step5_skipped_if_done():
     assert state.search_mode == "fts5+embedding"
 
 
-# ── Step 6: updates ──────────────────────────────────────────────
+# ── Step 7: updates ──────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_step6_updates_on(monkeypatch):
-    state = WizardState(completed_steps=[1, 2, 3, 4, 5])
-    monkeypatch.setattr("builtins.input", lambda _: "y")
-    await wizard.step_6_updates(state)
-    assert state.update_notifications is True
-    assert 6 in state.completed_steps
-
-
-@pytest.mark.asyncio
-async def test_step6_updates_off(monkeypatch):
-    state = WizardState(completed_steps=[1, 2, 3, 4, 5])
-    monkeypatch.setattr("builtins.input", lambda _: "n")
-    await wizard.step_6_updates(state)
-    assert state.update_notifications is False
-
-
-# ── Step 7: deploy ───────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_step7_foreground(monkeypatch):
     state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6])
-    monkeypatch.setattr("builtins.input", lambda _: "1")
-    await wizard.step_7_deploy(state)
-    assert state.deploy_mode == "foreground"
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "y")
+    await wizard.step_7_updates(state)
+    assert state.update_notifications is True
     assert 7 in state.completed_steps
 
 
 @pytest.mark.asyncio
-async def test_step7_systemd(monkeypatch):
+async def test_step6_updates_off(monkeypatch):
     state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6])
-    monkeypatch.setattr("builtins.input", lambda _: "2")
-    await wizard.step_7_deploy(state)
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "n")
+    await wizard.step_7_updates(state)
+    assert state.update_notifications is False
+
+
+# ── Step 8: deploy ───────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_step7_foreground(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6, 7])
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "1")
+    await wizard.step_8_deploy(state)
+    assert state.deploy_mode == "foreground"
+    assert 8 in state.completed_steps
+
+
+@pytest.mark.asyncio
+async def test_step7_systemd(monkeypatch):
+    state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6, 7])
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "2")
+    await wizard.step_8_deploy(state)
     assert state.deploy_mode == "systemd"
 
 
 @pytest.mark.asyncio
 async def test_step7_docker(monkeypatch):
-    state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6])
-    monkeypatch.setattr("builtins.input", lambda _: "3")
-    await wizard.step_7_deploy(state)
+    state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6, 7])
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "3")
+    await wizard.step_8_deploy(state)
     assert state.deploy_mode == "docker"
 
 
@@ -258,7 +258,7 @@ async def test_run_wizard_resumes_skipping_completed_steps(tmp_path):
     )
     state_path = str(tmp_path / "state.json")
     save_state(state, state_path)
-    with patch("src.setup.wizard.step_8_launch", new_callable=AsyncMock) as mock_launch:
+    with patch("src.setup.wizard.step_9_launch", new_callable=AsyncMock) as mock_launch:
         await wizard.run_wizard(state_path=state_path, cwd=str(tmp_path))
     mock_launch.assert_called_once()
 
@@ -278,9 +278,10 @@ async def test_run_wizard_reset_clears_state(tmp_path):
          patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]), \
          patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None), \
-         patch("src.setup.wizard.step_6_updates", new_callable=AsyncMock), \
-         patch("src.setup.wizard.step_7_deploy", new_callable=AsyncMock), \
-         patch("src.setup.wizard.step_8_launch", new_callable=AsyncMock):
+         patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_8_deploy", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_9_launch", new_callable=AsyncMock):
         await wizard.run_wizard(state_path=state_path, reset=True, cwd=str(tmp_path))
     # step_1 must be called because state was reset (steps re-run)
     mock_s1.assert_called_once()
@@ -291,8 +292,8 @@ async def test_run_wizard_reset_clears_state(tmp_path):
 @pytest.mark.asyncio
 async def test_step8_writes_config_and_env(tmp_path):
     state = WizardState(
-        completed_steps=[1, 2, 3, 4, 5, 6, 7],
-        channel="telegram", telegram_token="TOK",
+        completed_steps=[1, 2, 3, 4, 5, 6, 7, 8],
+        channels=["telegram"], telegram_token="TOK",
         allowed_user_ids=[111], selected_clis=["claude"],
         search_mode="fts5", update_notifications=True,
         deploy_mode="foreground",
@@ -301,7 +302,7 @@ async def test_step8_writes_config_and_env(tmp_path):
          patch("src.setup.wizard.write_env_file") as mock_env, \
          patch("src.setup.wizard.create_data_dirs"), \
          patch("os.execv"):
-        await wizard.step_8_launch(state, str(tmp_path), [])
+        await wizard.step_9_launch(state, str(tmp_path), [])
     mock_cfg.assert_called_once()
     mock_env.assert_called_once()
     # env_file content passed as second positional arg
@@ -313,8 +314,8 @@ async def test_step8_writes_config_and_env(tmp_path):
 @pytest.mark.asyncio
 async def test_step8_systemd_calls_systemctl(tmp_path):
     state = WizardState(
-        completed_steps=list(range(1, 8)),
-        channel="telegram", telegram_token="T",
+        completed_steps=list(range(1, 9)),
+        channels=["telegram"], telegram_token="T",
         allowed_user_ids=[1], selected_clis=["claude"],
         search_mode="fts5", update_notifications=False,
         deploy_mode="systemd",
@@ -324,7 +325,7 @@ async def test_step8_systemd_calls_systemctl(tmp_path):
          patch("src.setup.wizard.create_data_dirs"), \
          patch("src.setup.wizard.write_systemd_unit") as mock_unit, \
          patch("subprocess.run") as mock_run:
-        await wizard.step_8_launch(state, str(tmp_path), [])
+        await wizard.step_9_launch(state, str(tmp_path), [])
     mock_unit.assert_called_once()
     assert mock_run.call_count >= 1
 
@@ -332,8 +333,8 @@ async def test_step8_systemd_calls_systemctl(tmp_path):
 @pytest.mark.asyncio
 async def test_step8_docker_calls_compose(tmp_path):
     state = WizardState(
-        completed_steps=list(range(1, 8)),
-        channel="telegram", telegram_token="T",
+        completed_steps=list(range(1, 9)),
+        channels=["telegram"], telegram_token="T",
         allowed_user_ids=[1], selected_clis=["claude"],
         search_mode="fts5", update_notifications=False,
         deploy_mode="docker",
@@ -343,6 +344,6 @@ async def test_step8_docker_calls_compose(tmp_path):
          patch("src.setup.wizard.create_data_dirs"), \
          patch("src.setup.wizard.write_docker_compose") as mock_dc, \
          patch("subprocess.run") as mock_run:
-        await wizard.step_8_launch(state, str(tmp_path), [])
+        await wizard.step_9_launch(state, str(tmp_path), [])
     mock_dc.assert_called_once()
     mock_run.assert_called_once()

@@ -16,6 +16,8 @@ class Session:
         self.last_active = datetime.now(timezone.utc)
 
 
+# Module-level dicts kept for backward compatibility (skills/modules that import directly).
+# main.py uses SessionManager methods instead.
 _ACTIVE_ROLES: dict[tuple[int, str], str] = {}
 _VOICE_ENABLED: dict[tuple[int, str], bool] = {}
 
@@ -50,6 +52,36 @@ class SessionManager:
         self._default_runner = default_runner
         self._default_cwd = default_cwd
         self._sessions: dict[tuple[int, str], Session] = {}
+        self._active_roles: dict[tuple[int, str], str] = {}
+        self._voice_enabled: dict[tuple[int, str], bool] = {}
+
+    # ── role state ────────────────────────────────────────────────────────
+
+    def get_active_role(self, user_id: int, channel: str) -> str:
+        return self._active_roles.get((user_id, channel), "")
+
+    def set_active_role(self, user_id: int, channel: str, role: str) -> None:
+        key = (user_id, channel)
+        if role:
+            self._active_roles[key] = role
+        else:
+            self._active_roles.pop(key, None)
+        session = self._sessions.get(key)
+        if session:
+            session.active_role = role
+
+    def clear_active_role(self, user_id: int, channel: str) -> None:
+        self.set_active_role(user_id, channel, "")
+
+    # ── voice state ───────────────────────────────────────────────────────
+
+    def is_voice_enabled(self, user_id: int, channel: str) -> bool:
+        return self._voice_enabled.get((user_id, channel), False)
+
+    def set_voice_enabled(self, user_id: int, channel: str, enabled: bool) -> None:
+        self._voice_enabled[(user_id, channel)] = enabled
+
+    # ── session lifecycle ─────────────────────────────────────────────────
 
     def get_or_create(self, user_id: int, channel: str) -> Session:
         key = (user_id, channel)
@@ -59,22 +91,12 @@ class SessionManager:
                 channel=channel,
                 current_runner=self._default_runner,
                 cwd=self._default_cwd,
-                active_role=get_active_role(user_id, channel),
+                active_role=self.get_active_role(user_id, channel),
             )
         else:
-            self._sessions[key].active_role = get_active_role(user_id, channel)
+            self._sessions[key].active_role = self.get_active_role(user_id, channel)
         self._sessions[key].touch()
         return self._sessions[key]
-
-    def set_active_role(self, user_id: int, channel: str, role: str) -> None:
-        set_active_role(user_id, channel, role)
-        session = self.get_or_create(user_id, channel)
-        session.active_role = role
-
-    def clear_active_role(self, user_id: int, channel: str) -> None:
-        clear_active_role(user_id, channel)
-        session = self.get_or_create(user_id, channel)
-        session.active_role = ""
 
     def release_idle(self) -> None:
         now = datetime.now(timezone.utc)

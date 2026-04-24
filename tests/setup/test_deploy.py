@@ -47,8 +47,8 @@ def test_write_env_file_content(tmp_path):
     path = str(tmp_path / ".env")
     write_env_file(path, {"TELEGRAM_BOT_TOKEN": "tok123", "ALLOWED_USER_IDS": "456,789"})
     content = Path(path).read_text()
-    assert "TELEGRAM_BOT_TOKEN=tok123" in content
-    assert "ALLOWED_USER_IDS=456,789" in content
+    assert 'TELEGRAM_BOT_TOKEN="tok123"' in content
+    assert 'ALLOWED_USER_IDS="456,789"' in content
 
 
 def test_write_systemd_unit_content(tmp_path):

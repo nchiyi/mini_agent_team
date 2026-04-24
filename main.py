@@ -19,7 +19,7 @@ from src.channels.telegram import TelegramAdapter
 from src.channels.discord_adapter import DiscordAdapter
 from src.channels.base import InboundMessage, BaseAdapter
 from src.gateway.router import Router
-from src.gateway.session import SessionManager, get_active_role
+from src.gateway.session import SessionManager
 from src.gateway.streaming import StreamingBridge
 from src.core.memory.tier1 import Tier1Store
 from src.core.memory.tier3 import Tier3Store
@@ -415,6 +415,82 @@ async def _dispatch_debate(
                           role="assistant", content=f"[debate] {transcript}")
 
 
+async def _dispatch_single_runner(
+    inbound: InboundMessage,
+    session,
+    runners: dict,
+    bridge: StreamingBridge,
+    tier3: Tier3Store,
+    assembler: ContextAssembler,
+    send_reply,
+    recent_turns: int,
+    role_slug: str,
+    cmd,
+    cfg: "Config | None" = None,
+    tier1: "Tier1Store | None" = None,
+) -> None:
+    explicit_runner = False
+    if inbound.text.startswith("/"):
+        prefix = inbound.text.split(None, 1)[0].lstrip("/").lower()
+        explicit_runner = prefix in runners
+
+    target_runner = runners.get(cmd.runner if explicit_runner else session.current_runner)
+    if not target_runner:
+        await send_reply(f"Runner '{session.current_runner}' not found.")
+        return
+
+    await tier3.save_turn(
+        user_id=inbound.user_id, channel=inbound.channel,
+        role="user", content=inbound.text,
+    )
+    context = await assembler.build(
+        user_id=inbound.user_id, channel=inbound.channel,
+        recent_turns=recent_turns,
+    )
+    resolved_prompt = await resolve_file_refs(cmd.prompt, session.cwd)
+    prompt = _apply_role_prompt(resolved_prompt, role_slug, session.cwd)
+    full_prompt = (context + "\n\n" + prompt) if context else prompt
+
+    from src.core.memory.context import count_tokens
+    prompt_tokens = count_tokens(full_prompt)
+
+    try:
+        response_chunks: list[str] = []
+
+        async def collecting_gen():
+            async for chunk in target_runner.run(
+                prompt=full_prompt,
+                user_id=inbound.user_id,
+                channel=inbound.channel,
+                cwd=session.cwd,
+                attachments=inbound.attachments or None,
+            ):
+                response_chunks.append(chunk)
+                yield chunk
+
+        await bridge.stream(user_id=inbound.user_id, chunks=collecting_gen())
+        response = "".join(response_chunks).strip()
+        if response:
+            await tier3.save_turn(
+                user_id=inbound.user_id, channel=inbound.channel,
+                role="assistant", content=response,
+            )
+            completion_tokens = count_tokens(response)
+            await tier3.log_usage(
+                user_id=inbound.user_id, channel=inbound.channel,
+                runner=session.current_runner,
+                prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+            )
+            if cfg and tier1:
+                await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
+    except TimeoutError:
+        await send_reply("Runner timed out.")
+    except Exception as e:
+        logger.error("Runner error: %s", e, exc_info=True)
+        await send_reply("An error occurred. Please try again.")
+
+
 async def dispatch(
     inbound: InboundMessage,
     bridge: StreamingBridge,
@@ -433,7 +509,7 @@ async def dispatch(
     """Channel-agnostic gateway logic."""
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
     cmd = router.parse(inbound.text)
-    active_role = get_active_role(inbound.user_id, inbound.channel)
+    active_role = session_mgr.get_active_role(inbound.user_id, inbound.channel)
     if active_role:
         session.active_role = active_role
     # Department Head is the default L1 entry point when no role is explicitly set
@@ -474,13 +550,11 @@ async def dispatch(
         await send_reply("New session started.")
         return
     if cmd.is_voice_on:
-        from src.gateway.session import set_voice_enabled
-        set_voice_enabled(inbound.user_id, inbound.channel, True)
+        session_mgr.set_voice_enabled(inbound.user_id, inbound.channel, True)
         await send_reply("Voice replies enabled. Send a voice message or text to try.")
         return
     if cmd.is_voice_off:
-        from src.gateway.session import set_voice_enabled
-        set_voice_enabled(inbound.user_id, inbound.channel, False)
+        session_mgr.set_voice_enabled(inbound.user_id, inbound.channel, False)
         await send_reply("Voice replies disabled.")
         return
     if cmd.is_usage:
@@ -570,66 +644,12 @@ async def dispatch(
                                  tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
         return
 
-    explicit_runner = False
-    if inbound.text.startswith("/"):
-        prefix = inbound.text.split(None, 1)[0].lstrip("/").lower()
-        explicit_runner = prefix in runners
-
-    target_runner = runners.get(cmd.runner if explicit_runner else session.current_runner)
-    if not target_runner:
-        await send_reply(f"Runner '{session.current_runner}' not found.")
-        return
-
-    await tier3.save_turn(
-        user_id=inbound.user_id, channel=inbound.channel,
-        role="user", content=inbound.text,
+    await _dispatch_single_runner(
+        inbound=inbound, session=session, runners=runners,
+        bridge=bridge, tier3=tier3, assembler=assembler,
+        send_reply=send_reply, recent_turns=recent_turns,
+        role_slug=role_slug, cmd=cmd, cfg=cfg, tier1=tier1,
     )
-    context = await assembler.build(
-        user_id=inbound.user_id, channel=inbound.channel,
-        recent_turns=recent_turns,
-    )
-    resolved_prompt = await resolve_file_refs(cmd.prompt, session.cwd)
-    prompt = _apply_role_prompt(resolved_prompt, role_slug, session.cwd)
-    full_prompt = (context + "\n\n" + prompt) if context else prompt
-
-    from src.core.memory.context import count_tokens
-    prompt_tokens = count_tokens(full_prompt)
-
-    try:
-        response_chunks: list[str] = []
-
-        async def collecting_gen():
-            async for chunk in target_runner.run(
-                prompt=full_prompt,
-                user_id=inbound.user_id,
-                channel=inbound.channel,
-                cwd=session.cwd,
-                attachments=inbound.attachments or None,
-            ):
-                response_chunks.append(chunk)
-                yield chunk
-
-        await bridge.stream(user_id=inbound.user_id, chunks=collecting_gen())
-        response = "".join(response_chunks).strip()
-        if response:
-            await tier3.save_turn(
-                user_id=inbound.user_id, channel=inbound.channel,
-                role="assistant", content=response,
-            )
-            completion_tokens = count_tokens(response)
-            await tier3.log_usage(
-                user_id=inbound.user_id, channel=inbound.channel,
-                runner=session.current_runner,
-                prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
-            )
-            if cfg:
-                await _maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
-                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
-    except TimeoutError:
-        await send_reply("Runner timed out.")
-    except Exception as e:
-        logger.error("Runner error: %s", e, exc_info=True)
-        await send_reply("An error occurred. Please try again.")
 
 
 async def run_telegram(cfg: Config, runners, module_registry, router, session_mgr,
@@ -662,8 +682,7 @@ async def run_telegram(cfg: Config, runners, module_registry, router, session_mg
             attachments=attachments,
         )
 
-        from src.gateway.session import is_voice_enabled
-        voice_reply = is_voice_enabled(user_id, "telegram")
+        voice_reply = session_mgr.is_voice_enabled(user_id, "telegram")
 
         async def send_text_and_voice(t: str) -> str:
             msg_id = await adapter.send(user_id, t)

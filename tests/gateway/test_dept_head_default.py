@@ -47,6 +47,7 @@ async def test_dispatch_applies_dept_head_when_no_role_set():
     session.current_runner = "claude"
     session.cwd = "/tmp"
     session_mgr.get_or_create.return_value = session
+    session_mgr.get_active_role.return_value = ""
 
     router = MagicMock()
     cmd = MagicMock()
