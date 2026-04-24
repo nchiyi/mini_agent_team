@@ -249,6 +249,33 @@ async def step_7_deploy(state: WizardState) -> None:
     mark_step_done(state, 7)
 
 
+def _print_completion_systemd(cwd: str) -> None:
+    print(f"\n{_B}{'='*52}{_X}")
+    print(f"{_G}{_B}  ✅  Setup complete — bot is running in background.{_X}")
+    print(f"{_B}{'='*52}{_X}")
+    print(f"  {_B}Manage:{_X}")
+    print("    systemctl --user status  gateway-agent   # status")
+    print("    systemctl --user stop    gateway-agent   # stop")
+    print("    systemctl --user restart gateway-agent   # restart")
+    print("    journalctl --user -u gateway-agent -f    # live logs")
+    print(f"  {_B}Uninstall:{_X}")
+    print(f"    bash {cwd}/uninstall.sh")
+    print(f"{_B}{'='*52}{_X}\n")
+
+
+def _print_completion_docker(cwd: str) -> None:
+    print(f"\n{_B}{'='*52}{_X}")
+    print(f"{_G}{_B}  ✅  Setup complete — bot is running in Docker.{_X}")
+    print(f"{_B}{'='*52}{_X}")
+    print(f"  {_B}Manage:{_X}")
+    print(f"    docker compose -f {cwd}/docker-compose.yml ps       # status")
+    print(f"    docker compose -f {cwd}/docker-compose.yml logs -f  # live logs")
+    print(f"    docker compose -f {cwd}/docker-compose.yml down     # stop")
+    print(f"  {_B}Uninstall:{_X}")
+    print(f"    bash {cwd}/uninstall.sh")
+    print(f"{_B}{'='*52}{_X}\n")
+
+
 async def step_8_launch(
     state: WizardState,
     cwd: str,
@@ -292,6 +319,7 @@ async def step_8_launch(
             _warn("systemctl returned non-zero — check service status manually")
         else:
             _ok("Systemd service started: gateway-agent")
+        _print_completion_systemd(cwd)
     elif state.deploy_mode == "docker":
         write_docker_compose(cwd)
         r = subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
@@ -299,13 +327,17 @@ async def step_8_launch(
             _warn("docker compose returned non-zero — check container status manually")
         else:
             _ok("Docker container started")
+        _print_completion_docker(cwd)
     else:
         python = os.path.join(cwd, "venv", "bin", "python3")
         if not os.path.exists(python):
             _warn("venv python not found, falling back to system python3")
             python = "python3"
         save_state(state, os.path.join(cwd, "data", "setup-state.json"))
-        _ok("Launching bot...")
+        print(f"\n{_B}{'='*52}{_X}")
+        print(f"{_G}{_B}  Bot is starting — this terminal is now the bot.{_X}")
+        print(f"  Press Ctrl-C to stop.")
+        print(f"{_B}{'='*52}{_X}\n")
         os.execv(python, [python, os.path.join(cwd, "main.py")])
 
 

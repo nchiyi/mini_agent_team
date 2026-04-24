@@ -5,11 +5,12 @@ REPO="https://github.com/nchiyi/mini_agent_team.git"
 _SCRIPT_URL="https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh"
 
 # When run via curl | bash, stdin is a pipe so interactive prompts don't work.
-# Re-download the full script to a tempfile and re-exec so stdin is the terminal.
-if [ ! -t 0 ]; then
+# Re-download the full script and re-exec once; _MAT_REEXEC prevents looping.
+if [ ! -t 0 ] && [ -z "${_MAT_REEXEC:-}" ]; then
     _TMPSCRIPT=$(mktemp /tmp/mat-install.XXXXXX.sh)
     curl -fsSL "$_SCRIPT_URL" -o "$_TMPSCRIPT"
     chmod +x "$_TMPSCRIPT"
+    export _MAT_REEXEC=1
     exec bash "$_TMPSCRIPT" "$@"
 fi
 DIR="mini_agent_team"
@@ -114,12 +115,4 @@ echo "✅  Dependencies installed"
 echo ""
 echo "🧙  Launching setup wizard..."
 echo ""
-"$PYTHON_BIN" -m src.setup.wizard
-
-echo ""
-echo "🚀  Setup complete. To start the bot:"
-echo "    cd $DIR && source venv/bin/activate && python3 main.py"
-echo ""
-echo "    Or with systemd (if configured by wizard):"
-echo "    systemctl --user start gateway-agent"
-echo ""
+./venv/bin/python3 -m src.setup.wizard
