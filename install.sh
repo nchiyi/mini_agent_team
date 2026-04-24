@@ -117,8 +117,15 @@ echo "✅  Dependencies installed"
 
 # ── 5. first-run check ────────────────────
 _is_configured() {
-    local env="secrets/.env"
-    [ -f "$env" ] && grep -qE "^(TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN)=" "$env"
+    [ -f "data/setup-state.json" ] && \
+    ./venv/bin/python3 -c "
+import json, sys
+try:
+    d = json.load(open('data/setup-state.json'))
+    sys.exit(0 if 8 in d.get('completed_steps', []) else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null
 }
 
 if _is_configured; then

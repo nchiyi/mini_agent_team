@@ -339,6 +339,9 @@ async def step_8_launch(
     cwd: str,
     bg_tasks: list[asyncio.Task],
 ) -> None:
+    if is_step_done(state, 8):
+        _ok("Already configured — skipping launch step.")
+        return
     _hdr(8, "Writing config and launching")
     if bg_tasks:
         print("  Waiting for background installs to complete...")
