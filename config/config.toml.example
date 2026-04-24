@@ -45,3 +45,9 @@ dir = "modules"
 stt_provider = "groq"          # "groq" | "faster-whisper"
 tts_provider = "edge-tts"      # "edge-tts" | "gtts"
 tts_voice = "zh-TW-HsiaoChenNeural"
+
+[discord]
+# allowed_channel_ids = []     # empty = all channels; fill to whitelist specific channels
+allow_bot_messages = "off"     # "off" | "mentions" | "all"
+allow_user_messages = "all"    # "off" | "mentions" | "all"
+# trusted_bot_ids = []         # bot Discord IDs allowed to trigger this bot (for multi-bot relay)

@@ -11,6 +11,20 @@ _UPLOAD_DIR = Path("data/uploads")
 logger = logging.getLogger(__name__)
 MAX_LEN = 2000
 
+_ALLOW_OPTS = frozenset(("off", "mentions", "all"))
+
+
+async def _typing_loop(channel: discord.abc.Messageable) -> None:
+    """Keep the typing indicator alive every 8 s (Discord expires it at 10 s)."""
+    try:
+        while True:
+            await channel.trigger_typing()
+            await asyncio.sleep(8)
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        pass
+
 
 class DiscordAdapter(BaseAdapter):
     def __init__(
@@ -18,12 +32,20 @@ class DiscordAdapter(BaseAdapter):
         token: str,
         allowed_user_ids: list[int],
         gateway_handler: Callable[[InboundMessage], Awaitable[None]],
+        allowed_channel_ids: list[int] | None = None,
+        allow_bot_messages: str = "off",
+        allow_user_messages: str = "all",
+        trusted_bot_ids: list[int] | None = None,
     ):
         intents = discord.Intents.default()
         intents.message_content = True
         self._client = discord.Client(intents=intents)
         self._token = token
         self._allowed = set(allowed_user_ids)
+        self._allowed_channels: set[int] = set(allowed_channel_ids or [])
+        self._allow_bot_messages = allow_bot_messages if allow_bot_messages in _ALLOW_OPTS else "off"
+        self._allow_user_messages = allow_user_messages if allow_user_messages in _ALLOW_OPTS else "all"
+        self._trusted_bots: set[int] = set(trusted_bot_ids or [])
         self._user_channel: dict[int, discord.TextChannel] = {}
         self._dispatch_channel: dict[int, discord.TextChannel] = {}
         self._user_locks: dict[int, asyncio.Lock] = {}
@@ -36,15 +58,41 @@ class DiscordAdapter(BaseAdapter):
         async def on_message(message: discord.Message) -> None:
             if message.author == self._client.user:
                 return
-            user_id = message.author.id
-            if not self.is_authorized(user_id):
-                await message.channel.send("Unauthorized.")
+
+            # ── channel filter ──────────────────────────────────────────────
+            if self._allowed_channels and message.channel.id not in self._allowed_channels:
                 return
+
+            bot_id = self._client.user.id if self._client.user else 0
+            is_bot_msg = message.author.bot
+            is_mentioned = any(u.id == bot_id for u in message.mentions)
+
+            # ── authorization ───────────────────────────────────────────────
+            if is_bot_msg:
+                if self._allow_bot_messages == "off":
+                    return
+                if self._trusted_bots and message.author.id not in self._trusted_bots:
+                    logger.debug("bot %s not in trusted_bot_ids, ignoring", message.author.id)
+                    return
+                if self._allow_bot_messages == "mentions" and not is_mentioned:
+                    return
+            else:
+                user_id = message.author.id
+                if not self.is_authorized(user_id):
+                    await message.channel.send("Unauthorized.")
+                    return
+                if self._allow_user_messages == "off":
+                    return
+                if self._allow_user_messages == "mentions" and not is_mentioned:
+                    return
+
+            user_id = message.author.id
             self._user_channel[user_id] = message.channel
             if user_id not in self._user_locks:
                 self._user_locks[user_id] = asyncio.Lock()
             async with self._user_locks[user_id]:
                 self._dispatch_channel[user_id] = message.channel
+                typing_task = asyncio.create_task(_typing_loop(message.channel))
                 try:
                     attachments: list[str] = []
                     if message.attachments:
@@ -64,6 +112,7 @@ class DiscordAdapter(BaseAdapter):
                         )
                     )
                 finally:
+                    typing_task.cancel()
                     self._dispatch_channel.pop(user_id, None)
 
     def is_authorized(self, user_id: int) -> bool:

@@ -48,6 +48,10 @@ search_mode = "{search_mode}"
 
 [modules]
 dir = "modules"
+
+[discord]
+allow_bot_messages = "off"
+allow_user_messages = "all"
 """
 
 _DOCKERFILE = (

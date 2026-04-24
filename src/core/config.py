@@ -63,12 +63,21 @@ class VoiceConfig:
 
 
 @dataclass
+class DiscordConfig:
+    allowed_channel_ids: list[int] = field(default_factory=list)
+    allow_bot_messages: str = "off"
+    allow_user_messages: str = "all"
+    trusted_bot_ids: list[int] = field(default_factory=list)
+
+
+@dataclass
 class Config:
     gateway: GatewayConfig
     runners: dict[str, RunnerConfig]
     audit: AuditConfig
     memory: MemoryConfig
     voice: VoiceConfig = field(default_factory=VoiceConfig)
+    discord: DiscordConfig = field(default_factory=DiscordConfig)
     telegram_token: str = ""
     discord_token: str = ""
     allowed_user_ids: list[int] = field(default_factory=list)
@@ -147,12 +156,21 @@ def load_config(
         tts_voice=voice_raw.get("tts_voice", "zh-TW-HsiaoChenNeural"),
     )
 
+    disc_raw = raw.get("discord", {})
+    discord_cfg = DiscordConfig(
+        allowed_channel_ids=[int(x) for x in disc_raw.get("allowed_channel_ids", [])],
+        allow_bot_messages=disc_raw.get("allow_bot_messages", "off"),
+        allow_user_messages=disc_raw.get("allow_user_messages", "all"),
+        trusted_bot_ids=[int(x) for x in disc_raw.get("trusted_bot_ids", [])],
+    )
+
     return Config(
         gateway=gateway,
         runners=runners,
         audit=audit,
         memory=memory,
         voice=voice,
+        discord=discord_cfg,
         telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
         discord_token=os.environ.get("DISCORD_BOT_TOKEN", ""),
         allowed_user_ids=allowed,

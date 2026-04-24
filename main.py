@@ -755,6 +755,10 @@ async def run_discord(cfg: Config, runners, module_registry, router, session_mgr
         token=cfg.discord_token,
         allowed_user_ids=cfg.allowed_user_ids,
         gateway_handler=gateway_handler,
+        allowed_channel_ids=cfg.discord.allowed_channel_ids,
+        allow_bot_messages=cfg.discord.allow_bot_messages,
+        allow_user_messages=cfg.discord.allow_user_messages,
+        trusted_bot_ids=cfg.discord.trusted_bot_ids,
     )
     logger.info("Discord bot starting")
     await dc_adapter.start()
