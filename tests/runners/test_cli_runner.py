@@ -57,6 +57,38 @@ async def test_cli_runner_timeout(tmp_path):
             pass
 
 
+async def test_cli_runner_non_image_attachment_prepends_text(tmp_path):
+    """Non-image attachments are prepended as [attached file: path] in the prompt."""
+    from src.runners.cli_runner import CLIRunner
+    from src.runners.audit import AuditLog
+    audit = AuditLog(audit_dir=str(tmp_path / "audit"), max_entries=100)
+
+    # Use 'echo' runner (not claude), so no --image flag path is taken
+    runner = CLIRunner(
+        name="echo_test",
+        binary="echo",
+        args=[],
+        timeout_seconds=5,
+        context_token_budget=1000,
+        audit=audit,
+    )
+
+    pdf_path = str(tmp_path / "report.pdf")
+    chunks = []
+    async for chunk in runner.run(
+        prompt="summarise this",
+        user_id=1,
+        channel="test",
+        cwd=str(tmp_path),
+        attachments=[pdf_path],
+    ):
+        chunks.append(chunk)
+
+    output = "".join(chunks)
+    assert pdf_path in output
+    assert "summarise this" in output
+
+
 async def test_cli_runner_writes_audit(tmp_path):
     from src.runners.cli_runner import CLIRunner
     from src.runners.audit import AuditLog

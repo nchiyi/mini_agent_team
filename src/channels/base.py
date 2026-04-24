@@ -1,6 +1,6 @@
 # src/channels/base.py
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -9,6 +9,7 @@ class InboundMessage:
     channel: str        # "telegram" | "discord"
     text: str
     message_id: str
+    attachments: list[str] = field(default_factory=list)  # local file paths
 
 
 class BaseAdapter(ABC):
