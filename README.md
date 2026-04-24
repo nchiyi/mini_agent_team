@@ -1,6 +1,6 @@
 # mini_agent_team (Project MAGI)
 
-**The Pocket AI Software Company** — Bridge powerful local CLI agents (Claude Code, Gemini CLI, etc.) to Telegram and Discord. Featuring a "Virtual Agency" architecture, dual-tier persistent memory, and automated distillation.
+**The Pocket AI Software Company** — Bridge powerful local CLI agents (Claude Code, Gemini CLI, Codex, etc.) to Telegram and Discord. Featuring a "Virtual Agency" architecture, dual-tier persistent memory, and automated distillation.
 
 > 繁體中文說明請見 [README.zh-TW.md](README.zh-TW.md)
 
@@ -10,38 +10,39 @@
 
 ```mermaid
 flowchart TB
-    %% External Platforms
-    subgraph Clients ["Clients"]
-        TG["📱 <b>Telegram</b>"]
-        DC["🎮 <b>Discord</b>"]
+    subgraph Clients ["Input Channels"]
+        TG["📱 Telegram (Bot API)"]
+        DC["🎮 Discord (discord.py)"]
     end
     
     subgraph Gateway ["MAGI Gateway"]
         direction TB
-        Adapter["🔌 <b>Multi-platform Adapters</b>"]
-        Router["🚦 <b>Semantic Router (NLU)</b>"]
-        Session["⏳ <b>State Manager</b>"]
+        Adapter["🔌 Multi-platform Adapters"]
+        Router["🚦 Semantic Router (NLU)"]
+        Session["⏳ Session Manager"]
+        Bridge["⚡ Streaming Bridge"]
     end
 
     subgraph Agency ["Virtual Agency"]
         direction LR
-        Role1["👨‍💻 <b>Code Auditor</b>"]
-        Role2["🕵️ <b>Bug Hunter</b>"]
-        Role3["🚀 <b>DevOps</b>"]
-        Roster{{"📋 <b>Roster DNA</b>"}}
+        Roster{{"📋 Roster DNA Library<br/>(roster/*.md)"}}
+        Roles["👨‍💻 Code Auditor<br/>🕵️ Bug Hunter<br/>🚀 DevOps"]
     end
 
-    subgraph Memory ["Memory System"]
+    subgraph Memory ["Memory Tier"]
         direction LR
-        T1[("📝 <b>Tier 1: Permanent</b><br/>Facts & Summaries")]
-        T3[("📚 <b>Tier 3: Archive</b><br/>SQLite FTS5 Search")]
-        Distill{"♻️ <b>Distillation</b>"}
+        T1[("📝 Tier 1: Permanent Notes<br/>JSONL (Facts/Summaries)")]
+        T3[("📚 Tier 3: History Archive<br/>SQLite FTS5 (History)")]
+        Distill{"♻️ Auto Distillation"}
     end
 
-    subgraph Execution ["Execution Matrix"]
+    subgraph Runners ["Execution Matrix"]
         direction TB
-        Orchestrator{"🎭 <b>Orchestration</b><br/>Discuss / Debate / Relay"}
-        Runner["🤖 <b>CLI Runners</b><br/>Claude / Gemini / Codex"]
+        Orchestrator{"🎭 Orchestration Modes<br/>Discuss/Debate/Relay"}
+        CR["🤖 CLIRunner (Subprocess)"]
+        CL["Claude Code"]
+        GM["Gemini CLI"]
+        CX["Codex / Custom"]
     end
 
     %% Flows
@@ -49,76 +50,117 @@ flowchart TB
     Adapter --> Router
     Router --> Session
     Session --> Roster
-    Roster --> Orchestrator
-    Orchestrator <--> Memory
-    Orchestrator --> Runner
+    Roster --> Roles
+    Roles --> Orchestrator
     
+    Orchestrator <--> T1 & T3
     T3 -.->|Threshold Reached| Distill
     Distill -.->|Summarize| T1
 
-    Runner -- "Streaming" --> Adapter
+    Orchestrator --> CR
+    CR --> CL & GM & CX
+    CR -- "Real-time Streaming" --> Bridge
+    Bridge --> Adapter
 
     %% Styling
-    classDef platform fill:#f0f7ff,stroke:#0052cc,color:#0052cc,stroke-width:2px
-    classDef magi fill:#fff9f0,stroke:#d4a017,color:#d4a017,stroke-width:2px
-    classDef agency fill:#fdf2f2,stroke:#c53030,color:#c53030,stroke-width:2px
-    classDef memory fill:#f3faf7,stroke:#2f855a,color:#2f855a,stroke-width:2px
-    classDef exec fill:#f9f5ff,stroke:#6b46c1,color:#6b46c1,stroke-width:2px
+    classDef platform fill:#f0f7ff,stroke:#0052cc,color:#0052cc
+    classDef magi fill:#fff9f0,stroke:#d4a017,color:#d4a017
+    classDef agency fill:#fdf2f2,stroke:#c53030,color:#c53030
+    classDef memory fill:#f3faf7,stroke:#2f855a,color:#2f855a
+    classDef exec fill:#f9f5ff,stroke:#6b46c1,color:#6b46c1
     
     class Clients,TG,DC platform
-    class Gateway,Adapter,Router,Session magi
-    class Agency,Role1,Role2,Role3,Roster agency
+    class Gateway,Adapter,Router,Session,Bridge magi
+    class Agency,Roster,Roles agency
     class Memory,T1,T3,Distill memory
-    class Execution,Orchestrator,Runner exec
+    class Runners,Orchestrator,CR,CL,GM,CX exec
 ```
 
 ---
 
 ## Key Features
 
-### 🏛️ Virtual Agency Architecture
-More than just a chatbot — build an expert team with specific "Job DNA". Define mission and rules in `roster/*.md`, and the system will automatically route your natural language requests (e.g., "Audit this code for security") to the most suitable role (e.g., `code-auditor`).
-
-### 🧠 Memory Distillation
-Solve the "context explosion" problem. When conversation history grows too long, the system automatically summarizes older turns into permanent facts (Tier 1), ensuring the AI remembers key decisions without bloating the prompt.
-
-### 🎭 Multi-Agent Orchestration
-Built-in **Discuss**, **Debate**, and **Relay** modes. Let Claude and Gemini debate an architectural decision to provide you with balanced, high-fidelity development advice.
-
-### ⚡ Extreme Streaming
-Powered by our custom Streaming Bridge, you can see real-time progress from CLI tools and long code generations instantly on your mobile device, reducing latency and improving interactivity.
+- **Multi-Platform Support**: Seamlessly integrate Telegram and Discord within a single process.
+- **Virtual Agency Architecture**: Define expert "Job DNA" in `roster/*.md`; the system routes requests to the best-fit specialist automatically.
+- **Multi-Agent Orchestration**: Native support for **Discuss**, **Debate**, and **Relay** modes for collaborative AI workflows.
+- **Memory Distillation**: Automatically summarizes long conversations into Tier 1 facts to keep context clean and relevant.
+- **Real-time Streaming**: Enjoy live message updates as the AI generates output via the Streaming Bridge.
+- **Advanced Persistent Memory**: Dual-tier storage featuring permanent facts (Tier 1) and searchable conversation history (Tier 3).
 
 ---
 
 ## Quick Start
 
 ### Prerequisites
-- Python 3.12+
-- At least one CLI Agent installed: `claude` (Claude Code) or `gemini` (Gemini CLI).
-- Telegram and/or Discord Bot Token.
+- **Python 3.11+**
+- **CLI Agents**: Install at least one: `claude` (Claude Code), `gemini` (Gemini CLI), or `codex`.
+- **Tokens**: A Telegram and/or Discord Bot Token.
 
-### One-liner Installation (Recommended)
+### Installation
+
+#### 1. Automatic Installation (One-liner)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh | bash
 ```
 
+#### 2. Manual Installation
+```bash
+# Clone the repository
+git clone https://github.com/nchiyi/mini_agent_team.git
+cd mini_agent_team
+
+# Create virtual environment
+python3 -m venv venv && source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the setup wizard
+python3 -m src.setup.wizard
+```
+
+### Execution
+```bash
+python3 main.py
+```
+
 ---
 
-## Command Encyclopedia
+## Configuration
+
+### `secrets/.env`
+```env
+TELEGRAM_BOT_TOKEN=your_token
+DISCORD_BOT_TOKEN=your_token (optional)
+ALLOWED_USER_IDS=123456789,987654321  # Mandatory: Locks the bot
+```
+
+### `config/config.toml` (Key Parameters)
+```toml
+[gateway]
+default_runner = "claude"
+session_idle_minutes = 60
+stream_edit_interval_seconds = 1.5
+
+[memory]
+db_path = "data/db/history.db"
+distill_trigger_turns = 20  # Automatic summary after N turns
+```
+
+---
+
+## Bot Commands
 
 | Category | Command | Description |
 |----------|---------|-------------|
-| **Expert System** | `/claude`, `/gemini` | Call a specific AI runner directly |
-| | `/use <slug>` | Manually switch to a specific Roster role |
-| **Collaboration** | `/discuss <r1,r2> [p]` | Multi-agent brainstorming session |
+| **Agent** | `/claude`, `/gemini` | Switch the active AI runner |
+| | `/use <role>` | Switch to a specific Roster specialist |
+| **Modes** | `/discuss <r1,r2> [p]` | Multi-agent brainstorming session |
 | | `/debate <r1,r2> [p]` | Comparative debate between agents |
-| | `/relay <r1,r2> [p]` | Sequential agent pipeline |
 | **Memory** | `/remember <text>` | Save a permanent fact (Tier 1) |
 | | `/recall <query>` | Full-text search of history (Tier 3) |
 | **System** | `/status`, `/usage` | Check system health and token stats |
-| | `/new` or `/reset` | Reset current session and context |
-| | `/cancel` | Immediately stop AI generation |
-| | `/voice on/off` | Toggle speech-to-text functionality |
+| | `/new`, `/cancel` | Reset session or stop generation |
 
 ---
 
@@ -126,27 +168,28 @@ curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install
 
 ```text
 mini_agent_team/
-├── main.py                # Core entry point (The Brain)
-├── roster/                # Expert Role DNA definitions
+├── main.py                # Core entry point
+├── roster/                # Expert Role DNA definitions (.md)
 ├── src/
-│   ├── gateway/           # NLU & Semantic routing core
+│   ├── channels/          # TG/DC Adapters
+│   ├── gateway/           # Routing, Session & Streaming bridge
 │   ├── core/memory/       # Dual-tier storage & distillation
-│   ├── agent_team/        # Orchestration logic
-│   └── runners/           # Async CLI monitoring
-├── modules/               # Plugins (Web Search, Vision)
-└── config/                # System config & deployment scripts
+│   ├── runners/           # CLI Subprocess wrappers
+│   └── agent_team/        # Orchestration logic
+├── modules/               # Plugin directory (Web Search, Vision)
+├── data/                  # Runtime data (Database, Logs)
+└── config/                # System config & scripts
 ```
 
 ---
 
 ## Security & Policy
 
-- **Privacy First**: Memory is strictly isolated by `(user_id, channel)`.
-- **Fail-Closed**: `ALLOWED_USER_IDS` is mandatory; empty list locks the bot.
-- **Policy**: This platform is for personal remote control only. Multi-user proxying of licensed CLI tools like Claude Code is strictly prohibited.
+- **Privacy Isolation**: Memory is strictly isolated by `(user_id, channel)`.
+- **Fail-Closed**: `ALLOWED_USER_IDS` is mandatory to prevent unauthorized access.
+- **Usage Policy**: This platform is for personal remote control only. Sharing licensed CLI tools with third parties via this gateway is prohibited.
 
 ---
 
 ## License
-
 MIT License
