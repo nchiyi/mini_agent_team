@@ -79,6 +79,16 @@ _mac_status() {
     fi
 }
 
+_mac_wait_running() {
+    local timeout="${1:-10}" i pid
+    for (( i=0; i<timeout; i++ )); do
+        sleep 1
+        pid=$(launchctl list | awk -v l="$PLIST_LABEL" '$3==l{print $1}')
+        [[ -n "$pid" && "$pid" != "-" ]] && return 0
+    done
+    return 1
+}
+
 # ── service commands ──────────────────────────────────────────────────────
 
 case "${1:-}" in
@@ -86,8 +96,7 @@ case "${1:-}" in
         echo -e "${GREEN}🚀 Starting $SERVICE_NAME...${NC}"
         if [[ "$(_os)" == "macos" ]]; then
             _mac_start
-            sleep 2
-            _mac_status
+            _mac_wait_running 10 && _mac_status || echo -e "${RED}✗ Timed out waiting for start${NC}"
         else
             systemctl --user start "$SERVICE_NAME"
         fi
@@ -107,7 +116,7 @@ case "${1:-}" in
         echo -e "${GREEN}🔄 Restarting $SERVICE_NAME...${NC}"
         if [[ "$(_os)" == "macos" ]]; then
             _mac_stop; sleep 1; _mac_start
-            sleep 2; _mac_status
+            _mac_wait_running 10 && _mac_status || echo -e "${RED}✗ Timed out waiting for start${NC}"
         else
             systemctl --user restart "$SERVICE_NAME"
         fi
@@ -122,11 +131,52 @@ case "${1:-}" in
         ;;
 
     logs)
-        echo -e "${YELLOW}📜 Live logs — Ctrl-C to stop${NC}"
+        _log_subcommand="${2:-tail}"
         if [[ "$(_os)" == "macos" ]]; then
-            tail -f "$LOG_FILE" 2>/dev/null || echo "No log at $LOG_FILE yet."
+            [ -f "$LOG_FILE" ] || { echo "No log at $LOG_FILE yet."; exit 0; }
+            case "$_log_subcommand" in
+                tail)
+                    echo -e "${YELLOW}📜 Live logs — Ctrl-C to stop${NC}"
+                    tail -f "$LOG_FILE"
+                    ;;
+                [0-9]*)
+                    echo -e "${YELLOW}📜 Last $2 lines${NC}"
+                    tail -n "$2" "$LOG_FILE"
+                    ;;
+                grep)
+                    [ -z "${3:-}" ] && { echo "Usage: ./agent logs grep <pattern>"; exit 1; }
+                    echo -e "${YELLOW}📜 Lines matching: $3${NC}"
+                    grep -i "$3" "$LOG_FILE"
+                    ;;
+                error|errors)
+                    echo -e "${YELLOW}📜 ERROR lines${NC}"
+                    grep -i "error\|exception\|traceback\|critical" "$LOG_FILE"
+                    ;;
+                today)
+                    echo -e "${YELLOW}📜 Today's logs${NC}"
+                    grep "^$(date '+%Y-%m-%d')" "$LOG_FILE"
+                    ;;
+                *)
+                    echo "Usage: ./agent logs [tail|<N>|grep <pattern>|error|today]"
+                    echo "  tail          Stream live (default)"
+                    echo "  <N>           Last N lines  (e.g. ./agent logs 100)"
+                    echo "  grep <pat>    Filter by pattern"
+                    echo "  error         Show error/exception lines"
+                    echo "  today         Show today's entries"
+                    ;;
+            esac
         else
-            journalctl --user -u "$SERVICE_NAME" -f
+            case "$_log_subcommand" in
+                tail)  journalctl --user -u "$SERVICE_NAME" -f ;;
+                [0-9]*) journalctl --user -u "$SERVICE_NAME" -n "$2" ;;
+                grep)
+                    [ -z "${3:-}" ] && { echo "Usage: ./agent logs grep <pattern>"; exit 1; }
+                    journalctl --user -u "$SERVICE_NAME" | grep -i "$3"
+                    ;;
+                error|errors) journalctl --user -u "$SERVICE_NAME" | grep -i "error\|exception\|traceback\|critical" ;;
+                today) journalctl --user -u "$SERVICE_NAME" --since today ;;
+                *) journalctl --user -u "$SERVICE_NAME" -f ;;
+            esac
         fi
         ;;
 
@@ -237,7 +287,7 @@ case "${1:-}" in
         echo "  stop            Stop the bot"
         echo "  restart         Restart the bot"
         echo "  status          Show running status"
-        echo "  logs            Stream live logs (Ctrl-C to stop)"
+        echo "  logs [tail|N|grep <pat>|error|today]  Query or stream logs"
         echo "  install         Install as background service (macOS: launchd)"
         echo "  uninstall       Remove background service"
         echo "  debug on|off    Toggle verbose debug logging"
