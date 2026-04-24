@@ -45,6 +45,22 @@ class Tier3Store:
         VALUES ('delete', old.id, old.content);
     END
     """
+    _CREATE_USAGE_LOGS = """
+    CREATE TABLE IF NOT EXISTS usage_logs (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id           INTEGER NOT NULL,
+        channel           TEXT    NOT NULL,
+        runner            TEXT    NOT NULL,
+        prompt_tokens     INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        total_tokens      INTEGER DEFAULT 0,
+        ts                TEXT    NOT NULL
+    )
+    """
+    _CREATE_USAGE_IDX = """
+    CREATE INDEX IF NOT EXISTS idx_usage_user_runner
+    ON usage_logs(user_id, runner)
+    """
 
     def __init__(self, db_path: str):
         self._path = Path(db_path)
@@ -61,6 +77,8 @@ class Tier3Store:
         await self._db.execute(self._CREATE_FTS)
         await self._db.execute(self._CREATE_TRIGGER_AI)
         await self._db.execute(self._CREATE_TRIGGER_AD)
+        await self._db.execute(self._CREATE_USAGE_LOGS)
+        await self._db.execute(self._CREATE_USAGE_IDX)
         await self._db.commit()
         self._db.row_factory = aiosqlite.Row
         self._writer_task = asyncio.create_task(self._writer_loop())
@@ -116,6 +134,36 @@ class Tier3Store:
         ) as cur:
             rows = await cur.fetchall()
         return [{"role": r["role"], "content": r["content"], "ts": r["ts"]} for r in rows]
+
+    async def log_usage(
+        self, *, user_id: int, channel: str, runner: str,
+        prompt_tokens: int, completion_tokens: int,
+    ) -> None:
+        ts = datetime.now(timezone.utc).isoformat()
+        total = prompt_tokens + completion_tokens
+        await self._db.execute(
+            """INSERT INTO usage_logs(user_id, channel, runner, prompt_tokens,
+               completion_tokens, total_tokens, ts) VALUES (?,?,?,?,?,?,?)""",
+            (user_id, channel, runner, prompt_tokens, completion_tokens, total, ts),
+        )
+        await self._db.commit()
+
+    async def get_usage_summary(self, *, user_id: int) -> dict[str, dict[str, int]]:
+        """Return per-runner totals: {runner: {prompt, completion, total}}."""
+        async with self._db.execute(
+            """SELECT runner,
+                      SUM(prompt_tokens)     AS p,
+                      SUM(completion_tokens) AS c,
+                      SUM(total_tokens)      AS t
+               FROM usage_logs WHERE user_id=?
+               GROUP BY runner ORDER BY t DESC""",
+            (user_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return {
+            r["runner"]: {"prompt": r["p"], "completion": r["c"], "total": r["t"]}
+            for r in rows
+        }
 
     async def close(self) -> None:
         if self._writer_task:

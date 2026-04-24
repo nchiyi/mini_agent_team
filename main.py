@@ -111,6 +111,8 @@ async def _dispatch_pipeline(
 
         chunks: list[str] = []
         try:
+            from src.core.memory.context import count_tokens as _ct
+            _pt = _ct(current_input)
             async for chunk in runner.run(
                 prompt=current_input,
                 user_id=inbound.user_id,
@@ -119,6 +121,10 @@ async def _dispatch_pipeline(
             ):
                 chunks.append(chunk)
             output = "".join(chunks).strip()
+            await tier3.log_usage(
+                user_id=inbound.user_id, channel=inbound.channel, runner=runner_name,
+                prompt_tokens=_pt, completion_tokens=_ct(output),
+            )
         except TimeoutError:
             await send_reply(f"{label} timed out.")
             break
@@ -183,12 +189,18 @@ async def _dispatch_discussion(
 
         chunks: list[str] = []
         try:
+            from src.core.memory.context import count_tokens as _ct
+            _pt = _ct(round_prompt)
             async for chunk in runner.run(
                 prompt=round_prompt, user_id=inbound.user_id,
                 channel=inbound.channel, cwd=session.cwd,
             ):
                 chunks.append(chunk)
             output = "".join(chunks).strip()
+            await tier3.log_usage(
+                user_id=inbound.user_id, channel=inbound.channel, runner=runner_name,
+                prompt_tokens=_pt, completion_tokens=_ct(output),
+            )
         except (TimeoutError, Exception) as e:
             logger.error("Discussion round %d error: %s", round_num + 1, e, exc_info=True)
             await send_reply(f"{label} error — stopping discussion.")
@@ -262,6 +274,9 @@ async def _dispatch_debate(
     prompt = (context + "\n\n" + role_prompt) if context else role_prompt
     await send_reply(f"[DEBATE] {' vs '.join(r.upper() for r in debate_runners)}")
 
+    from src.core.memory.context import count_tokens as _ct
+    _debate_pt = _ct(prompt)
+
     answers = dict(await asyncio.gather(*[
         _get_runner_response(r, prompt, inbound, session, runners)
         for r in debate_runners
@@ -271,6 +286,10 @@ async def _dispatch_debate(
     for runner_name in debate_runners:
         label = labels[runner_name]
         await send_reply(f"[{label}] {runner_name.upper()}\n{answers[runner_name]}")
+        await tier3.log_usage(
+            user_id=inbound.user_id, channel=inbound.channel, runner=runner_name,
+            prompt_tokens=_debate_pt, completion_tokens=_ct(answers[runner_name]),
+        )
 
     vote_prompt_template = (
         f"Original question: {prompt}\n\n"
@@ -364,6 +383,22 @@ async def dispatch(
         session_mgr.clear_active_role(inbound.user_id, inbound.channel)
         await send_reply("New session started.")
         return
+    if cmd.is_usage:
+        summary = await tier3.get_usage_summary(user_id=inbound.user_id)
+        if not summary:
+            await send_reply("No token usage recorded yet.")
+            return
+        lines = ["Token usage (estimated):"]
+        grand_total = 0
+        for runner_name, stats in summary.items():
+            lines.append(
+                f"  {runner_name}: {stats['prompt']:,} prompt + "
+                f"{stats['completion']:,} completion = {stats['total']:,} total"
+            )
+            grand_total += stats["total"]
+        lines.append(f"Total: {grand_total:,} tokens")
+        await send_reply("\n".join(lines))
+        return
     if cmd.is_status:
         mod_names = module_registry.get_names() if module_registry else []
         # Build context to measure current token usage
@@ -447,6 +482,9 @@ async def dispatch(
     prompt = _apply_role_prompt(cmd.prompt, role_slug, session.cwd)
     full_prompt = (context + "\n\n" + prompt) if context else prompt
 
+    from src.core.memory.context import count_tokens
+    prompt_tokens = count_tokens(full_prompt)
+
     try:
         response_chunks: list[str] = []
 
@@ -466,6 +504,12 @@ async def dispatch(
             await tier3.save_turn(
                 user_id=inbound.user_id, channel=inbound.channel,
                 role="assistant", content=response,
+            )
+            completion_tokens = count_tokens(response)
+            await tier3.log_usage(
+                user_id=inbound.user_id, channel=inbound.channel,
+                runner=session.current_runner,
+                prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             )
     except TimeoutError:
         await send_reply("Runner timed out.")
