@@ -54,6 +54,22 @@ class Tier3Store:
         PRIMARY KEY (user_id, channel, key)
     )
     """
+    _CREATE_USAGE_LOGS = """
+    CREATE TABLE IF NOT EXISTS usage_logs (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id           INTEGER NOT NULL,
+        channel           TEXT    NOT NULL,
+        runner            TEXT    NOT NULL,
+        prompt_tokens     INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        total_tokens      INTEGER DEFAULT 0,
+        ts                TEXT    NOT NULL
+    )
+    """
+    _CREATE_USAGE_IDX = """
+    CREATE INDEX IF NOT EXISTS idx_usage_user_runner
+    ON usage_logs(user_id, runner)
+    """
 
     def __init__(self, db_path: str):
         self._path = Path(db_path)
@@ -71,6 +87,8 @@ class Tier3Store:
         await self._db.execute(self._CREATE_TRIGGER_AI)
         await self._db.execute(self._CREATE_TRIGGER_AD)
         await self._db.execute(self._CREATE_SETTINGS)
+        await self._db.execute(self._CREATE_USAGE_LOGS)
+        await self._db.execute(self._CREATE_USAGE_IDX)
         await self._db.commit()
         self._db.row_factory = aiosqlite.Row
         self._writer_task = asyncio.create_task(self._writer_loop())
@@ -138,7 +156,6 @@ class Tier3Store:
     async def get_oldest_turns(
         self, *, user_id: int, channel: str, n: int
     ) -> list[dict[str, Any]]:
-        """Return the n oldest turns with their row ids."""
         async with self._db.execute(
             """SELECT id, role, content, ts FROM turns
                WHERE user_id=? AND channel=?
@@ -149,7 +166,6 @@ class Tier3Store:
         return [{"id": r["id"], "role": r["role"], "content": r["content"], "ts": r["ts"]} for r in rows]
 
     async def prune_before_id(self, *, user_id: int, channel: str, before_id: int) -> int:
-        """Delete all turns with id <= before_id for this user/channel. Returns count deleted."""
         async with self._db.execute(
             "SELECT COUNT(*) FROM turns WHERE user_id=? AND channel=? AND id<=?",
             (user_id, channel, before_id),
@@ -180,6 +196,35 @@ class Tier3Store:
             (user_id, channel, ts.isoformat()),
         )
         await self._db.commit()
+
+    async def log_usage(
+        self, *, user_id: int, channel: str, runner: str,
+        prompt_tokens: int, completion_tokens: int,
+    ) -> None:
+        ts = datetime.now(timezone.utc).isoformat()
+        total = prompt_tokens + completion_tokens
+        await self._db.execute(
+            """INSERT INTO usage_logs(user_id, channel, runner, prompt_tokens,
+               completion_tokens, total_tokens, ts) VALUES (?,?,?,?,?,?,?)""",
+            (user_id, channel, runner, prompt_tokens, completion_tokens, total, ts),
+        )
+        await self._db.commit()
+
+    async def get_usage_summary(self, *, user_id: int) -> dict[str, dict[str, int]]:
+        async with self._db.execute(
+            """SELECT runner,
+                      SUM(prompt_tokens)     AS p,
+                      SUM(completion_tokens) AS c,
+                      SUM(total_tokens)      AS t
+               FROM usage_logs WHERE user_id=?
+               GROUP BY runner ORDER BY t DESC""",
+            (user_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return {
+            r["runner"]: {"prompt": r["p"], "completion": r["c"], "total": r["t"]}
+            for r in rows
+        }
 
     async def close(self) -> None:
         if self._writer_task:

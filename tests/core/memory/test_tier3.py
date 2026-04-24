@@ -126,3 +126,47 @@ async def test_tier3_distill_timestamp(tmp_path):
     assert updated > retrieved
 
     await store.close()
+
+
+async def test_tier3_log_and_get_usage(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    store = Tier3Store(db_path=str(tmp_path / "history.db"))
+    await store.init()
+
+    await store.log_usage(user_id=1, channel="telegram", runner="claude",
+                          prompt_tokens=100, completion_tokens=50)
+    await store.log_usage(user_id=1, channel="telegram", runner="claude",
+                          prompt_tokens=200, completion_tokens=80)
+    await store.log_usage(user_id=1, channel="telegram", runner="codex",
+                          prompt_tokens=150, completion_tokens=60)
+
+    summary = await store.get_usage_summary(user_id=1)
+    assert "claude" in summary
+    assert "codex" in summary
+    assert summary["claude"]["prompt"] == 300
+    assert summary["claude"]["completion"] == 130
+    assert summary["claude"]["total"] == 430
+    assert summary["codex"]["total"] == 210
+
+    empty = await store.get_usage_summary(user_id=999)
+    assert empty == {}
+
+    await store.close()
+
+
+async def test_tier3_usage_user_isolation(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    store = Tier3Store(db_path=str(tmp_path / "history.db"))
+    await store.init()
+
+    await store.log_usage(user_id=1, channel="telegram", runner="claude",
+                          prompt_tokens=100, completion_tokens=50)
+    await store.log_usage(user_id=2, channel="telegram", runner="claude",
+                          prompt_tokens=999, completion_tokens=999)
+
+    s1 = await store.get_usage_summary(user_id=1)
+    s2 = await store.get_usage_summary(user_id=2)
+    assert s1["claude"]["total"] == 150
+    assert s2["claude"]["total"] == 1998
+
+    await store.close()

@@ -14,6 +14,7 @@ class ParsedCommand:
     is_new: bool = False
     is_voice_on: bool = False
     is_voice_off: bool = False
+    is_usage: bool = False
     is_remember: bool = False
     is_forget: bool = False
     is_recall: bool = False
@@ -52,6 +53,8 @@ class Router:
             return ParsedCommand(runner=self._default, prompt="", is_voice_on=True)
         if text == "/voice off":
             return ParsedCommand(runner=self._default, prompt="", is_voice_off=True)
+        if text == "/usage":
+            return ParsedCommand(runner=self._default, prompt="", is_usage=True)
 
         if text.startswith("/remember "):
             content = text[10:].strip()
