@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REPO="https://github.com/nchiyi/mini_agent_team.git"
+_SCRIPT_URL="https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh"
+
 # When run via curl | bash, stdin is a pipe so interactive prompts don't work.
-# Re-exec from a temp file so stdin is restored to the terminal.
+# Re-download the full script to a tempfile and re-exec so stdin is the terminal.
 if [ ! -t 0 ]; then
     _TMPSCRIPT=$(mktemp /tmp/mat-install.XXXXXX.sh)
-    cat > "$_TMPSCRIPT"
+    curl -fsSL "$_SCRIPT_URL" -o "$_TMPSCRIPT"
     chmod +x "$_TMPSCRIPT"
     exec bash "$_TMPSCRIPT" "$@"
 fi
-
-REPO="https://github.com/nchiyi/mini_agent_team.git"
 DIR="mini_agent_team"
 
 echo ""
