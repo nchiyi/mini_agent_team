@@ -285,7 +285,14 @@ async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.e
         results = await asyncio.gather(*coroutines, return_exceptions=True)
         for result in results:
             if isinstance(result, Exception):
-                logger.error("Channel exited with error: %s", result, exc_info=result)
+                from telegram.error import Conflict as TelegramConflict
+                if isinstance(result, TelegramConflict):
+                    logger.error(
+                        "Telegram Conflict: another instance is already running. "
+                        "Stop all other instances and restart. (%s)", result
+                    )
+                else:
+                    logger.error("Channel exited with error: %s", result, exc_info=result)
     finally:
         await ctx.tier3.close()
 
