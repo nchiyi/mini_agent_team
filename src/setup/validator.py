@@ -11,6 +11,9 @@ class ValidationResult:
 
 
 def validate_telegram_token(token: str) -> ValidationResult:
+    import re
+    if not re.fullmatch(r"\d+:[A-Za-z0-9_-]{35,}", token):
+        return ValidationResult(valid=False, reason="invalid format (expected <id>:<key>)")
     url = f"https://api.telegram.org/bot{token}/getMe"
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
@@ -18,8 +21,8 @@ def validate_telegram_token(token: str) -> ValidationResult:
             ok = bool(data.get("ok"))
             return ValidationResult(valid=ok, reason="" if ok else "API rejected token")
     except urllib.error.HTTPError as e:
-        if e.code == 401:
-            return ValidationResult(valid=False, reason="API rejected token (401)")
+        if e.code in (401, 404):
+            return ValidationResult(valid=False, reason=f"API rejected token ({e.code})")
         return ValidationResult(valid=True, skipped=True, reason=f"HTTP {e.code}, skipping validation")
     except (urllib.error.URLError, ValueError, OSError) as e:
         return ValidationResult(valid=True, skipped=True, reason=f"network error, skipping validation: {e}")
