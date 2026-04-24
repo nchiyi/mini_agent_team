@@ -135,6 +135,16 @@ python3 -m src.setup.wizard
 
 ## Managing the Bot
 
+### Quick commands (run from inside the project directory)
+
+```bash
+./agent config          # update bot tokens / allowed user IDs
+./agent restart         # restart the bot
+./agent status          # check if the bot is running
+./agent logs            # stream live logs (Ctrl-C to stop)
+./agent debug on|off    # toggle verbose logging
+```
+
 ### Foreground mode
 The bot runs directly in your terminal. Press `Ctrl-C` to stop.
 

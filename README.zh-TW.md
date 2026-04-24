@@ -137,6 +137,16 @@ python3 -m src.setup.wizard
 
 ## Bot 管理指令
 
+### 快速指令（在專案目錄下執行）
+
+```bash
+./agent config          # 更新 Bot Token / 授權用戶 ID
+./agent restart         # 重啟 Bot
+./agent status          # 查看執行狀態
+./agent logs            # 即時日誌串流（Ctrl-C 離開）
+./agent debug on|off    # 切換詳細日誌模式
+```
+
 ### 前景模式 (Foreground)
 Bot 直接在終端機中運行，按 `Ctrl-C` 停止。
 

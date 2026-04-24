@@ -45,198 +45,73 @@ case "$1" in
         fi
         ;;
     config)
-        echo -e "${GREEN}⚙️ Interactive Configuration${NC}"
+        echo -e "${GREEN}⚙️  Configuration Editor${NC}"
+        echo ""
 
         mkdir -p secrets
-        # Ensure secrets/.env exists
         if [ ! -f "$ENV_FILE" ]; then
             touch "$ENV_FILE"
             chmod 600 "$ENV_FILE"
         fi
 
-        # Ask for Telegram Bot Token
-        read -p "Enter Telegram Bot Token (leave blank to skip): " input_token
-        if [ ! -z "$input_token" ]; then
-            if grep -q "^TELEGRAM_BOT_TOKEN=" "$ENV_FILE"; then
-                sed -i "s/^TELEGRAM_BOT_TOKEN=.*/TELEGRAM_BOT_TOKEN=$input_token/" "$ENV_FILE"
+        # ── helper: read current value ──────────────────────────
+        _get() { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'; }
+        # ── helper: set or update a key ────────────────────────
+        _set() {
+            local key="$1" val="$2"
+            if grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
+                # macOS sed requires '' after -i
+                sed -i'' -e "s|^${key}=.*|${key}=\"${val}\"|" "$ENV_FILE"
             else
-                echo "TELEGRAM_BOT_TOKEN=$input_token" >> "$ENV_FILE"
+                echo "${key}=\"${val}\"" >> "$ENV_FILE"
             fi
-            echo -e "${GREEN}✓ Token updated.${NC}"
+        }
+
+        # ── show current values (masked) ────────────────────────
+        _mask() { local v="$1"; [ -z "$v" ] && echo "(not set)" || echo "${v:0:6}…${v: -4}"; }
+        echo "  Current values:"
+        echo "    Telegram token : $(_mask "$(_get TELEGRAM_BOT_TOKEN)")"
+        echo "    Discord token  : $(_mask "$(_get DISCORD_BOT_TOKEN)")"
+        echo "    Allowed user IDs: $(_get ALLOWED_USER_IDS)"
+        echo ""
+        echo "  Press Enter to keep the current value."
+        echo ""
+
+        # ── Telegram ─────────────────────────────────────────────
+        read -rp "  Telegram Bot Token: " _VAL
+        [ -n "$_VAL" ] && _set TELEGRAM_BOT_TOKEN "$_VAL" && echo -e "  ${GREEN}✓ Updated${NC}"
+
+        # ── Discord ──────────────────────────────────────────────
+        read -rp "  Discord Bot Token : " _VAL
+        [ -n "$_VAL" ] && _set DISCORD_BOT_TOKEN "$_VAL" && echo -e "  ${GREEN}✓ Updated${NC}"
+
+        # ── Allowed user IDs ─────────────────────────────────────
+        read -rp "  Allowed User IDs (comma-separated): " _VAL
+        [ -n "$_VAL" ] && _set ALLOWED_USER_IDS "$_VAL" && echo -e "  ${GREEN}✓ Updated${NC}"
+
+        echo ""
+
+        # ── auto restart if service is running ──────────────────
+        if systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+            echo -e "  ${YELLOW}Restarting $SERVICE_NAME to apply changes...${NC}"
+            systemctl --user restart "$SERVICE_NAME"
+            echo -e "  ${GREEN}✓ Restarted${NC}"
+        else
+            echo -e "  ${YELLOW}ℹ Bot is not running — changes will apply on next start.${NC}"
         fi
-
-        # Ask for Ollama Cloud API Key
-        read -p "Enter Ollama Cloud API Key (leave blank to skip): " input_key
-        if [ ! -z "$input_key" ]; then
-            if grep -q "^OLLAMA_CLOUD_API_KEY=" "$ENV_FILE"; then
-                sed -i "s/^OLLAMA_CLOUD_API_KEY=.*/OLLAMA_CLOUD_API_KEY=$input_key/" "$ENV_FILE"
-            else
-                echo "OLLAMA_CLOUD_API_KEY=$input_key" >> "$ENV_FILE"
-            fi
-            echo -e "${GREEN}✓ Cloud API Key updated.${NC}"
-        fi
-
-        # Show interactive selection menu
-        echo -e "${YELLOW}Fetching accessible models for interactive menu...${NC}"
-
-        cat << 'EOF' > .temp_menu.py
-import urllib.request, json, os, curses
-
-local_models = []
-cloud_models = []
-
-try:
-    req = urllib.request.Request('http://localhost:11434/api/tags')
-    res = urllib.request.urlopen(req, timeout=2).read().decode()
-    local_models = [m['name'] for m in json.loads(res).get('models', [])]
-except:
-    pass
-
-cloud_key = ''
-try:
-    with open('secrets/.env') as f:
-        for line in f:
-            if line.startswith('OLLAMA_CLOUD_API_KEY='):
-                cloud_key = line.strip().split('=', 1)[1]
-                break
-except:
-    pass
-
-if cloud_key:
-    try:
-        req = urllib.request.Request('https://api.ollama.com/v1/models', headers={'Authorization': f'Bearer {cloud_key}'})
-        res = urllib.request.urlopen(req, timeout=3).read().decode()
-        cloud_models = [('cloud:' + m['id']) for m in json.loads(res).get('data', [])]
-    except:
-        pass
-
-all_models = local_models + cloud_models
-
-if not all_models:
-    print("❌ No models found locally or on the cloud. Please check your API keys and services.")
-    exit(0)
-
-def curses_menu(stdscr):
-    curses.curs_set(0)
-    stdscr.keypad(True)
-    curses.use_default_colors()
-
-    selected_indices = set()
-    current_row = 0
-
-    while True:
-        stdscr.clear()
-        stdscr.addstr(0, 0, "Select Allowed Models for Telegram (Whitespace to toggle, UP/DOWN/j/k to move, ENTER to confirm)", curses.A_BOLD)
-
-        for idx, model in enumerate(all_models):
-            y = idx + 2
-            if y > curses.LINES - 2:
-                # Naive scroll clipping for large lists
-                break
-
-            # Draw checkbox
-            check = "[X]" if idx in selected_indices else "[ ]"
-
-            if idx == current_row:
-                stdscr.attron(curses.A_REVERSE)
-                stdscr.addstr(y, 2, f"{check} {model}")
-                stdscr.attroff(curses.A_REVERSE)
-            else:
-                stdscr.addstr(y, 2, f"{check} {model}")
-
-        key = stdscr.getch()
-
-        if (key == curses.KEY_UP or key == ord('k')) and current_row > 0:
-            current_row -= 1
-        elif (key == curses.KEY_DOWN or key == ord('j')) and current_row < len(all_models) - 1:
-            current_row += 1
-        elif key == ord(' '):
-            if current_row in selected_indices:
-                selected_indices.remove(current_row)
-            else:
-                selected_indices.add(current_row)
-        elif key in [10, 13]:  # Enter
-            break
-
-    return [all_models[i] for i in selected_indices]
-
-def get_default_model(stdscr, allowed_list):
-    curses.curs_set(0)
-    stdscr.keypad(True)
-    curses.use_default_colors()
-
-    current_row = 0
-
-    while True:
-        stdscr.clear()
-        stdscr.addstr(0, 0, "Select the DEFAULT Model (UP/DOWN/j/k to move, ENTER to confirm)", curses.A_BOLD)
-
-        for idx, model in enumerate(allowed_list):
-            y = idx + 2
-            if y > curses.LINES - 2:
-                break
-
-            if idx == current_row:
-                stdscr.attron(curses.A_REVERSE)
-                stdscr.addstr(y, 4, model)
-                stdscr.attroff(curses.A_REVERSE)
-            else:
-                stdscr.addstr(y, 4, model)
-
-        key = stdscr.getch()
-
-        if (key == curses.KEY_UP or key == ord('k')) and current_row > 0:
-            current_row -= 1
-        elif (key == curses.KEY_DOWN or key == ord('j')) and current_row < len(allowed_list) - 1:
-            current_row += 1
-        elif key in [10, 13]:  # Enter
-            break
-
-    return allowed_list[current_row]
-
-try:
-    allowed_models = curses.wrapper(curses_menu)
-    if allowed_models:
-        default_model = curses.wrapper(get_default_model, allowed_models)
-
-        # Write back to secrets/.env
-        env_lines = []
-        try:
-            with open('secrets/.env', 'r') as f:
-                env_lines = f.readlines()
-        except:
-            pass
-
-        new_env_lines = []
-        for line in env_lines:
-            if not line.startswith("DEFAULT_MODEL=") and not line.startswith("ALLOWED_MODELS="):
-                new_env_lines.append(line)
-
-        # Remove trailing newlines to append correctly
-        if new_env_lines and not new_env_lines[-1].endswith("\n"):
-            new_env_lines[-1] += "\n"
-
-        new_env_lines.append(f"ALLOWED_MODELS={','.join(allowed_models)}\n")
-        new_env_lines.append(f"DEFAULT_MODEL={default_model}\n")
-
-        with open('secrets/.env', 'w') as f:
-            f.writelines(new_env_lines)
-
-        print(f"\n✅ Created whitelist with {len(allowed_models)} models.")
-        print(f"✅ Set DEFAULT_MODEL to {default_model}.")
-    else:
-        print("\n⚠️ No models selected. Skipping model configuration.")
-except Exception as e:
-    print(f"\n⚠️ Interactive menu failed: {e}")
-EOF
-
-        python3 .temp_menu.py
-        rm -f .temp_menu.py
-
-        echo -e "${GREEN}✅ Configuration saved to $ENV_FILE! Restart the agent to apply changes: ./agent restart${NC}"
+        echo ""
+        echo -e "  ${GREEN}✅ Config saved to $ENV_FILE${NC}"
         ;;
     *)
-        echo "Usage: agent {start|stop|restart|status|logs|debug|config}"
+        echo "Usage: agent {start|stop|restart|status|logs|debug [on|off]|config}"
+        echo ""
+        echo "  start           Start the bot service"
+        echo "  stop            Stop the bot service"
+        echo "  restart         Restart the bot service"
+        echo "  status          Show service status"
+        echo "  logs            Stream live logs (Ctrl-C to stop)"
+        echo "  debug on|off    Toggle verbose debug logging"
+        echo "  config          Update bot tokens and allowed user IDs"
         exit 1
 esac
 
