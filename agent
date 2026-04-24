@@ -267,6 +267,12 @@ case "${1:-}" in
         read -rp "  Discord Bot Token  : " _VAL </dev/tty
         [ -n "$_VAL" ] && _set DISCORD_BOT_TOKEN "$_VAL" && echo -e "  ${GREEN}✓ Updated${NC}"
 
+        echo ""
+        echo "  Allowed User IDs — 用逗號分隔多個 ID，不要有空格"
+        echo "    Telegram ID：傳訊息給 @userinfobot 取得"
+        echo "    Discord  ID：Discord 設定 → 進階 → 開發者模式，右鍵自己的名稱 → 複製使用者 ID"
+        echo "    範例：123456789,987654321"
+        echo "    目前：$(_get ALLOWED_USER_IDS)"
         read -rp "  Allowed User IDs   : " _VAL </dev/tty
         [ -n "$_VAL" ] && _set ALLOWED_USER_IDS "$_VAL" && echo -e "  ${GREEN}✓ Updated${NC}"
 
