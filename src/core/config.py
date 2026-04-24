@@ -6,6 +6,22 @@ from typing import Optional
 from dotenv import load_dotenv
 
 
+_DEFAULT_RUNNER_ARGS: dict[str, list[str]] = {
+    "claude": ["--dangerously-skip-permissions"],
+    "codex": ["exec", "--full-auto", "--skip-git-repo-check"],
+    "gemini": ["--approval-mode", "yolo"],
+    "kiro": [],
+}
+
+_LEGACY_RUNNER_ARGS: dict[str, list[list[str]]] = {
+    "codex": [
+        ["--approval-policy", "auto"],
+        ["exec", "--skip-git-repo-check"],
+    ],
+    "gemini": [[]],
+}
+
+
 @dataclass
 class GatewayConfig:
     default_runner: str
@@ -61,6 +77,18 @@ class Config:
     modules_dir: str = "skills"  # backward-compat alias
 
 
+def _normalise_runner_args(name: str, raw_args: list[str] | None) -> list[str]:
+    args = list(raw_args or [])
+    default_args = _DEFAULT_RUNNER_ARGS.get(name)
+    if default_args is None:
+        return args
+    if not raw_args:
+        return list(default_args)
+    if args in _LEGACY_RUNNER_ARGS.get(name, []):
+        return list(default_args)
+    return args
+
+
 def load_config(
     config_path: str = "config/config.toml",
     env_path: Optional[str] = "secrets/.env",
@@ -87,7 +115,7 @@ def load_config(
     runners = {
         name: RunnerConfig(
             path=rc["path"],
-            args=rc.get("args", []),
+            args=_normalise_runner_args(name, rc.get("args")),
             timeout_seconds=rc.get("timeout_seconds", 300),
             context_token_budget=rc.get("context_token_budget", 4000),
         )

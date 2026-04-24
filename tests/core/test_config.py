@@ -78,3 +78,76 @@ distill_trigger_turns = 20
 
     assert cfg.telegram_token == "test_token_123"
     assert cfg.allowed_user_ids == [111, 222]
+
+
+def test_config_upgrades_legacy_runner_args(tmp_path):
+    toml_content = """
+[gateway]
+default_runner = "codex"
+session_idle_minutes = 60
+max_message_length_telegram = 4096
+max_message_length_discord = 2000
+stream_edit_interval_seconds = 1.5
+
+[runners.codex]
+path = "codex"
+args = ["exec", "--skip-git-repo-check"]
+
+[runners.gemini]
+path = "gemini"
+args = []
+
+[audit]
+path = "data/audit"
+max_entries = 1000
+
+[memory]
+db_path = "data/db/history.db"
+hot_path = "data/memory/hot"
+cold_permanent_path = "data/memory/cold/permanent"
+cold_session_path = "data/memory/cold/session"
+tier3_context_turns = 20
+distill_trigger_turns = 20
+"""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(toml_content)
+
+    from src.core.config import load_config
+    cfg = load_config(config_path=str(config_file), env_path=None)
+
+    assert cfg.runners["codex"].args == ["exec", "--full-auto", "--skip-git-repo-check"]
+    assert cfg.runners["gemini"].args == ["--approval-mode", "yolo"]
+
+
+def test_config_keeps_custom_runner_args(tmp_path):
+    toml_content = """
+[gateway]
+default_runner = "codex"
+session_idle_minutes = 60
+max_message_length_telegram = 4096
+max_message_length_discord = 2000
+stream_edit_interval_seconds = 1.5
+
+[runners.codex]
+path = "codex"
+args = ["exec", "--model", "gpt-5.4"]
+
+[audit]
+path = "data/audit"
+max_entries = 1000
+
+[memory]
+db_path = "data/db/history.db"
+hot_path = "data/memory/hot"
+cold_permanent_path = "data/memory/cold/permanent"
+cold_session_path = "data/memory/cold/session"
+tier3_context_turns = 20
+distill_trigger_turns = 20
+"""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(toml_content)
+
+    from src.core.config import load_config
+    cfg = load_config(config_path=str(config_file), env_path=None)
+
+    assert cfg.runners["codex"].args == ["exec", "--model", "gpt-5.4"]

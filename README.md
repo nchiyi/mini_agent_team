@@ -142,6 +142,25 @@ default_runner = "claude"
 session_idle_minutes = 60
 stream_edit_interval_seconds = 1.5
 
+[runners.claude]
+path = "claude"
+args = ["--dangerously-skip-permissions"]
+timeout_seconds = 300
+context_token_budget = 4000
+
+[runners.codex]
+path = "codex"
+args = ["exec", "--full-auto", "--skip-git-repo-check"]
+timeout_seconds = 300
+context_token_budget = 4000
+
+[runners.gemini]
+path = "gemini"
+args = ["--approval-mode", "yolo"]
+timeout_seconds = 300
+context_token_budget = 4000
+
+
 [memory]
 db_path = "data/db/history.db"
 distill_trigger_turns = 20  # Automatic summary after N turns
