@@ -231,3 +231,69 @@ async def test_subprocess_death_rejects_pending_futures():
     with pytest.raises(Exception, match="terminated"):
         async for _ in conn.prompt(session_id="sess-dead", text="hello"):
             pass
+
+
+@pytest.mark.asyncio
+async def test_prompt_with_thinking_budget_includes_thinking_param():
+    """When thinking_budget > 0, session/prompt params must include thinking key."""
+    from src.runners.acp_protocol import ACPConnection
+
+    session_id = "sess-think"
+    proc, written = _make_mock_proc([
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1, "agentCapabilities": {}}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"sessionId": session_id}},
+        # session/update with text chunk
+        {"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": session_id,
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "deep answer"}},
+        }},
+        # prompt response
+        {"jsonrpc": "2.0", "id": 3, "result": {}},
+    ])
+    conn = ACPConnection(proc)
+    conn.start()
+    await conn.initialize()
+    await conn.new_session(cwd="/tmp")
+    chunks = []
+    async for c in conn.prompt(session_id=session_id, text="prove P=NP", thinking_budget=8000):
+        chunks.append(c)
+    await conn.close()
+
+    prompt_req = next(w for w in written if w.get("method") == "session/prompt")
+    assert "thinking" in prompt_req["params"]
+    assert prompt_req["params"]["thinking"] == {"type": "enabled", "budget_tokens": 8000}
+    assert "".join(chunks) == "deep answer"
+
+
+@pytest.mark.asyncio
+async def test_prompt_thinking_blocks_are_filtered_out():
+    """session/update chunks with type=thinking must be silently discarded."""
+    from src.runners.acp_protocol import ACPConnection
+
+    session_id = "sess-filter"
+    proc, written = _make_mock_proc([
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1, "agentCapabilities": {}}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"sessionId": session_id}},
+        # thinking block — must be filtered
+        {"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": session_id,
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "thinking", "text": "internal thoughts"}},
+        }},
+        # text block — must be yielded
+        {"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": session_id,
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "final answer"}},
+        }},
+        {"jsonrpc": "2.0", "id": 3, "result": {}},
+    ])
+    conn = ACPConnection(proc)
+    conn.start()
+    await conn.initialize()
+    await conn.new_session(cwd="/tmp")
+    chunks = []
+    async for c in conn.prompt(session_id=session_id, text="hello", thinking_budget=8000):
+        chunks.append(c)
+    await conn.close()
+
+    assert "internal thoughts" not in "".join(chunks)
+    assert "final answer" in "".join(chunks)

@@ -79,11 +79,15 @@ class ACPConnection:
         session_id: str,
         text: str,
         role_prefix: str = "",
+        thinking_budget: int = 0,
     ) -> AsyncIterator[str]:
         """Send a prompt and yield text chunks as they stream in.
 
         If role_prefix is provided it is sent as a separate content block with
         cache_control so the Anthropic API can cache it across requests.
+
+        If thinking_budget > 0, extended thinking is enabled and thinking blocks
+        in the response are silently filtered out.
         """
         if role_prefix:
             content = [
@@ -93,6 +97,13 @@ class ACPConnection:
         else:
             content = [{"type": "text", "text": text}]
 
+        params: dict = {
+            "sessionId": session_id,
+            "prompt": content,
+        }
+        if thinking_budget > 0:
+            params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+
         queue: asyncio.Queue = asyncio.Queue()
         self._session_queues[session_id] = queue
         # Drain any session/updates that arrived before we registered the queue
@@ -100,10 +111,7 @@ class ACPConnection:
             await queue.put(early)
         try:
             prompt_task = asyncio.create_task(
-                self._request("session/prompt", {
-                    "sessionId": session_id,
-                    "prompt": content,
-                })
+                self._request("session/prompt", params)
             )
             while not prompt_task.done():
                 try:
@@ -264,9 +272,11 @@ class ACPConnection:
         update = update_params.get("update", {})
         session_update = update.get("sessionUpdate")
 
-        # Agent text response chunks
         if session_update == "agent_message_chunk":
             content = update.get("content", {})
+            # Thinking blocks are internal; discard them entirely
+            if content.get("type") == "thinking":
+                return ""
             if content.get("type") == "text":
                 return content.get("text", "")
 
