@@ -15,6 +15,7 @@ from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from src.core.config import load_config, Config
 from src.runners.audit import AuditLog
 from src.runners.cli_runner import CLIRunner
+from src.runners.acp_runner import ACPRunner
 from src.channels.telegram import TelegramAdapter
 from src.channels.discord_adapter import DiscordAdapter
 from src.channels.base import InboundMessage, BaseAdapter
@@ -56,17 +57,25 @@ async def _session_cleanup_loop(session_mgr, interval_seconds: int = 300) -> Non
 
 
 def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
-    runners = {
-        name: CLIRunner(
-            name=name,
-            binary=rc.path,
-            args=rc.args,
-            timeout_seconds=rc.timeout_seconds,
-            context_token_budget=rc.context_token_budget,
-            audit=audit,
-        )
-        for name, rc in cfg.runners.items()
-    }
+    runners: dict = {}
+    for name, rc in cfg.runners.items():
+        if rc.type == "acp":
+            runners[name] = ACPRunner(
+                name=name,
+                command=rc.path,
+                args=rc.args,
+                timeout_seconds=rc.timeout_seconds,
+                context_token_budget=rc.context_token_budget,
+            )
+        else:  # "cli"
+            runners[name] = CLIRunner(
+                name=name,
+                binary=rc.path,
+                args=rc.args,
+                timeout_seconds=rc.timeout_seconds,
+                context_token_budget=rc.context_token_budget,
+                audit=audit,
+            )
     module_registry = load_modules(cfg.skills_dir)
     router = Router(
         known_runners=set(runners.keys()),

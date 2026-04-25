@@ -173,3 +173,10 @@ async def test_acp_runner_no_duplicate_sessions_concurrent():
         )
 
     assert new_session_count == 1, f"Expected 1 session, got {new_session_count}"
+
+
+def test_runner_config_has_type_field():
+    from src.core.config import RunnerConfig
+    rc = RunnerConfig(path="", args=[], timeout_seconds=60,
+                      context_token_budget=4000, type="acp")
+    assert rc.type == "acp"

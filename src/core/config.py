@@ -53,10 +53,11 @@ class GatewayConfig:
 
 @dataclass
 class RunnerConfig:
-    path: str
-    args: list[str]
-    timeout_seconds: int
-    context_token_budget: int
+    path: str = ""
+    args: list[str] = field(default_factory=list)
+    timeout_seconds: int = 300
+    context_token_budget: int = 4000
+    type: str = "acp"   # "acp" | "cli"
 
 
 @dataclass
@@ -152,10 +153,11 @@ def load_config(
 
     runners = {
         name: RunnerConfig(
-            path=rc["path"],
+            path=rc.get("path", ""),
             args=_normalise_runner_args(name, rc.get("args")),
             timeout_seconds=rc.get("timeout_seconds", 300),
             context_token_budget=rc.get("context_token_budget", 4000),
+            type=rc.get("type", "acp"),
         )
         for name, rc in raw.get("runners", {}).items()
     }

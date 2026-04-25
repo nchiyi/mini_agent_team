@@ -6,23 +6,26 @@ default_runner = "claude"
 session_idle_minutes = 60
 max_message_length_telegram = 4096
 max_message_length_discord = 2000
-stream_edit_interval_seconds = 1.5
+stream_edit_interval_seconds = 0.5
 
 [runners.claude]
-path = "claude"
+type = "acp"
+path = "claude-agent-acp"
 args = []
 timeout_seconds = 300
 context_token_budget = 4000
 
 [runners.codex]
-path = "codex"
-args = ["exec", "--full-auto", "--skip-git-repo-check"]
+type = "acp"
+path = "codex-acp"
+args = []
 timeout_seconds = 300
 context_token_budget = 4000
 
 [runners.gemini]
+type = "acp"
 path = "gemini"
-args = ["--approval-mode", "yolo"]
+args = ["--acp", "--yolo"]
 timeout_seconds = 300
 context_token_budget = 4000
 
