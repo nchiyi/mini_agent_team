@@ -220,7 +220,7 @@ async def run_telegram(ctx: AppContext) -> None:
     tg_app.add_handler(MessageHandler(filters.VOICE, on_voice))
     async with tg_app:
         await tg_app.start()
-        await tg_app.updater.start_polling()
+        await tg_app.updater.start_polling(drop_pending_updates=True)
         logger.info("Telegram bot running")
         try:
             await asyncio.Event().wait()
