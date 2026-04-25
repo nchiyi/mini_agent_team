@@ -67,7 +67,7 @@ def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
                 timeout_seconds=rc.timeout_seconds,
                 context_token_budget=rc.context_token_budget,
             )
-        else:  # "cli"
+        elif rc.type == "cli":
             runners[name] = CLIRunner(
                 name=name,
                 binary=rc.path,
@@ -76,6 +76,8 @@ def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
                 context_token_budget=rc.context_token_budget,
                 audit=audit,
             )
+        else:
+            raise ValueError(f"Runner '{name}': unknown type '{rc.type}' (expected 'acp' or 'cli'")
     module_registry = load_modules(cfg.skills_dir)
     router = Router(
         known_runners=set(runners.keys()),

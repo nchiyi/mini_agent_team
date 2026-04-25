@@ -21,7 +21,8 @@ _DANGEROUS_RUNNER_ARGS: frozenset[str] = frozenset({
     "--dangerously-skip-permissions",
     "--full-auto",
     "--skip-git-repo-check",
-    "yolo",  # --approval-mode yolo
+    "yolo",       # --approval-mode yolo (codex style)
+    "--yolo",     # gemini ACP style
 })
 
 _LEGACY_RUNNER_ARGS: dict[str, list[list[str]]] = {
