@@ -555,26 +555,35 @@ async def dispatch(
         daily_budget = rl_cfg.daily_token_budget if rl_cfg else 0
         weekly_budget = rl_cfg.weekly_token_budget if rl_cfg else 0
 
+        # Estimate tokens per dispatch from all-time usage
+        grand_total = sum(s["total"] for s in (summary or {}).values())
+        _all_time_count_rows = await tier3.get_dispatch_count_since(
+            user_id=inbound.user_id, since_iso="1970-01-01"
+        )
+        avg_per_dispatch = (grand_total // _all_time_count_rows) if _all_time_count_rows else 5000
+
         def _budget_line(used: int, budget: int, label: str) -> str:
             if budget > 0:
                 pct = used / budget * 100
                 remaining = max(budget - used, 0)
-                return f"{label}：{used:,} / {budget:,} tokens ({pct:.1f}%)，剩餘 {remaining:,}"
-            return f"{label}：{used:,} tokens（無上限）"
+                est = remaining // avg_per_dispatch if avg_per_dispatch > 0 else 0
+                return (
+                    f"{label}已用：{used:,} / {budget:,} tokens ({pct:.1f}%)\n"
+                    f"  剩餘：{remaining:,} tokens（約還可 dispatch ~{est} 次）"
+                )
+            return f"{label}已用：{used:,} tokens（無上限）"
 
         lines = [
             _budget_line(tokens_today, daily_budget, "今日"),
-            _budget_line(tokens_week, weekly_budget, "近 7 天"),
+            _budget_line(tokens_week, weekly_budget, "本週（近7天）"),
             "",
             "各 Runner 累計：",
         ]
-        grand_total = 0
         for runner_name, stats in (summary or {}).items():
             lines.append(
                 f"  {runner_name}: {stats['prompt']:,} prompt + "
                 f"{stats['completion']:,} completion = {stats['total']:,} total"
             )
-            grand_total += stats["total"]
         if grand_total:
             lines.append(f"總計：{grand_total:,} tokens")
         else:
@@ -610,27 +619,45 @@ async def dispatch(
         await send_reply(f"Switched to {cmd.runner}")
         return
 
-    # Daily token budget warning check
-    if cfg and cfg.gateway.rate_limit.daily_token_budget > 0:
-        from datetime import datetime, timezone as _tz
-        _today_iso = datetime.now(_tz.utc).strftime("%Y-%m-%d")
-        _tokens_today = await tier3.get_token_usage_since(
-            user_id=inbound.user_id, since_iso=_today_iso
+    # Token budget check (daily + weekly)
+    if cfg:
+        from src.gateway.rate_limit import TokenBudget, BudgetStatus
+        rl_cfg = cfg.gateway.rate_limit
+        _token_budget = TokenBudget(
+            daily_limit=rl_cfg.daily_token_budget,
+            weekly_limit=rl_cfg.weekly_token_budget,
+            warn_threshold=rl_cfg.warn_threshold,
+            hard_stop=rl_cfg.hard_stop_at_limit,
         )
-        _daily_budget = cfg.gateway.rate_limit.daily_token_budget
-        _warn_threshold = cfg.gateway.rate_limit.warn_threshold
-        _usage_ratio = _tokens_today / _daily_budget
-        if _usage_ratio >= 1.0:
-            await send_reply(
-                f"⛔ 今日 token 已用盡（{_tokens_today:,} / {_daily_budget:,}）。"
-                f"如需繼續請明日再試。"
-            )
-            return
-        if _usage_ratio >= _warn_threshold:
-            await send_reply(
-                f"⚠️ 今日已使用 {_usage_ratio * 100:.0f}% token budget"
-                f"（{_tokens_today:,} / {_daily_budget:,}）。"
-            )
+        _budget_results = await _token_budget.check(user_id=inbound.user_id, tier3=tier3)
+        _period_labels = {"daily": "今日", "weekly": "本週（近7天）"}
+        _warn_messages: list[str] = []
+        for _br in _budget_results:
+            if _br.status == BudgetStatus.EXCEEDED:
+                if _token_budget.hard_stop:
+                    await send_reply(
+                        f"⛔ {_period_labels.get(_br.period, _br.period)} token 已用盡"
+                        f"（{_br.used:,} / {_br.limit:,}）。如需繼續請稍後再試。"
+                    )
+                    return
+                else:
+                    _warn_messages.append(
+                        f"⚠️ {_period_labels.get(_br.period, _br.period)}已使用 100%"
+                        f" token budget（{_br.used:,} / {_br.limit:,}）。"
+                    )
+            elif _br.status == BudgetStatus.WARN:
+                _warn_messages.append(
+                    f"⚠️ 您{_period_labels.get(_br.period, _br.period)}已使用"
+                    f" {_br.pct:.0f}% token budget（{_br.used:,} / {_br.limit:,}）。"
+                    f"剩餘額度建議保留給重要任務。"
+                )
+        if _warn_messages:
+            # Append warnings after dispatch (stored for post-dispatch injection below)
+            _pending_budget_warnings = _warn_messages
+        else:
+            _pending_budget_warnings = []
+    else:
+        _pending_budget_warnings = []
 
     _sem = rate_limiter.semaphore if rate_limiter is not None else contextlib.nullcontext()
     async with _sem:
@@ -641,6 +668,8 @@ async def dispatch(
                     cmd.module_command, cmd.prompt, inbound.user_id, inbound.channel
                 ),
             )
+            for _wmsg in _pending_budget_warnings:
+                await send_reply(_wmsg)
             return
 
         if cmd.is_pipeline:
@@ -656,6 +685,8 @@ async def dispatch(
             if cfg:
                 await maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
+            for _wmsg in _pending_budget_warnings:
+                await send_reply(_wmsg)
             return
 
         if cmd.is_discussion:
@@ -672,6 +703,8 @@ async def dispatch(
             if cfg:
                 await maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
+            for _wmsg in _pending_budget_warnings:
+                await send_reply(_wmsg)
             return
 
         if cmd.is_debate:
@@ -684,6 +717,8 @@ async def dispatch(
             if cfg:
                 await maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
+            for _wmsg in _pending_budget_warnings:
+                await send_reply(_wmsg)
             return
 
         await _dispatch_single_runner(
@@ -692,3 +727,5 @@ async def dispatch(
             send_reply=send_reply, recent_turns=recent_turns,
             role_slug=role_slug, cmd=cmd, cfg=cfg, tier1=tier1,
         )
+        for _wmsg in _pending_budget_warnings:
+            await send_reply(_wmsg)

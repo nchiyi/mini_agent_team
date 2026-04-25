@@ -256,6 +256,15 @@ class Tier3Store:
             row = await cur.fetchone()
         return int(row["t"]) if row else 0
 
+    async def get_dispatch_count_since(self, *, user_id: int, since_iso: str) -> int:
+        """Return number of dispatch entries (rows) for user since since_iso."""
+        async with self._db.execute(
+            "SELECT COUNT(*) AS n FROM usage_logs WHERE user_id=? AND ts >= ?",
+            (user_id, since_iso),
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row["n"]) if row else 0
+
     async def get_usage_summary(self, *, user_id: int) -> dict[str, dict[str, int]]:
         async with self._db.execute(
             """SELECT runner,
