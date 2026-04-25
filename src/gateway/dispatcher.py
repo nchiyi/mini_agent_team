@@ -466,7 +466,7 @@ async def dispatch(
         return
     await session_mgr.restore_settings_if_needed(inbound.user_id, inbound.channel)
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
-    cmd = router.parse(inbound.text)
+    cmd = await router.parse(inbound.text)
     active_role = session_mgr.get_active_role(inbound.user_id, inbound.channel)
     if active_role:
         session.active_role = active_role

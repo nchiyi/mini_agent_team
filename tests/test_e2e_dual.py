@@ -31,7 +31,7 @@ async def _make_pipeline(tmp_path, tg_adapter, dc_adapter):
 
     async def dispatch(user_id: int, channel: str, text: str) -> None:
         session = session_mgr.get_or_create(user_id=user_id, channel=channel)
-        cmd = router.parse(text)
+        cmd = await router.parse(text)
         adapter = adapters[channel]
         bridge = bridges[channel]
 

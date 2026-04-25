@@ -61,7 +61,7 @@ async def test_dispatch_applies_dept_head_when_no_role_set():
     cmd.role = ""
     cmd.runner = "claude"
     cmd.prompt = "summarise the project"
-    router.parse.return_value = cmd
+    router.parse = AsyncMock(return_value=cmd)
 
     assembler = AsyncMock()
     assembler.build.return_value = ""

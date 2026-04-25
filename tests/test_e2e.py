@@ -38,7 +38,7 @@ async def test_e2e_plain_text_routes_to_default_runner(tmp_path):
     text = "hello from e2e"
 
     session = session_mgr.get_or_create(user_id=user_id, channel=channel)
-    cmd = router.parse(text)
+    cmd = await router.parse(text)
 
     if cmd.is_reset:
         pass  # not testing this path
@@ -79,7 +79,7 @@ async def test_e2e_slash_prefix_routes_to_correct_runner(tmp_path):
     text = "/echo dispatched correctly"
 
     session = session_mgr.get_or_create(user_id=user_id, channel=channel)
-    cmd = router.parse(text)
+    cmd = await router.parse(text)
 
     assert cmd.runner == "echo"
     active_runner = runners[cmd.runner]

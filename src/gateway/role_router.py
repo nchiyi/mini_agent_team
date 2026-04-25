@@ -6,6 +6,7 @@ Strategy (in order):
   1. FastEmbed (ONNX) — lightweight local embeddings (<150 MB)
   2. Heuristic keyword matching against role summaries — zero-dependency fallback
 """
+import asyncio
 import logging
 import re
 
@@ -97,7 +98,7 @@ class RoleRouter:
         """Call at bot startup so the first real message has no cold-start penalty."""
         self._lazy_init()
 
-    def route(self, text: str, threshold: float | None = None) -> str | None:
+    async def route(self, text: str, threshold: float | None = None) -> str | None:
         """
         Return the best matching role slug, or None if confidence is below threshold.
         Falls back from semantic to heuristic matching automatically.
@@ -108,7 +109,7 @@ class RoleRouter:
 
         if self._embed_fn is not None and self._embeddings is not None:
             sem_threshold = threshold if threshold is not None else self.SEMANTIC_THRESHOLD
-            result = self._semantic_route(text, sem_threshold)
+            result = await asyncio.to_thread(self._semantic_route, text, sem_threshold)
             if result is not None:
                 return result
 

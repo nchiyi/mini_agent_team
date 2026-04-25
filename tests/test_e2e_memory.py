@@ -36,7 +36,7 @@ async def _make_full_pipeline(tmp_path):
 async def _dispatch(user_id, channel, text, router, session_mgr, runners, bridge, adapter, t1, t3, assembler):
     from src.channels.base import InboundMessage
     session = session_mgr.get_or_create(user_id=user_id, channel=channel)
-    cmd = router.parse(text)
+    cmd = await router.parse(text)
 
     if cmd.is_remember:
         t1.remember(user_id=user_id, channel=channel, content=cmd.prompt)

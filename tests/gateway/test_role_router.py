@@ -37,43 +37,48 @@ def _make_router():
     return r
 
 
-def test_returns_none_when_no_match():
+@pytest.mark.asyncio
+async def test_returns_none_when_no_match():
     r = _make_router()
-    result = r.route("what is 2+2")
+    result = await r.route("what is 2+2")
     # Very low overlap → should be None (or maybe a low-confidence match)
     # We mainly verify it doesn't crash
     assert result is None or isinstance(result, str)
 
 
-def test_heuristic_matches_security_text():
+@pytest.mark.asyncio
+async def test_heuristic_matches_security_text():
     r = _make_router()
     # Force heuristic mode by disabling embed_fn
     r._lazy_init()
     r._embed_fn = None
     r._embeddings = None
-    result = r.route("please do a security code review")
+    result = await r.route("please do a security code review")
     assert result == "code-auditor"
 
 
-def test_heuristic_matches_architecture_text():
+@pytest.mark.asyncio
+async def test_heuristic_matches_architecture_text():
     r = _make_router()
     r._lazy_init()
     r._embed_fn = None
     r._embeddings = None
-    result = r.route("we need system architecture design")
+    result = await r.route("we need system architecture design")
     assert result == "expert-architect"
 
 
-def test_heuristic_returns_none_for_low_overlap():
+@pytest.mark.asyncio
+async def test_heuristic_returns_none_for_low_overlap():
     r = _make_router()
     r._lazy_init()
     r._embed_fn = None
     r._embeddings = None
-    result = r.route("hello world foo bar baz", threshold=0.5)
+    result = await r.route("hello world foo bar baz", threshold=0.5)
     assert result is None
 
 
-def test_semantic_route_used_when_embed_fn_available():
+@pytest.mark.asyncio
+async def test_semantic_route_used_when_embed_fn_available():
     r = _make_router()
     r._lazy_init()
     r._embed_fn = None
@@ -89,11 +94,12 @@ def test_semantic_route_used_when_embed_fn_available():
         return np.random.randn(len(texts), dim)
 
     r._embed_fn = mock_embed
-    r.route("some query")
+    await r.route("some query")
     assert len(call_log) >= 1, "embed_fn should have been called"
 
 
-def test_router_does_not_crash_when_embed_fn_raises():
+@pytest.mark.asyncio
+async def test_router_does_not_crash_when_embed_fn_raises():
     r = _make_router()
     r._lazy_init()
 
@@ -104,7 +110,7 @@ def test_router_does_not_crash_when_embed_fn_raises():
     r._embeddings = np.zeros((len(MOCK_ROLES), 4))
 
     # Should fall through to heuristic without raising
-    result = r.route("code review security", threshold=0.1)
+    result = await r.route("code review security", threshold=0.1)
     assert result is None or isinstance(result, str)
 
 

@@ -38,7 +38,7 @@ class Router:
         self._modules = module_registry
         self._role_router = RoleRouter()
 
-    def parse(self, text: str) -> ParsedCommand:
+    async def parse(self, text: str) -> ParsedCommand:
         text = text.strip()
 
         if text == "/cancel":
@@ -140,7 +140,7 @@ class Router:
             return ParsedCommand(runner=self._default, prompt=text)
 
         # Agency Integration: Try semantic routing for natural language
-        matched_role = self._role_router.route(text)
+        matched_role = await self._role_router.route(text)
         
         return ParsedCommand(
             runner=self._default, 
