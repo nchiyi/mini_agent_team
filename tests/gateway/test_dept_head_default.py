@@ -47,6 +47,7 @@ async def test_dispatch_applies_dept_head_when_no_role_set():
     session.active_role = ""
     session.current_runner = "claude"
     session.cwd = "/tmp"
+    session.pending_reasoning = ""
     session_mgr.get_or_create.return_value = session
     session_mgr.get_active_role.return_value = ""
 
@@ -58,6 +59,7 @@ async def test_dispatch_applies_dept_head_when_no_role_set():
     cmd.is_pipeline = cmd.is_discussion = cmd.is_debate = False
     cmd.is_voice_on = cmd.is_voice_off = False
     cmd.is_usage = False
+    cmd.is_reasoning = False
     cmd.role = ""
     cmd.runner = "claude"
     cmd.prompt = "summarise the project"
