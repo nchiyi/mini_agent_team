@@ -103,7 +103,8 @@ class RoleRouter:
         Return the best matching role slug, or None if confidence is below threshold.
         Falls back from semantic to heuristic matching automatically.
         """
-        self._lazy_init()
+        if not self._initialized:
+            await asyncio.to_thread(self._lazy_init)
         if not self._roles:
             return None
 
