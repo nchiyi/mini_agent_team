@@ -68,9 +68,11 @@ async def test_step2_telegram_valid_token(monkeypatch):
 @pytest.mark.asyncio
 async def test_step2_retries_invalid_token(monkeypatch):
     state = WizardState(channels=["telegram"], completed_steps=[1])
-    responses = iter(["bad", "good"])
+    # "bad" token → invalid, "good" token → valid, then "y" to confirm identity.
+    responses = iter(["bad", "good", "y"])
     monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: next(responses))
-    side_effects = [MagicMock(valid=False, skipped=False), MagicMock(valid=True, skipped=False)]
+    valid_result = MagicMock(valid=True, skipped=False, bot_username="mybot", bot_id=1)
+    side_effects = [MagicMock(valid=False, skipped=False, error_category=None), valid_result]
     idx = [0]
     def _validate(t):
         r = side_effects[idx[0]]; idx[0] += 1; return r
@@ -111,6 +113,8 @@ async def test_step3_manual_fallback(monkeypatch):
 @pytest.mark.asyncio
 async def test_step3_auto_capture(monkeypatch):
     state = WizardState(channels=["telegram"], completed_steps=[1, 2], telegram_token="tok")
+    # New behaviour: auto-capture prompts for confirmation — answer "y".
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "y")
     with patch("src.setup.wizard._capture_telegram_user_id", return_value=99999):
         await wizard.step_3_allowlist(state)
     assert state.allowed_user_ids == [99999]
@@ -118,9 +122,13 @@ async def test_step3_auto_capture(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_step3_discord_manual(monkeypatch):
-    state = WizardState(channels=["discord"], completed_steps=[1, 2])
+    # Discord channel with token but capture returns None → user types ID manually.
+    state = WizardState(
+        channels=["discord"], completed_steps=[1, 2], discord_token="disc-tok"
+    )
     monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "777")
-    await wizard.step_3_allowlist(state)
+    with patch("src.setup.wizard._capture_discord_user_id", return_value=None):
+        await wizard.step_3_allowlist(state)
     assert state.allowed_user_ids == [777]
 
 
@@ -137,28 +145,36 @@ async def test_step3_skipped_if_done():
 async def test_step4_selects_clis(monkeypatch):
     state = WizardState(completed_steps=[1, 2, 3])
     monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "claude,codex")
-    with patch("src.setup.wizard.is_cli_installed", return_value=True):
+    # is_cli_installed now returns (bool, version_str)
+    with patch("src.setup.wizard.is_cli_installed", return_value=(True, "v1.0")):
         tasks = await wizard.step_4_clis(state)
     assert state.selected_clis == ["claude", "codex"]
-    assert tasks == []  # all installed, no background tasks
+    assert tasks == []  # all installed, no install tasks
     assert 4 in state.completed_steps
 
 
 @pytest.mark.asyncio
 async def test_step4_queues_install_for_missing(monkeypatch):
+    """Missing CLIs are now installed in the foreground (not background)."""
     state = WizardState(completed_steps=[1, 2, 3])
     monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "claude")
-    with patch("src.setup.wizard.is_cli_installed", return_value=False):
-        with patch("src.setup.wizard.install_cli", new_callable=AsyncMock, return_value=("claude", True)):
+    with patch("src.setup.wizard.is_cli_installed", return_value=(False, "")):
+        with patch(
+            "src.setup.wizard.install_cli_foreground",
+            new_callable=AsyncMock,
+            return_value=True,
+        ):
             tasks = await wizard.step_4_clis(state)
-    assert len(tasks) == 1
+    # Foreground installs: step_4 always returns []
+    assert tasks == []
+    assert "claude" in state.selected_clis
 
 
 @pytest.mark.asyncio
 async def test_step4_defaults_to_claude_on_empty(monkeypatch):
     state = WizardState(completed_steps=[1, 2, 3])
     monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "")
-    with patch("src.setup.wizard.is_cli_installed", return_value=True):
+    with patch("src.setup.wizard.is_cli_installed", return_value=(True, "v1.0")):
         await wizard.step_4_clis(state)
     assert "claude" in state.selected_clis
 
@@ -169,6 +185,101 @@ async def test_step4_skipped_if_done():
     tasks = await wizard.step_4_clis(state)
     assert tasks == []
     assert state.selected_clis == ["codex"]
+
+
+# ── Step 4.5: ACP ────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_step4_5_orchestrator_claude(monkeypatch):
+    """Mode 1 with claude as primary → only asks about claude-agent-acp."""
+    state = WizardState(selected_clis=["claude", "codex"])
+    call_count = {"n": 0}
+
+    def fake_prompt(*a, **kw):
+        call_count["n"] += 1
+        return "1" if call_count["n"] == 1 else "Y"  # 1st=mode, rest=install confirm
+
+    monkeypatch.setattr("src.setup.wizard._prompt", fake_prompt)
+    with patch("src.setup.wizard.is_acp_installed", return_value=(False, "claude-agent-acp")), \
+         patch("src.setup.wizard.is_npm_available", return_value=True), \
+         patch("src.setup.wizard.install_acp_foreground", new_callable=AsyncMock, return_value=True):
+        await wizard.step_4_5_acp(state)
+    assert state.acp_mode == "orchestrator"
+    assert state.installed_acp == ["claude-agent-acp"]
+    assert "acp_setup.done" in state.completed
+
+
+@pytest.mark.asyncio
+async def test_step4_5_gateway_installs_all(monkeypatch):
+    """Mode 2 with claude + codex → asks about both ACP packages."""
+    state = WizardState(selected_clis=["claude", "codex"])
+    call_count = {"n": 0}
+
+    def fake_prompt(*a, **kw):
+        call_count["n"] += 1
+        return "2" if call_count["n"] == 1 else "Y"
+
+    monkeypatch.setattr("src.setup.wizard._prompt", fake_prompt)
+    with patch("src.setup.wizard.is_acp_installed", return_value=(False, "some-acp")), \
+         patch("src.setup.wizard.is_npm_available", return_value=True), \
+         patch("src.setup.wizard.install_acp_foreground", new_callable=AsyncMock, return_value=True):
+        await wizard.step_4_5_acp(state)
+    assert state.acp_mode == "gateway"
+    assert "acp_setup.done" in state.completed
+
+
+@pytest.mark.asyncio
+async def test_step4_5_gemini_primary_mode1_skips(monkeypatch):
+    """Mode 1 with gemini as primary → no ACP needed, step skips cleanly."""
+    state = WizardState(selected_clis=["gemini"])
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "1")
+    with patch("src.setup.wizard.is_acp_installed", return_value=(True, "")):
+        await wizard.step_4_5_acp(state)
+    assert state.acp_mode == "orchestrator"
+    assert state.installed_acp == []
+    assert "acp_setup.done" in state.completed
+
+
+@pytest.mark.asyncio
+async def test_step4_5_all_already_installed(monkeypatch):
+    """All ACP packages present → step completes without prompting for install."""
+    state = WizardState(selected_clis=["claude", "codex"])
+    prompts = []
+
+    def capturing_prompt(msg, *a, **kw):
+        prompts.append(msg)
+        return "2"  # mode 2, but no install prompt should follow
+
+    monkeypatch.setattr("src.setup.wizard._prompt", capturing_prompt)
+    with patch("src.setup.wizard.is_acp_installed", return_value=(True, "some-acp")):
+        await wizard.step_4_5_acp(state)
+    # Only the mode selection prompt should have appeared
+    assert len(prompts) == 1
+    assert "acp_setup.done" in state.completed
+
+
+@pytest.mark.asyncio
+async def test_step4_5_npm_missing_shows_manual_and_continues(monkeypatch, capsys):
+    """npm not found → warns, shows manual command, does not abort."""
+    state = WizardState(selected_clis=["claude"])
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "1")
+    with patch("src.setup.wizard.is_acp_installed", return_value=(False, "claude-agent-acp")), \
+         patch("src.setup.wizard.is_npm_available", return_value=False):
+        await wizard.step_4_5_acp(state)
+    out = capsys.readouterr().out
+    assert "npm" in out
+    assert "acp_setup.done" in state.completed
+
+
+@pytest.mark.asyncio
+async def test_step4_5_skipped_if_done():
+    """Step is idempotent — does nothing if already completed."""
+    from src.setup.state import mark_micro_step_done
+    state = WizardState(selected_clis=["claude"])
+    mark_micro_step_done(state, "acp_setup.done")
+    state.acp_mode = "orchestrator"
+    await wizard.step_4_5_acp(state)
+    assert state.acp_mode == "orchestrator"  # unchanged
 
 
 # ── Step 5: search ───────────────────────────────────────────────
@@ -185,12 +296,18 @@ async def test_step5_fts5_default(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_step5_embedding_returns_task(monkeypatch):
+    """Ollama is now installed in the foreground; step_5 always returns None."""
     state = WizardState(completed_steps=[1, 2, 3, 4])
     monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "2")
-    with patch("src.setup.wizard.install_ollama", new_callable=AsyncMock, return_value=True):
+    with patch(
+        "src.setup.wizard.install_ollama_foreground",
+        new_callable=AsyncMock,
+        return_value=True,
+    ):
         task = await wizard.step_5_search(state)
     assert state.search_mode == "fts5+embedding"
-    assert task is not None
+    # Foreground install — no background task returned
+    assert task is None
 
 
 @pytest.mark.asyncio
@@ -243,7 +360,8 @@ async def test_step7_systemd(monkeypatch):
 async def test_step7_docker(monkeypatch):
     state = WizardState(completed_steps=[1, 2, 3, 4, 5, 6, 7])
     monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "3")
-    await wizard.step_8_deploy(state)
+    with patch("src.setup.wizard.subprocess.run", return_value=MagicMock(returncode=0)):
+        await wizard.step_8_deploy(state)
     assert state.deploy_mode == "docker"
 
 
@@ -264,7 +382,9 @@ async def test_run_wizard_resumes_skipping_completed_steps(tmp_path):
     )
     state_path = str(tmp_path / "state.json")
     save_state(state, state_path)
-    with patch("src.setup.wizard.step_9_launch", new_callable=AsyncMock) as mock_launch:
+    with patch("src.setup.wizard.run_preflight", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_9_launch", new_callable=AsyncMock) as mock_launch:
         await wizard.run_wizard(state_path=state_path, cwd=str(tmp_path))
     mock_launch.assert_called_once()
 
@@ -279,10 +399,12 @@ async def test_run_wizard_reset_clears_state(tmp_path):
                         deploy_mode="foreground")
     state_path = str(tmp_path / "state.json")
     save_state(state, state_path)
-    with patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as mock_s1, \
+    with patch("src.setup.wizard.run_preflight", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as mock_s1, \
          patch("src.setup.wizard.step_2_token", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]), \
+         patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None), \
          patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock), \
@@ -293,10 +415,11 @@ async def test_run_wizard_reset_clears_state(tmp_path):
     mock_s1.assert_called_once()
 
 
-# ── step_8_launch ────────────────────────────────────────────────
+# ── step_9_launch ────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_step8_writes_config_and_env(tmp_path):
+    """Foreground mode: writes config/env then runs smoke test."""
     state = WizardState(
         completed_steps=[1, 2, 3, 4, 5, 6, 7, 8],
         channels=["telegram"], telegram_token="TOK",
@@ -304,21 +427,93 @@ async def test_step8_writes_config_and_env(tmp_path):
         search_mode="fts5", update_notifications=True,
         deploy_mode="foreground",
     )
-    with patch("src.setup.wizard.write_config_toml") as mock_cfg, \
-         patch("src.setup.wizard.write_env_file") as mock_env, \
+    mock_proc = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stdout.__aiter__ = lambda self: iter([])
+    mock_proc.returncode = 0
+
+    with patch("src.setup.wizard.write_config_with_diff") as mock_cfg, \
+         patch("src.setup.wizard.write_env_with_diff") as mock_env, \
          patch("src.setup.wizard.create_data_dirs"), \
-         patch("os.execv"):
+         patch("src.setup.wizard.save_state"), \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=False), \
+         patch("sys.exit"):
         await wizard.step_9_launch(state, str(tmp_path), [])
     mock_cfg.assert_called_once()
     mock_env.assert_called_once()
-    # env_file content passed as second positional arg
-    env_arg = mock_env.call_args[0][1]
-    assert env_arg.get("TELEGRAM_BOT_TOKEN") == "TOK"
-    assert env_arg.get("ALLOWED_USER_IDS") == "111"
+    # New API: write_env_with_diff receives (path, content_str, label=...)
+    env_path_arg = mock_env.call_args[0][0]
+    env_content_arg = mock_env.call_args[0][1]
+    assert "TELEGRAM_BOT_TOKEN" in env_content_arg
+    assert "TOK" in env_content_arg
+
+
+@pytest.mark.asyncio
+async def test_step8_allow_all_users_written_to_env(tmp_path):
+    """When state.data['allow_all_users'] is True, .env must contain ALLOW_ALL_USERS=true."""
+    state = WizardState(
+        completed_steps=[1, 2, 3, 4, 5, 6, 7, 8],
+        channels=["telegram"], telegram_token="TOK",
+        allowed_user_ids=[],  # empty — operator chose allow-all
+        selected_clis=["claude"],
+        search_mode="fts5", update_notifications=True,
+        deploy_mode="foreground",
+    )
+    state.data["allow_all_users"] = True
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stdout.__aiter__ = lambda self: iter([])
+    mock_proc.returncode = 0
+
+    with patch("src.setup.wizard.write_config_with_diff"), \
+         patch("src.setup.wizard.write_env_with_diff") as mock_env, \
+         patch("src.setup.wizard.create_data_dirs"), \
+         patch("src.setup.wizard.save_state"), \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=False), \
+         patch("sys.exit"):
+        await wizard.step_9_launch(state, str(tmp_path), [])
+
+    env_content = mock_env.call_args[0][1]
+    assert "ALLOW_ALL_USERS" in env_content
+    assert "true" in env_content
+    assert "ALLOWED_USER_IDS" not in env_content  # no user IDs → should not be emitted
+
+
+@pytest.mark.asyncio
+async def test_step8_allow_all_users_not_written_when_false(tmp_path):
+    """When allow_all_users is not set, .env must NOT contain ALLOW_ALL_USERS."""
+    state = WizardState(
+        completed_steps=[1, 2, 3, 4, 5, 6, 7, 8],
+        channels=["telegram"], telegram_token="TOK",
+        allowed_user_ids=[42], selected_clis=["claude"],
+        search_mode="fts5", update_notifications=True,
+        deploy_mode="foreground",
+    )
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stdout.__aiter__ = lambda self: iter([])
+    mock_proc.returncode = 0
+
+    with patch("src.setup.wizard.write_config_with_diff"), \
+         patch("src.setup.wizard.write_env_with_diff") as mock_env, \
+         patch("src.setup.wizard.create_data_dirs"), \
+         patch("src.setup.wizard.save_state"), \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=False), \
+         patch("sys.exit"):
+        await wizard.step_9_launch(state, str(tmp_path), [])
+
+    env_content = mock_env.call_args[0][1]
+    assert "ALLOW_ALL_USERS" not in env_content
 
 
 @pytest.mark.asyncio
 async def test_step8_systemd_calls_systemctl(tmp_path):
+    """Systemd mode: writes unit, runs systemctl, runs smoke test."""
     state = WizardState(
         completed_steps=list(range(1, 9)),
         channels=["telegram"], telegram_token="T",
@@ -326,11 +521,19 @@ async def test_step8_systemd_calls_systemctl(tmp_path):
         search_mode="fts5", update_notifications=False,
         deploy_mode="systemd",
     )
-    with patch("src.setup.wizard.write_config_toml"), \
-         patch("src.setup.wizard.write_env_file"), \
+    mock_proc = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stdout.__aiter__ = lambda self: iter([])
+    mock_proc.returncode = 0
+    mock_proc.terminate = MagicMock()
+
+    with patch("src.setup.wizard.write_config_with_diff"), \
+         patch("src.setup.wizard.write_env_with_diff"), \
          patch("src.setup.wizard.create_data_dirs"), \
          patch("src.setup.wizard.write_systemd_unit") as mock_unit, \
-         patch("subprocess.run") as mock_run:
+         patch("subprocess.run") as mock_run, \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=True):
         await wizard.step_9_launch(state, str(tmp_path), [])
     mock_unit.assert_called_once()
     assert mock_run.call_count >= 1
@@ -338,6 +541,7 @@ async def test_step8_systemd_calls_systemctl(tmp_path):
 
 @pytest.mark.asyncio
 async def test_step8_docker_calls_compose(tmp_path):
+    """Docker mode: writes compose file, runs docker compose up, runs smoke test."""
     state = WizardState(
         completed_steps=list(range(1, 9)),
         channels=["telegram"], telegram_token="T",
@@ -345,11 +549,19 @@ async def test_step8_docker_calls_compose(tmp_path):
         search_mode="fts5", update_notifications=False,
         deploy_mode="docker",
     )
-    with patch("src.setup.wizard.write_config_toml"), \
-         patch("src.setup.wizard.write_env_file"), \
+    mock_proc = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stdout.__aiter__ = lambda self: iter([])
+    mock_proc.returncode = 0
+    mock_proc.terminate = MagicMock()
+
+    with patch("src.setup.wizard.write_config_with_diff"), \
+         patch("src.setup.wizard.write_env_with_diff"), \
          patch("src.setup.wizard.create_data_dirs"), \
          patch("src.setup.wizard.write_docker_compose") as mock_dc, \
-         patch("subprocess.run") as mock_run:
+         patch("subprocess.run") as mock_run, \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=True):
         await wizard.step_9_launch(state, str(tmp_path), [])
     mock_dc.assert_called_once()
     mock_run.assert_called_once()
