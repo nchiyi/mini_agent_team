@@ -1,269 +1,280 @@
 # mini_agent_team (Project MAGI)
 
-**The Pocket AI Software Company** — Bridge powerful local CLI agents (Claude Code, Gemini CLI, Codex, etc.) to Telegram and Discord. Featuring a "Virtual Agency" architecture, dual-tier persistent memory, and automated distillation.
+**隨身 AI 軟體公司** — 透過 Telegram 與 Discord 連接本地端 CLI Agent（Claude Code、Gemini CLI、Codex）。具備虛擬企業架構、持久化 ACP Session、雙層記憶與自動精煉機制。
 
-> 繁體中文說明請見 [README.zh-TW.md](README.zh-TW.md)
+> **English:** A personal AI assistant gateway bridging Telegram/Discord to local CLI agents (Claude, Gemini, Codex) via persistent ACP sessions. Zero cold-start, full tool use, OAuth-only auth.
+>
+> Full English docs: [README.en.md](README.en.md)
 
 ---
 
-## Architecture (Project MAGI)
+## 系統架構 (Project MAGI)
 
 ```mermaid
 flowchart TB
-    subgraph Clients ["Input Channels"]
+    subgraph Clients ["接入終端"]
         TG["📱 Telegram (Bot API)"]
         DC["🎮 Discord (discord.py)"]
     end
-    
-    subgraph Gateway ["MAGI Gateway"]
+
+    subgraph Gateway ["智能中樞 (MAGI Gateway)"]
         direction TB
-        Adapter["🔌 Multi-platform Adapters"]
-        Router["🚦 Semantic Router (NLU)"]
-        Session["⏳ Session Manager"]
-        Bridge["⚡ Streaming Bridge"]
+        Adapter["🔌 多平台適配器"]
+        Router["🚦 語義路由 (async NLU)"]
+        Session["⏳ Session 管理"]
+        Bridge["⚡ 串流橋接 (0.5s)"]
     end
 
-    subgraph Agency ["Virtual Agency"]
+    subgraph Agency ["虛擬企業"]
         direction LR
-        Roster{{"📋 Roster DNA Library<br/>(roster/*.md)"}}
+        Roster{{"📋 Roster DNA 庫<br/>(roster/*.md)"}}
         Roles["👨‍💻 Code Auditor<br/>🕵️ Bug Hunter<br/>🚀 DevOps"]
     end
 
-    subgraph Memory ["Memory Tier"]
+    subgraph Memory ["雙層記憶系統"]
         direction LR
-        T1[("📝 Tier 1: Permanent Notes<br/>JSONL (Facts/Summaries)")]
-        T3[("📚 Tier 3: History Archive<br/>SQLite FTS5 (History)")]
-        Distill{"♻️ Auto Distillation"}
+        T1[("📝 Tier 1：永久筆記<br/>JSONL")]
+        T3[("📚 Tier 3：歷史存檔<br/>SQLite FTS5")]
+        Distill{"♻️ 自動精煉"}
     end
 
-    subgraph Runners ["Execution Matrix"]
+    subgraph Runners ["執行陣列 (ACP 持久化 Session)"]
         direction TB
-        Orchestrator{"🎭 Orchestration Modes<br/>Discuss/Debate/Relay"}
-        CR["🤖 CLIRunner (Subprocess)"]
+        Orchestrator{"🎭 Discuss / Debate / Relay"}
+        ACP["🔗 ACPRunner (JSON-RPC 2.0)"]
         CL["Claude Code"]
         GM["Gemini CLI"]
-        CX["Codex / Custom"]
+        CX["Codex"]
     end
 
-    %% Flows
     Clients --> Adapter
     Adapter --> Router
     Router --> Session
     Session --> Roster
     Roster --> Roles
     Roles --> Orchestrator
-    
-    Orchestrator <--> T1 & T3
-    T3 -.->|Threshold Reached| Distill
-    Distill -.->|Summarize| T1
 
-    Orchestrator --> CR
-    CR --> CL & GM & CX
-    CR -- "Real-time Streaming" --> Bridge
+    Orchestrator <--> T1 & T3
+    T3 -.->|超過閾值| Distill
+    Distill -.->|生成摘要| T1
+
+    Orchestrator --> ACP
+    ACP --> CL & GM & CX
+    ACP -- "實時串流" --> Bridge
     Bridge --> Adapter
 
-    %% Styling
     classDef platform fill:#f0f7ff,stroke:#0052cc,color:#0052cc
     classDef magi fill:#fff9f0,stroke:#d4a017,color:#d4a017
     classDef agency fill:#fdf2f2,stroke:#c53030,color:#c53030
     classDef memory fill:#f3faf7,stroke:#2f855a,color:#2f855a
     classDef exec fill:#f9f5ff,stroke:#6b46c1,color:#6b46c1
-    
+
     class Clients,TG,DC platform
     class Gateway,Adapter,Router,Session,Bridge magi
     class Agency,Roster,Roles agency
     class Memory,T1,T3,Distill memory
-    class Runners,Orchestrator,CR,CL,GM,CX exec
+    class Runners,Orchestrator,ACP,CL,GM,CX exec
 ```
 
 ---
 
-## Key Features
+## 核心亮點
 
-- **Multi-Platform Support**: Seamlessly integrate Telegram and Discord within a single process.
-- **Virtual Agency Architecture**: Define expert "Job DNA" in `roster/*.md`; the system routes requests to the best-fit specialist automatically.
-- **Multi-Agent Orchestration**: Native support for **Discuss**, **Debate**, and **Relay** modes for collaborative AI workflows.
-- **Memory Distillation**: Automatically summarizes long conversations into Tier 1 facts to keep context clean and relevant.
-- **Real-time Streaming**: Enjoy live message updates as the AI generates output via the Streaming Bridge.
-- **Advanced Persistent Memory**: Dual-tier storage featuring permanent facts (Tier 1) and searchable conversation history (Tier 3).
+- **零冷啟動延遲**：採用 ACP（Agent Client Protocol）持久化 Session，不再每條訊息重新 spawn 子程序，回應時間從 2–4s 降至毫秒級。
+- **完整 Tool Use**：透過 ACP 協議 MAT 自動 approve 所有工具請求（bash、SSH、Web Search、MCP），等同 `--dangerously-skip-permissions` 效果，無需額外設定。
+- **OAuth 訂閱授權**：Claude、Codex、Gemini 全程使用個人訂閱 OAuth，不需要任何 API Key。
+- **多平台同步**：一個後端同時接通 Telegram 與 Discord。
+- **虛擬企業架構 (Virtual Agency)**：透過 `roster/*.md` 定義專家職位 DNA，系統根據語義自動切換專家。
+- **多 Agent 協作**：支援 Discuss（討論）、Debate（辯論）與 Relay（串聯）模式。
+- **自動記憶精煉 (Distillation)**：自動摘要過長對話，解決 Context Window 爆炸問題。
+- **即時串流回覆**：Streaming Bridge 技術，回覆邊生成邊更新（0.5s 刷新）。
+- **雙層儲存架構**：Tier 1 永久事實（JSONL）+ Tier 3 可全文檢索歷史（SQLite FTS5）。
 
 ---
 
-## Quick Start
+## 快速開始
 
-### Prerequisites
+### 前置需求
 
 - **Git**
-- **CLI Agents**: Install at least one: `claude` (Claude Code), `gemini` (Gemini CLI), or `codex`.
-- **Tokens**: A Telegram and/or Discord Bot Token.
-- **Python 3.11+**: Required to run. If you have an older version, the installer will offer to upgrade automatically.
+- **CLI Agents**：至少安裝以下其一：`claude`（Claude Code）、`gemini`（Gemini CLI）或 `codex`
+- **Tokens**：Telegram Bot Token 和/或 Discord Bot Token
+- **Python 3.11+**：執行環境需求
+- **Node.js 18+**：ACP runner 套件需求（安裝程式會自動處理）
 
-### One-liner Install
+### 一鍵安裝
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh | bash
 ```
 
-The installer handles everything end-to-end:
+安裝程式自動處理以下步驟：
 
-1. **Clones** (or updates) the repository
-2. **Checks Python** — if < 3.11, offers to auto-install via `deadsnakes` PPA (Ubuntu) or `brew` (macOS)
-3. **Creates a virtual environment** and installs dependencies
-4. **Launches the setup wizard** (8 guided steps):
-   - Channel selection (Telegram / Discord / Both)
-   - Bot token input & validation
-   - Allowlist — captures your Telegram user ID automatically
-   - CLI tools selection (claude, codex, gemini, kiro)
-   - Search mode (FTS5 keyword or FTS5 + embeddings)
-   - Update notifications
-   - Deploy mode (foreground / systemd / docker)
-   - Writes config, starts the bot
+1. Clone（或更新）專案
+2. 檢查 Python 版本，若 < 3.11 提示自動升級
+3. 建立虛擬環境並安裝所有套件
+4. 安裝 ACP npm 套件（`claude-agent-acp`、`codex-acp`）
+5. 啟動設定精靈（8 個引導步驟）：
+   - 選擇接入頻道（Telegram / Discord / 兩者）
+   - 輸入並驗證 Bot Token
+   - 設定授權白名單（自動捕捉你的 Telegram 用戶 ID）
+   - 選擇 CLI 工具（claude、codex、gemini）
+   - 選擇搜尋模式（FTS5 關鍵字 或 FTS5 + 向量嵌入）
+   - 選擇部署方式（前景執行 / systemd / Docker）
+   - 寫入設定檔並啟動
 
-When the wizard finishes the bot is **already running** — no extra commands needed.
+精靈完成後 Bot **已在執行中**，無需任何額外指令。
 
-### Manual Install
+### 手動安裝
 
 ```bash
 git clone https://github.com/nchiyi/mini_agent_team.git
 cd mini_agent_team
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+npm install -g @agentclientprotocol/claude-agent-acp @zed-industries/codex-acp
 python3 -m src.setup.wizard
 ```
 
 ---
 
-## Managing the Bot
+## Bot 管理
 
-### Quick commands (run from inside the project directory)
+### 快速指令（在專案目錄下執行）
 
 ```bash
-./agent config          # update bot tokens / allowed user IDs
-./agent restart         # restart the bot
-./agent status          # check if the bot is running
-./agent logs            # stream live logs (Ctrl-C to stop)
-./agent debug on|off    # toggle verbose logging
+./agent config          # 更新 Bot Token / 授權用戶 ID
+./agent restart         # 重啟 Bot
+./agent status          # 查看執行狀態
+./agent logs            # 即時日誌串流（Ctrl-C 離開）
+./agent debug on|off    # 切換詳細日誌模式
 ```
 
-### Foreground mode
-The bot runs directly in your terminal. Press `Ctrl-C` to stop.
+### 前景模式
+Bot 直接在終端機中運行，按 `Ctrl-C` 停止。
 
-### Systemd mode
+### Systemd 模式
 ```bash
-systemctl --user status  gateway-agent   # status
-systemctl --user stop    gateway-agent   # stop
-systemctl --user restart gateway-agent   # restart
-journalctl --user -u gateway-agent -f    # live logs
+systemctl --user status  gateway-agent
+systemctl --user stop    gateway-agent
+systemctl --user restart gateway-agent
+journalctl --user -u gateway-agent -f
 ```
 
-### Docker mode
+### Docker 模式
 ```bash
-docker compose ps        # status
-docker compose logs -f   # live logs
-docker compose down      # stop
+docker compose ps
+docker compose logs -f
+docker compose down
 ```
 
 ---
 
-## Uninstall
+## 移除安裝
 
 ```bash
 bash ~/mini_agent_team/uninstall.sh
 ```
 
-The uninstaller will:
-- Stop and remove the systemd service (if configured)
-- Stop the Docker container (if running)
-- Ask whether to **keep or delete** your conversation data
-- Remove the project directory
+移除程式將停止服務、詢問是否保留對話資料，並刪除整個專案目錄。
 
 ---
 
-## Configuration
+## 設定說明
 
 ### `secrets/.env`
 ```env
-TELEGRAM_BOT_TOKEN=your_token
-DISCORD_BOT_TOKEN=your_token   # optional
-ALLOWED_USER_IDS=123456789,987654321  # required — locks the bot to these IDs
+TELEGRAM_BOT_TOKEN=你的Token
+DISCORD_BOT_TOKEN=你的Token        # 選填
+ALLOWED_USER_IDS=123456789,987654321  # 必填，空白則拒絕所有人
 ```
 
-### `config/config.toml` (Key Parameters)
+### `config/config.toml` 重要參數
+
 ```toml
 [gateway]
-default_runner = "claude"
-session_idle_minutes = 60
-stream_edit_interval_seconds = 1.5
+default_runner = "claude"          # 預設 AI Agent
+session_idle_minutes = 60          # 閒置幾分鐘後重置 session
+stream_edit_interval_seconds = 0.5 # 串流更新間隔（秒）
+
+# ACP 持久化 Runner（不需要 API Key，使用 OAuth 訂閱）
+# ACP persistent runners — OAuth subscription only, no API keys required
 
 [runners.claude]
-path = "claude"
-args = ["--dangerously-skip-permissions"]
+type = "acp"
+path = "claude-agent-acp"
+args = []
 timeout_seconds = 300
 context_token_budget = 4000
 
 [runners.codex]
-path = "codex"
-args = ["exec", "--full-auto", "--skip-git-repo-check"]
+type = "acp"
+path = "codex-acp"
+args = []
 timeout_seconds = 300
 context_token_budget = 4000
 
 [runners.gemini]
+type = "acp"
 path = "gemini"
-args = ["--approval-mode", "yolo"]
+args = ["--acp", "--yolo"]
 timeout_seconds = 300
 context_token_budget = 4000
 
 [memory]
 db_path = "data/db/history.db"
-distill_trigger_turns = 20  # auto-summarize after N turns
+distill_trigger_turns = 20         # 超過 N 輪自動啟動精煉
 ```
 
 ---
 
-## Bot Commands
+## 指令百科
 
-| Category | Command | Description |
-|----------|---------|-------------|
-| **Agent** | `/claude`, `/gemini` | Switch the active AI runner |
-| | `/use <role>` | Switch to a specific Roster specialist |
-| **Modes** | `/discuss <r1,r2> [p]` | Multi-agent brainstorming session |
-| | `/debate <r1,r2> [p]` | Comparative debate between agents |
-| **Memory** | `/remember <text>` | Save a permanent fact (Tier 1) |
-| | `/recall <query>` | Full-text search of history (Tier 3) |
-| **System** | `/status`, `/usage` | Check system health and token stats |
-| | `/new`, `/cancel` | Reset session or stop generation |
+| 分類 | 指令 | 說明 |
+|------|------|------|
+| **切換** | `/claude`, `/gemini`, `/codex` | 切換當前 AI Runner |
+| | `/use <role>` | 切換至特定專家角色 (Roster) |
+| **協作** | `/discuss <r1,r2> [p]` | 多 Agent 腦力激盪 |
+| | `/debate <r1,r2> [p]` | 多 Agent 對比辯論 |
+| **記憶** | `/remember <text>` | 存入永久事實 (Tier 1) |
+| | `/recall <query>` | 全文搜尋歷史對話 (Tier 3) |
+| **系統** | `/status`, `/usage` | 查看系統狀態與 Token 統計 |
+| | `/new`, `/cancel` | 重置 Session 或中斷輸出 |
 
 ---
 
-## Project Structure
+## 專案結構
 
 ```text
 mini_agent_team/
-├── main.py                # Core entry point
-├── install.sh             # One-liner installer
-├── uninstall.sh           # Full uninstaller
-├── roster/                # Expert Role DNA definitions (.md)
+├── main.py                # 核心入口
+├── install.sh             # 一鍵安裝腳本
+├── uninstall.sh           # 完整移除腳本
+├── roster/                # 專家角色 DNA 定義庫 (.md)
 ├── src/
-│   ├── channels/          # TG/DC Adapters
-│   ├── gateway/           # Routing, Session & Streaming bridge
-│   ├── core/memory/       # Dual-tier storage & distillation
-│   ├── runners/           # CLI Subprocess wrappers
-│   ├── setup/             # Setup wizard & deploy helpers
-│   └── agent_team/        # Orchestration logic
-├── modules/               # Plugin directory (Web Search, Vision)
-├── data/                  # Runtime data (Database, Logs)
-└── config/                # System config
+│   ├── channels/          # TG/DC 適配器
+│   ├── gateway/           # 語義路由、Session 與串流管理
+│   ├── core/memory/       # 雙層記憶 (Tier 1/3) 與精煉邏輯
+│   ├── runners/           # ACP Runner 與協議層
+│   │   ├── acp_protocol.py   # JSON-RPC 2.0 over ndjson
+│   │   └── acp_runner.py     # 持久化 Session 管理
+│   ├── setup/             # 設定精靈與部署輔助
+│   └── agent_team/        # 多 Agent 協作邏輯
+├── modules/               # 擴充外掛（Web Search、Vision）
+├── data/                  # 執行時數據（Database、Logs）
+└── config/                # 設定檔
 ```
 
 ---
 
-## Security & Policy
+## 安全設計
 
-- **Privacy Isolation**: Memory is strictly isolated by `(user_id, channel)`.
-- **Fail-Closed**: `ALLOWED_USER_IDS` is mandatory to prevent unauthorized access.
-- **Usage Policy**: This platform is for personal remote control only. Sharing licensed CLI tools with third parties via this gateway is prohibited.
+- **隱私隔離**：記憶以 `(user_id, channel)` 嚴格隔離，防止數據洩漏。
+- **權限白名單**：`ALLOWED_USER_IDS` 為強制性設定，預設 fail-closed。
+- **使用規範**：本工具僅限作為個人帳號之遠端控制工具，嚴禁將個人授權之 CLI Agent 提供給多人代理使用。
 
 ---
 
 ## License
+
 MIT License
