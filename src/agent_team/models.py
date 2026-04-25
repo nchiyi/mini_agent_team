@@ -19,6 +19,8 @@ class SubTask:
     worktree_path: str = ""
     status: str = "pending"
     result: str = ""
+    depth: int = 0
+    parent_id: str | None = None
 
 
 @dataclass

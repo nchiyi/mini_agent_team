@@ -34,6 +34,16 @@ args = ["--acp", "--yolo"]
 timeout_seconds = 300
 context_token_budget = 4000
 
+[agent_team]
+max_depth = 2
+fallback_role = "fullstack-dev"
+
+[dispatch]
+max_pipeline_rounds = 4
+max_discussion_rounds = 3
+max_debate_voters = 5
+enforce_token_budget = true
+
 [audit]
 path = "data/audit"
 max_entries = 1000

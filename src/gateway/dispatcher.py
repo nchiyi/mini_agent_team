@@ -120,6 +120,8 @@ async def _dispatch_pipeline(
     send_reply,
     pipeline_runners: list[str],
     prompt: str,
+    max_rounds: int = 4,
+    token_budget: int = 0,
 ) -> None:
     await tier3.save_turn(
         user_id=inbound.user_id, channel=inbound.channel,
@@ -131,8 +133,17 @@ async def _dispatch_pipeline(
     role_prompt = apply_role_prompt(prompt, session.active_role, session.cwd)
     current_input = (context + "\n\n" + role_prompt) if context else role_prompt
     full_log: list[str] = []
+    consumed_tokens = 0
 
-    for i, runner_name in enumerate(pipeline_runners):
+    capped_runners = pipeline_runners[:max_rounds]
+    for i, runner_name in enumerate(capped_runners):
+        if token_budget > 0 and consumed_tokens >= token_budget:
+            await send_reply(
+                f"⚠️ 已達 token budget 上限（{consumed_tokens:,}/{token_budget:,}），"
+                f"pipeline 提前結束於第 {i} 輪。"
+            )
+            break
+
         runner = runners.get(runner_name)
         if not runner:
             await send_reply(f"Runner '{runner_name}' not found, skipping.")
@@ -144,7 +155,7 @@ async def _dispatch_pipeline(
         if i > 0:
             current_input = (
                 f"Original request: {prompt}\n\n"
-                f"Previous response ({pipeline_runners[i - 1]}):\n{current_input}\n\n"
+                f"Previous response ({capped_runners[i - 1]}):\n{current_input}\n\n"
                 f"Please review, improve, or continue based on the above:"
             )
 
@@ -160,10 +171,12 @@ async def _dispatch_pipeline(
             ):
                 chunks.append(chunk)
             output = "".join(chunks).strip()
+            _ct_out = _ct(output)
             await tier3.log_usage(
                 user_id=inbound.user_id, channel=inbound.channel, runner=runner_name,
-                prompt_tokens=_pt, completion_tokens=_ct(output),
+                prompt_tokens=_pt, completion_tokens=_ct_out,
             )
+            consumed_tokens += _pt + _ct_out
         except TimeoutError:
             await send_reply(f"{label} timed out.")
             break
@@ -314,6 +327,7 @@ async def _dispatch_debate(
     send_reply,
     debate_runners: list[str],
     prompt: str,
+    max_voters: int = 5,
 ) -> None:
     await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
                           role="user", content=inbound.text)
@@ -322,6 +336,7 @@ async def _dispatch_debate(
     )
     role_prompt = apply_role_prompt(prompt, session.active_role, session.cwd)
     prompt = (context + "\n\n" + role_prompt) if context else role_prompt
+    debate_runners = debate_runners[:max_voters]
     await send_reply(f"[DEBATE] {' vs '.join(r.upper() for r in debate_runners)}")
 
     from src.core.memory.context import count_tokens as _ct
@@ -412,22 +427,24 @@ async def _dispatch_single_runner(
         recent_turns=recent_turns,
     )
     resolved_prompt = await resolve_file_refs(cmd.prompt, session.cwd)
-    prompt = apply_role_prompt(resolved_prompt, role_slug, session.cwd)
-    full_prompt = (context + "\n\n" + prompt) if context else prompt
+    # Pass empty string to get only the prefix (reuses _role_prompt_cache)
+    role_prefix = apply_role_prompt("", role_slug, session.cwd)
+    user_message = (context + "\n\n" + resolved_prompt) if context else resolved_prompt
 
     from src.core.memory.context import count_tokens
-    prompt_tokens = count_tokens(full_prompt)
+    prompt_tokens = count_tokens((role_prefix + user_message) if role_prefix else user_message)
 
     try:
         response_chunks: list[str] = []
 
         async def collecting_gen():
             async for chunk in target_runner.run(
-                prompt=full_prompt,
+                prompt=user_message,
                 user_id=inbound.user_id,
                 channel=inbound.channel,
                 cwd=session.cwd,
                 attachments=inbound.attachments or None,
+                role_prefix=role_prefix,
             ):
                 response_chunks.append(chunk)
                 yield chunk
@@ -627,10 +644,14 @@ async def dispatch(
             return
 
         if cmd.is_pipeline:
+            _pipe_runner_obj = runners.get(session.current_runner)
+            _pipe_budget = _pipe_runner_obj.context_token_budget if (_pipe_runner_obj and cfg and cfg.dispatch.enforce_token_budget) else 0
             await _dispatch_pipeline(
                 inbound=inbound, session=session, runners=runners,
                 tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
                 pipeline_runners=cmd.pipeline_runners, prompt=cmd.prompt,
+                max_rounds=cfg.dispatch.max_pipeline_rounds if cfg else 4,
+                token_budget=_pipe_budget,
             )
             if cfg:
                 await maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
@@ -658,6 +679,7 @@ async def dispatch(
                 inbound=inbound, session=session, runners=runners,
                 tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
                 debate_runners=cmd.debate_runners, prompt=cmd.prompt,
+                max_voters=cfg.dispatch.max_debate_voters if cfg else 5,
             )
             if cfg:
                 await maybe_distill(user_id=inbound.user_id, channel=inbound.channel,

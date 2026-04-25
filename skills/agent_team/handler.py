@@ -41,6 +41,8 @@ async def handle(command: str, args: str, user_id: int, channel: str) -> AsyncIt
             "codex": [a for a in os.environ.get("TEAM_CODEX_ARGS", "--approval-policy auto").split() if a],
             "gemini": [],
         }
+        max_depth = int(os.environ.get("TEAM_MAX_DEPTH", "2"))
+        fallback_role = os.environ.get("TEAM_FALLBACK_ROLE", "fullstack-dev")
         async for chunk in run_p9(
             task_description=task,
             task_id=task_id,
@@ -51,5 +53,7 @@ async def handle(command: str, args: str, user_id: int, channel: str) -> AsyncIt
             timeout=timeout,
             cwd=cwd,
             data_dir=data_dir,
+            max_depth=max_depth,
+            fallback_role=fallback_role,
         ):
             yield chunk

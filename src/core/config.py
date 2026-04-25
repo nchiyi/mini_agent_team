@@ -81,6 +81,20 @@ class MemoryConfig:
 
 
 @dataclass
+class AgentTeamConfig:
+    max_depth: int = 2
+    fallback_role: str = "fullstack-dev"
+
+
+@dataclass
+class DispatchConfig:
+    max_pipeline_rounds: int = 4
+    max_discussion_rounds: int = 3
+    max_debate_voters: int = 5
+    enforce_token_budget: bool = True
+
+
+@dataclass
 class VoiceConfig:
     stt_provider: str = "groq"
     tts_provider: str = "edge-tts"
@@ -103,6 +117,8 @@ class Config:
     memory: MemoryConfig
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
+    agent_team: AgentTeamConfig = field(default_factory=AgentTeamConfig)
+    dispatch: DispatchConfig = field(default_factory=DispatchConfig)
     telegram_token: str = ""
     discord_token: str = ""
     allowed_user_ids: list[int] = field(default_factory=list)
@@ -210,6 +226,20 @@ def load_config(
         trusted_bot_ids=[int(x) for x in disc_raw.get("trusted_bot_ids", [])],
     )
 
+    at_raw = raw.get("agent_team", {})
+    agent_team = AgentTeamConfig(
+        max_depth=at_raw.get("max_depth", 2),
+        fallback_role=at_raw.get("fallback_role", "fullstack-dev"),
+    )
+
+    dp_raw = raw.get("dispatch", {})
+    dispatch = DispatchConfig(
+        max_pipeline_rounds=dp_raw.get("max_pipeline_rounds", 4),
+        max_discussion_rounds=dp_raw.get("max_discussion_rounds", 3),
+        max_debate_voters=dp_raw.get("max_debate_voters", 5),
+        enforce_token_budget=dp_raw.get("enforce_token_budget", True),
+    )
+
     allow_all_raw = raw.get("gateway", {}).get("allow_all_users", False)
     allow_all_users = bool(allow_all_raw) or os.environ.get("ALLOW_ALL_USERS", "").lower() == "true"
     if allow_all_users:
@@ -225,6 +255,8 @@ def load_config(
         memory=memory,
         voice=voice,
         discord=discord_cfg,
+        agent_team=agent_team,
+        dispatch=dispatch,
         telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
         discord_token=os.environ.get("DISCORD_BOT_TOKEN", ""),
         allowed_user_ids=allowed,

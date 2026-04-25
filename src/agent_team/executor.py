@@ -216,7 +216,17 @@ async def run_p9(
     timeout: int,
     cwd: str,
     data_dir: str,
+    depth: int = 0,
+    max_depth: int = 2,
+    fallback_role: str = "fullstack-dev",
 ) -> AsyncGenerator[str, None]:
+    if depth >= max_depth:
+        logger.warning("run_p9 depth=%d >= max_depth=%d, falling back to single runner", depth, max_depth)
+        yield f"[P9] depth limit reached (depth={depth}), running as single task\n"
+        async for chunk in run_p7(task_description, planner_binary, planner_args, timeout, cwd, role=fallback_role):
+            yield chunk
+        return
+
     yield "[P9] Planning subtasks as department-head...\n"
     try:
         subtasks = await _plan(
@@ -230,6 +240,10 @@ async def run_p9(
     except Exception as e:
         yield f"[P9] Planning failed: {e}\n"
         return
+
+    for st in subtasks:
+        st.depth = depth + 1
+        st.parent_id = task_id
 
     plan_lines = "\n".join(f"  [{i}|{st.agent}|{st.role}] {st.prompt[:60]}" for i, st in enumerate(subtasks))
     yield f"[P9] Plan:\n{plan_lines}\n[P9] Executing {len(subtasks)} subtasks in parallel...\n"

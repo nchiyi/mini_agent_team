@@ -11,7 +11,7 @@ def _make_mock_conn(chunks: list[str], session_id: str = "sess-1"):
     conn.new_session = AsyncMock(return_value=session_id)
     conn.close = AsyncMock()
 
-    async def fake_prompt(session_id, text):
+    async def fake_prompt(session_id, text, role_prefix=""):
         for chunk in chunks:
             yield chunk
 
@@ -112,7 +112,7 @@ async def test_acp_runner_timeout_raises():
     runner = ACPRunner(name="claude", command="claude-agent-acp", args=[],
                        timeout_seconds=1, context_token_budget=4000)
 
-    async def slow_prompt(session_id, text):
+    async def slow_prompt(session_id, text, role_prefix=""):
         await asyncio.sleep(999)
         yield "never"
 

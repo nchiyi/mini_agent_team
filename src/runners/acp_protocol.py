@@ -74,8 +74,25 @@ class ACPConnection:
         })
         return result["sessionId"]
 
-    async def prompt(self, session_id: str, text: str) -> AsyncIterator[str]:
-        """Send a prompt and yield text chunks as they stream in."""
+    async def prompt(
+        self,
+        session_id: str,
+        text: str,
+        role_prefix: str = "",
+    ) -> AsyncIterator[str]:
+        """Send a prompt and yield text chunks as they stream in.
+
+        If role_prefix is provided it is sent as a separate content block with
+        cache_control so the Anthropic API can cache it across requests.
+        """
+        if role_prefix:
+            content = [
+                {"type": "text", "text": role_prefix, "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": text},
+            ]
+        else:
+            content = [{"type": "text", "text": text}]
+
         queue: asyncio.Queue = asyncio.Queue()
         self._session_queues[session_id] = queue
         # Drain any session/updates that arrived before we registered the queue
@@ -85,7 +102,7 @@ class ACPConnection:
             prompt_task = asyncio.create_task(
                 self._request("session/prompt", {
                     "sessionId": session_id,
-                    "prompt": [{"type": "text", "text": text}],
+                    "prompt": content,
                 })
             )
             while not prompt_task.done():
