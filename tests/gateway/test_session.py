@@ -56,3 +56,19 @@ async def test_session_idle_release():
     mgr.release_idle()
     s2 = mgr.get_or_create(user_id=1, channel="telegram")
     assert s1 is not s2   # old session was released, new one created
+
+
+def test_session_pending_reasoning_defaults_empty():
+    from src.gateway.session import Session
+    from datetime import datetime, timezone
+    s = Session(user_id=1, channel="tg", current_runner="claude", cwd="/tmp")
+    assert s.pending_reasoning == ""
+
+
+def test_session_pending_reasoning_can_be_set():
+    from src.gateway.session import Session
+    s = Session(user_id=1, channel="tg", current_runner="claude", cwd="/tmp")
+    s.pending_reasoning = "solve P=NP 深入分析"
+    assert s.pending_reasoning == "solve P=NP 深入分析"
+    s.pending_reasoning = ""
+    assert s.pending_reasoning == ""

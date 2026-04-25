@@ -20,6 +20,7 @@ class Session:
     current_runner: str
     cwd: str
     active_role: str = ""
+    pending_reasoning: str = ""
     last_active: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def touch(self) -> None:
