@@ -97,3 +97,15 @@ async def test_parse_is_awaitable():
     router = Router(known_runners={"claude"}, default_runner="claude")
     cmd = await router.parse("hello")
     assert cmd.runner == "claude"
+
+
+def test_parsed_command_is_reasoning_defaults_false():
+    from src.gateway.router import ParsedCommand
+    cmd = ParsedCommand(runner="claude", prompt="hello")
+    assert cmd.is_reasoning is False
+
+
+def test_parsed_command_is_reasoning_can_be_set():
+    from src.gateway.router import ParsedCommand
+    cmd = ParsedCommand(runner="claude", prompt="hello", is_reasoning=True)
+    assert cmd.is_reasoning is True

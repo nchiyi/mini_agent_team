@@ -27,6 +27,7 @@ class ParsedCommand:
     discussion_rounds: int = 3
     is_debate: bool = False
     debate_runners: list[str] = field(default_factory=list)
+    is_reasoning: bool = False
 
 
 class Router:
