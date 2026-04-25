@@ -29,6 +29,7 @@ def _make_mock_proc(responses: list[dict]):
     proc.stdout = mock_stdout
     proc.stdin = mock_stdin
     proc.returncode = None
+    proc.wait = AsyncMock(return_value=0)
     return proc, written
 
 
@@ -140,3 +141,41 @@ async def test_permission_request_is_auto_approved():
     assert perm_response is not None
     assert perm_response["result"]["outcome"]["optionId"] == "opt-allow"
     assert "done" in "".join(chunks)
+
+
+@pytest.mark.asyncio
+async def test_subprocess_death_rejects_pending_futures():
+    from src.runners.acp_protocol import ACPConnection
+
+    call_count = 0
+
+    async def fake_readline_eof():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # First call: return the initialize response
+            return json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1, "agentCapabilities": {}}}).encode() + b"\n"
+        # Then immediately return EOF (subprocess died)
+        return b""
+
+    mock_stdout = AsyncMock()
+    mock_stdout.readline = fake_readline_eof
+    mock_stdin = AsyncMock()
+    written = []
+    mock_stdin.write = lambda data: written.append(json.loads(data.decode().strip()))
+    mock_stdin.drain = AsyncMock()
+
+    proc = MagicMock()
+    proc.stdout = mock_stdout
+    proc.stdin = mock_stdin
+    proc.returncode = None
+    proc.wait = AsyncMock(return_value=0)
+
+    conn = ACPConnection(proc)
+    conn.start()
+    await conn.initialize()
+
+    # Now send a prompt — subprocess is dead, should raise instead of hanging
+    with pytest.raises(Exception, match="terminated"):
+        async for _ in conn.prompt(session_id="sess-dead", text="hello"):
+            pass

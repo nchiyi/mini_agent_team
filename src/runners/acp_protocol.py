@@ -52,9 +52,7 @@ class ACPConnection:
                 pass
         if self._proc.returncode is None:
             self._proc.kill()
-            wait_result = self._proc.wait()
-            if asyncio.iscoroutine(wait_result):
-                await wait_result
+            await self._proc.wait()
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -112,7 +110,7 @@ class ACPConnection:
     async def _request(self, method: str, params: dict) -> Any:
         req_id = self._next_id
         self._next_id += 1
-        future: asyncio.Future = asyncio.get_event_loop().create_future()
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[req_id] = future
         await self._write({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params})
         # Check if the response already arrived before we started awaiting
@@ -123,6 +121,10 @@ class ACPConnection:
                 future.set_exception(Exception(str(msg["error"])))
             else:
                 future.set_result(msg["result"])
+        # Check if the reader task is already dead (subprocess exited before registering our future)
+        if not future.done() and self._reader_task is not None and self._reader_task.done():
+            self._pending.pop(req_id, None)
+            future.set_exception(Exception("ACP subprocess terminated unexpectedly"))
         return await future
 
     async def _respond(self, req_id: int, result: dict) -> None:
@@ -135,21 +137,31 @@ class ACPConnection:
 
     async def _read_loop(self) -> None:
         assert self._proc.stdout is not None
-        while True:
-            try:
-                line = await self._proc.stdout.readline()
-                if not line:
+        try:
+            while True:
+                try:
+                    line = await self._proc.stdout.readline()
+                    if not line:
+                        break
+                    raw = line.decode("utf-8", errors="replace").strip()
+                    if not raw:
+                        continue
+                    msg = json.loads(raw)
+                    await self._dispatch(msg)
+                except asyncio.CancelledError:
                     break
-                raw = line.decode("utf-8", errors="replace").strip()
-                if not raw:
+                except json.JSONDecodeError:
+                    logger.warning("ACP: non-JSON line ignored: %r", raw)
                     continue
-                msg = json.loads(raw)
-                await self._dispatch(msg)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error("ACP read error: %s", e, exc_info=True)
-                break
+                except Exception as e:
+                    logger.error("ACP read loop fatal: %s", e, exc_info=True)
+                    break
+        finally:
+            err = Exception("ACP subprocess terminated unexpectedly")
+            for fut in self._pending.values():
+                if not fut.done():
+                    fut.set_exception(err)
+            self._pending.clear()
 
     async def _dispatch(self, msg: dict) -> None:
         msg_id = msg.get("id")
@@ -202,8 +214,14 @@ class ACPConnection:
 
         if method == "fs/write_text_file" and msg_id is not None:
             params = msg.get("params", {})
-            self._write_local_file(params.get("path", ""), params.get("content", ""))
-            await self._respond(msg_id, {})
+            try:
+                self._write_local_file(params.get("path", ""), params.get("content", ""))
+                await self._respond(msg_id, {})
+            except Exception as e:
+                await self._write({
+                    "jsonrpc": "2.0", "id": msg_id,
+                    "error": {"code": -32603, "message": str(e)},
+                })
             return
 
         # ── Unknown agent request ─────────────────────────────────────────
@@ -232,9 +250,6 @@ class ACPConnection:
             return f"[error reading {path}: {e}]"
 
     def _write_local_file(self, path: str, content: str) -> None:
-        try:
-            p = Path(path) if Path(path).is_absolute() else Path(self._cwd) / path
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content, encoding="utf-8")
-        except Exception as e:
-            logger.warning("fs/write_text_file failed for %s: %s", path, e)
+        p = Path(path) if Path(path).is_absolute() else Path(self._cwd) / path
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
