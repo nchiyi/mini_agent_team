@@ -52,7 +52,10 @@ class ACPConnection:
                 pass
         if self._proc.returncode is None:
             self._proc.kill()
-            await self._proc.wait()
+            try:
+                await asyncio.wait_for(self._proc.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("ACP subprocess did not exit after kill; abandoning")
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -236,10 +239,21 @@ class ACPConnection:
     @staticmethod
     def _extract_text(update_params: dict) -> str:
         update = update_params.get("update", {})
-        if update.get("sessionUpdate") == "agent_message_chunk":
+        session_update = update.get("sessionUpdate")
+
+        # Agent text response chunks
+        if session_update == "agent_message_chunk":
             content = update.get("content", {})
             if content.get("type") == "text":
                 return content.get("text", "")
+
+        # Tool call completed — yield the raw tool output so callers can see
+        # it even when the agent doesn't echo it in a follow-up text chunk.
+        if session_update == "tool_call_update" and update.get("status") == "completed":
+            raw = update.get("rawOutput", "")
+            if raw:
+                return raw + "\n"
+
         return ""
 
     def _read_local_file(self, path: str) -> str:
