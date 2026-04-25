@@ -8,3 +8,4 @@ secrets/.env-*
 data/
 __pycache__/
 .env
+.worktrees/
