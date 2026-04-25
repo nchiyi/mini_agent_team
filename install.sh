@@ -157,12 +157,24 @@ else
 fi
 
 # ── 6. first-run check ────────────────────
+# NOTE: install.sh is a legacy entry point. The canonical entry point is
+# 'python -m src.setup.wizard' or 'python setup.py'. This script will be
+# removed in a future release.
+echo ""
+echo "⚠️  DEPRECATION: install.sh will be removed in a future release."
+echo "   Use: python setup.py  (or: python -m src.setup.wizard)"
+echo ""
+
 _is_configured() {
     [ -f "data/setup-state.json" ] && \
     ./venv/bin/python3 -c "
 import json, sys
 try:
     d = json.load(open('data/setup-state.json'))
+    # v2 schema: mode == 'launch' means fully configured
+    if d.get('version', 1) >= 2:
+        sys.exit(0 if d.get('mode') == 'launch' else 1)
+    # v1 schema: step 8 or 9 in completed_steps
     steps = d.get('completed_steps', [])
     sys.exit(0 if 8 in steps or 9 in steps else 1)
 except Exception:

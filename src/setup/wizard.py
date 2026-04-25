@@ -4,7 +4,7 @@ import subprocess
 import sys
 
 from src.setup.state import WizardState, is_step_done, mark_step_done
-from src.setup.state import load_state, save_state, reset_state
+from src.setup.state import load_state, save_state, reset_state, detect_mode
 from src.setup.validator import validate_telegram_token, validate_discord_token
 from src.setup.installer import is_cli_installed, install_cli, install_ollama, progress_reporter
 from src.setup.deploy import (
@@ -487,19 +487,53 @@ async def step_9_launch(
         os.execv(python, [python, os.path.join(cwd, "main.py")])
 
 
+def _print_banner(mode: str, current_step: str) -> None:
+    """Print wizard banner with detected mode."""
+    print(f"\n{_B}{'='*52}{_X}")
+    print(f"{_B}  === MAT Setup Wizard ==={_X}")
+
+    mode_upper = mode.upper()
+    if mode == "resume" and current_step:
+        print(f"  Mode: {_Y}{mode_upper}{_X} (interrupted at: {current_step})")
+    elif mode == "launch":
+        print(f"  Mode: {_G}{mode_upper}{_X} (already configured)")
+    elif mode == "reset":
+        print(f"  Mode: {_R}{mode_upper}{_X} (clearing saved state)")
+    else:
+        print(f"  Mode: {mode_upper}")
+
+    print(f"{_B}{'='*52}{_X}\n")
+
+
 async def run_wizard(
     state_path: str = "data/setup-state.json",
     reset: bool = False,
     cwd: str = ".",
 ) -> None:
     cwd = os.path.abspath(cwd)
-    if reset:
+
+    # ── Bootstrap: detect mode before loading state ─────────────────────────
+    mode = detect_mode(state_path, reset=reset)
+
+    if mode == "reset":
         reset_state(state_path)
-        print("State reset. Starting fresh.\n")
+
+    # Load state (load_state returns fresh WizardState if file is missing)
     state = load_state(state_path)
-    print(f"\n{'='*52}")
-    print("  Gateway Agent Platform — Setup Wizard")
-    print(f"{'='*52}\n")
+    state.mode = mode
+
+    # Retrieve current_step for banner (may come from loaded state)
+    current_step = state.current_step
+
+    _print_banner(mode, current_step)
+
+    # ── Mode branching ───────────────────────────────────────────────────────
+    if mode == "launch":
+        # Already fully configured — hand off to launch directly
+        _ok("System already configured. Use --reset to reconfigure.")
+        return
+
+    # fresh / resume / reset all run the full wizard (steps skip if done)
     bg_tasks: list[asyncio.Task] = []
 
     await step_1_channel(state)

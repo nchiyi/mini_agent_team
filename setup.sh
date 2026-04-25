@@ -1,9 +1,16 @@
 #!/bin/bash
 # Interactive setup script for Telegram AI Agent Platform on Ubuntu 24.04
+#
+# NOTE: setup.sh is a legacy entry point kept for backward compatibility.
+# The canonical entry point is 'python setup.py' (or 'python -m src.setup.wizard').
+# This script will be removed in a future release.
 
 echo "=========================================================="
 echo "🤖 Telegram AI Agent Platform - Installation & Setup"
 echo "=========================================================="
+echo ""
+echo "⚠️  DEPRECATION: setup.sh will be removed in a future release."
+echo "   Use: python setup.py  (or: python -m src.setup.wizard)"
 echo ""
 
 if [ "$EUID" -eq 0 ]; then
