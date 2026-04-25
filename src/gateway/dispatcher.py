@@ -9,7 +9,9 @@ live here; main.py is left with bootstrap/startup only.
 """
 import asyncio
 import contextlib
+import dataclasses
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -22,7 +24,7 @@ from src.gateway.app_context import AppContext
 from src.gateway.file_resolver import resolve_file_refs
 from src.gateway.nlu import FastPathDetector
 from src.gateway.rate_limit import RateLimiter
-from src.gateway.router import Router
+from src.gateway.router import Router, ParsedCommand
 from src.gateway.session import SessionManager
 from src.gateway.streaming import StreamingBridge
 from src.roles import build_role_prompt_prefix
@@ -35,6 +37,11 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_ROLE = "department-head"
 _role_prompt_cache: dict[str, tuple[float, str]] = {}
+_CONFIRM_YES = re.compile(r"^(y|是|確認|好|yes)$", re.IGNORECASE)
+_CONFIRM_NO = re.compile(r"^(n|否|不用|取消|no)$", re.IGNORECASE)
+_COT_REASONING_PREFIX = (
+    "請一步一步仔細分析問題，推理後只輸出最終結論，不要顯示思考過程。\n\n"
+)
 
 
 def apply_role_prompt(prompt: str, role_slug: str, base_dir: str) -> str:
@@ -407,6 +414,7 @@ async def _dispatch_single_runner(
     cmd,
     cfg: "Config | None" = None,
     tier1: "Tier1Store | None" = None,
+    thinking: bool = False,
 ) -> None:
     explicit_runner = False
     if inbound.text.startswith("/"):
@@ -429,6 +437,11 @@ async def _dispatch_single_runner(
     resolved_prompt = await resolve_file_refs(cmd.prompt, session.cwd)
     # Pass empty string to get only the prefix (reuses _role_prompt_cache)
     role_prefix = apply_role_prompt("", role_slug, session.cwd)
+    from src.runners.acp_runner import ACPRunner
+    use_acp_thinking = thinking and isinstance(target_runner, ACPRunner)
+    if thinking and not use_acp_thinking:
+        # CoT fallback for non-ACP runners (Gemini, Codex, etc.)
+        role_prefix = _COT_REASONING_PREFIX + role_prefix
     user_message = (context + "\n\n" + resolved_prompt) if context else resolved_prompt
 
     from src.core.memory.context import count_tokens
@@ -438,13 +451,36 @@ async def _dispatch_single_runner(
         response_chunks: list[str] = []
 
         async def collecting_gen():
+            if use_acp_thinking:
+                try:
+                    async for chunk in target_runner.run(
+                        prompt=user_message,
+                        user_id=inbound.user_id,
+                        channel=inbound.channel,
+                        cwd=session.cwd,
+                        attachments=inbound.attachments or None,
+                        role_prefix=role_prefix,
+                        thinking=True,
+                    ):
+                        response_chunks.append(chunk)
+                        yield chunk
+                    return
+                except Exception:
+                    logger.warning(
+                        "ACPRunner thinking not supported, retrying with CoT prefix"
+                    )
+                    response_chunks.clear()
+            # Standard path (non-ACP thinking, CoT fallback, or ACP thinking failed)
+            fallback_prefix = (
+                (_COT_REASONING_PREFIX + role_prefix) if use_acp_thinking else role_prefix
+            )
             async for chunk in target_runner.run(
                 prompt=user_message,
                 user_id=inbound.user_id,
                 channel=inbound.channel,
                 cwd=session.cwd,
                 attachments=inbound.attachments or None,
-                role_prefix=role_prefix,
+                role_prefix=fallback_prefix,
             ):
                 response_chunks.append(chunk)
                 yield chunk
@@ -494,6 +530,45 @@ async def dispatch(
         return
     await session_mgr.restore_settings_if_needed(inbound.user_id, inbound.channel)
     session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
+
+    # ── Pending reasoning confirmation ───────────────────────────────────────
+    if session.pending_reasoning:
+        pending = session.pending_reasoning
+        session.pending_reasoning = ""
+        _active = session_mgr.get_active_role(inbound.user_id, inbound.channel)
+        if _active:
+            session.active_role = _active
+        _pending_role_slug = session.active_role or _DEFAULT_ROLE
+        _text_stripped = inbound.text.strip()
+        if _CONFIRM_YES.match(_text_stripped):
+            _synthetic_inbound = dataclasses.replace(inbound, text=pending)
+            _synthetic_cmd = ParsedCommand(runner=session.current_runner, prompt=pending)
+            _sem2 = rate_limiter.semaphore if rate_limiter is not None else contextlib.nullcontext()
+            async with _sem2:
+                await _dispatch_single_runner(
+                    inbound=_synthetic_inbound, session=session, runners=runners,
+                    bridge=bridge, tier3=tier3, assembler=assembler,
+                    send_reply=send_reply, recent_turns=recent_turns,
+                    role_slug=_pending_role_slug, cmd=_synthetic_cmd,
+                    cfg=cfg, tier1=tier1, thinking=True,
+                )
+            return
+        elif _CONFIRM_NO.match(_text_stripped):
+            _synthetic_inbound = dataclasses.replace(inbound, text=pending)
+            _synthetic_cmd = ParsedCommand(runner=session.current_runner, prompt=pending)
+            _sem2 = rate_limiter.semaphore if rate_limiter is not None else contextlib.nullcontext()
+            async with _sem2:
+                await _dispatch_single_runner(
+                    inbound=_synthetic_inbound, session=session, runners=runners,
+                    bridge=bridge, tier3=tier3, assembler=assembler,
+                    send_reply=send_reply, recent_turns=recent_turns,
+                    role_slug=_pending_role_slug, cmd=_synthetic_cmd,
+                    cfg=cfg, tier1=tier1, thinking=False,
+                )
+            return
+        # else: treat current message as new (pending already cleared; fall through)
+    # ────────────────────────────────────────────────────────────────────────
+
     cmd = await router.parse(inbound.text)
     active_role = session_mgr.get_active_role(inbound.user_id, inbound.channel)
     if active_role:
@@ -507,6 +582,14 @@ async def dispatch(
         nlu_cmd = _detector.detect(inbound.text)
         if nlu_cmd is not None:
             cmd = nlu_cmd
+
+    if cmd.is_reasoning:
+        session.pending_reasoning = cmd.prompt
+        await send_reply(
+            "🧠 偵測到深度思考需求（需要較多時間與 token）。\n"
+            "是否啟用深度思考模式？(y/n)"
+        )
+        return
 
     if cmd.is_remember:
         tier1.remember(user_id=inbound.user_id, channel=inbound.channel, content=cmd.prompt)
