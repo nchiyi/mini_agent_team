@@ -471,7 +471,7 @@ async def step_4_5_acp(state: WizardState) -> None:
             continue
 
         ans = _prompt(f"安裝 {binary}？", "Y").strip().upper()
-        if ans in ("", "Y"):
+        if ans == "Y":
             print(f"  安裝 {npm_pkg}...")
             success = await install_acp_foreground(cli)
             if success:

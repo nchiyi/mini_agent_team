@@ -226,6 +226,7 @@ async def test_step4_5_gateway_installs_all(monkeypatch):
         await wizard.step_4_5_acp(state)
     assert state.acp_mode == "gateway"
     assert "acp_setup.done" in state.completed
+    assert len(state.installed_acp) == 2
 
 
 @pytest.mark.asyncio
