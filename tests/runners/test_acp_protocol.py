@@ -144,6 +144,58 @@ async def test_permission_request_is_auto_approved():
 
 
 @pytest.mark.asyncio
+async def test_prompt_without_role_prefix_sends_single_block():
+    """No role_prefix → single content block, no cache_control."""
+    from src.runners.acp_protocol import ACPConnection
+
+    session_id = "sess-no-cache"
+    proc, written = _make_mock_proc([
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1, "agentCapabilities": {}}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"stopReason": "end_turn"}},
+    ])
+    conn = ACPConnection(proc)
+    conn.start()
+    await conn.initialize()
+
+    async for _ in conn.prompt(session_id=session_id, text="hello"):
+        pass
+    await conn.close()
+
+    prompt_req = next(m for m in written if m.get("method") == "session/prompt")
+    blocks = prompt_req["params"]["prompt"]
+    assert len(blocks) == 1
+    assert blocks[0]["text"] == "hello"
+    assert "cache_control" not in blocks[0]
+
+
+@pytest.mark.asyncio
+async def test_prompt_with_role_prefix_sends_cached_block():
+    """role_prefix → first block has cache_control:ephemeral, second has user text."""
+    from src.runners.acp_protocol import ACPConnection
+
+    session_id = "sess-cache"
+    proc, written = _make_mock_proc([
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1, "agentCapabilities": {}}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"stopReason": "end_turn"}},
+    ])
+    conn = ACPConnection(proc)
+    conn.start()
+    await conn.initialize()
+
+    async for _ in conn.prompt(session_id=session_id, text="do the task", role_prefix="[Identity]\nYou are a dev.\n"):
+        pass
+    await conn.close()
+
+    prompt_req = next(m for m in written if m.get("method") == "session/prompt")
+    blocks = prompt_req["params"]["prompt"]
+    assert len(blocks) == 2
+    assert blocks[0]["text"] == "[Identity]\nYou are a dev.\n"
+    assert blocks[0].get("cache_control") == {"type": "ephemeral"}
+    assert blocks[1]["text"] == "do the task"
+    assert "cache_control" not in blocks[1]
+
+
+@pytest.mark.asyncio
 async def test_subprocess_death_rejects_pending_futures():
     from src.runners.acp_protocol import ACPConnection
 
