@@ -275,6 +275,51 @@ mini_agent_team/
 
 ---
 
+## Discord 訊息來源控制
+
+Discord adapter 提供三個獨立旗標，用來控制 Bot 要處理哪些訊息。設定位於 `config/config.toml` 的 `[discord]` 區段。
+
+| 旗標 | 合法值 | 預設值 | 控制對象 |
+|------|--------|--------|----------|
+| `allow_user_messages` | `off` / `mentions` / `all` | `all` | 一般人類（非 bot）訊息 |
+| `allow_bot_messages` | `off` / `mentions` / `all` | `off` | 其他 Discord bot 訊息 |
+| `trusted_bot_ids` | bot 的 Discord 用戶 ID 清單 | `[]`（不篩選） | `allow_bot_messages != "off"` 時的 ID 白名單 |
+
+**重點說明**
+- 兩個旗標各自獨立判斷，彼此沒有耦合——修改其中一個不會影響另一個。
+- `trusted_bot_ids` 只有在 `allow_bot_messages` 為 `"mentions"` 或 `"all"` 時才有效；空清單表示接受所有 bot，非空清單則只放行名單內的 bot ID。
+- 人類用戶的授權（`ALLOWED_USER_IDS`）與 `allow_user_messages` 是疊加的，兩者都必須通過。
+
+### 典型場景配置
+
+#### (a) 私人助理 — 僅接受人類訊息
+只處理已授權人類的訊息，忽略所有其他 bot。
+```toml
+[discord]
+allow_user_messages = "all"
+allow_bot_messages  = "off"
+```
+
+#### (b) 多 bot 轉發 — 信任的 bot 清單
+接受特定 relay bot 的訊息（同時也服務人類用戶）。
+```toml
+[discord]
+allow_user_messages = "all"
+allow_bot_messages  = "all"
+trusted_bot_ids     = [123456789012345678, 987654321098765432]
+```
+
+#### (c) 公開伺服器 — 僅在被 @mention 時才回應
+在熱鬧的伺服器中，只有明確 @提及 Bot 才會觸發回應（人類與 bot 皆適用）。
+```toml
+[discord]
+allow_user_messages = "mentions"
+allow_bot_messages  = "mentions"
+trusted_bot_ids     = [123456789012345678]
+```
+
+---
+
 ## License
 
 MIT License

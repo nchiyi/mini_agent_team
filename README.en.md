@@ -95,6 +95,51 @@ args = ["--acp", "--yolo"]
 
 ---
 
+## Discord Message Source Control
+
+The Discord adapter exposes three independent flags that control which messages the bot processes. They live in `[discord]` inside `config/config.toml`.
+
+| Flag | Values | Default | Governs |
+|------|--------|---------|---------|
+| `allow_user_messages` | `off` / `mentions` / `all` | `all` | Human (non-bot) messages |
+| `allow_bot_messages` | `off` / `mentions` / `all` | `off` | Other Discord bot messages |
+| `trusted_bot_ids` | list of bot user IDs | `[]` (any) | ID allowlist when `allow_bot_messages != "off"` |
+
+**Key points**
+- The two flags are evaluated independently — a change to one has no effect on the other.
+- `trusted_bot_ids` is only meaningful when `allow_bot_messages` is `"mentions"` or `"all"`. An empty list means all bots pass the ID check; a non-empty list restricts to listed IDs only.
+- Human-user authorization (`ALLOWED_USER_IDS`) is still enforced on top of `allow_user_messages`.
+
+### Typical Scenarios
+
+#### (a) Personal assistant — humans only
+Accept messages from authorized humans; ignore all other bots.
+```toml
+[discord]
+allow_user_messages = "all"
+allow_bot_messages  = "off"
+```
+
+#### (b) Multi-bot relay — trusted bots only
+Accept messages from specific relay bots (and still serve humans).
+```toml
+[discord]
+allow_user_messages = "all"
+allow_bot_messages  = "all"
+trusted_bot_ids     = [123456789012345678, 987654321098765432]
+```
+
+#### (c) Public server — respond only when @mentioned
+In a busy server, only react when explicitly @mentioned by either humans or trusted bots.
+```toml
+[discord]
+allow_user_messages = "mentions"
+allow_bot_messages  = "mentions"
+trusted_bot_ids     = [123456789012345678]
+```
+
+---
+
 ## License
 
 MIT License

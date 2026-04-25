@@ -62,6 +62,30 @@ tts_voice = "zh-TW-HsiaoChenNeural"
 
 [discord]
 # allowed_channel_ids = []     # empty = all channels; fill to whitelist specific channels
-allow_bot_messages = "off"     # "off" | "mentions" | "all"
-allow_user_messages = "all"    # "off" | "mentions" | "all"
-# trusted_bot_ids = []         # bot Discord IDs allowed to trigger this bot (for multi-bot relay)
+
+# allow_user_messages — controls whether human (non-bot) messages are processed.
+#   "off"      : ignore all human messages
+#   "mentions" : only process messages that @mention this bot
+#   "all"      : process every human message in allowed channels (default)
+# Note: human-user authorization (ALLOWED_USER_IDS / allow_all_users) is still
+#       enforced independently of this flag.
+allow_user_messages = "all"    # "off" | "mentions" | "all"  — default: "all"
+
+# allow_bot_messages — controls whether messages authored by other Discord bots are processed.
+#   "off"      : ignore all bot messages (default; recommended for most deployments)
+#   "mentions" : only process bot messages that @mention this bot
+#   "all"      : process every bot message in allowed channels
+# This flag is evaluated independently of allow_user_messages.
+allow_bot_messages = "off"     # "off" | "mentions" | "all"  — default: "off"
+
+# trusted_bot_ids — allowlist of Discord bot user IDs that may trigger this bot.
+#   Only applies when allow_bot_messages != "off".
+#   Empty list (default) means ALL bots are trusted (no ID filtering).
+#   Fill with specific IDs to restrict to known relay bots only.
+#   Interaction with allow_bot_messages:
+#     - allow_bot_messages = "off"  → trusted_bot_ids is ignored entirely
+#     - allow_bot_messages = "mentions"/"all" + trusted_bot_ids non-empty
+#       → bot message must come from a listed ID AND satisfy the mentions rule
+#     - allow_bot_messages = "mentions"/"all" + trusted_bot_ids empty
+#       → any bot satisfying the mentions rule is accepted
+# trusted_bot_ids = []         # e.g. [123456789012345678, 987654321098765432]
