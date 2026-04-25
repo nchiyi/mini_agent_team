@@ -121,40 +121,9 @@ pip install --quiet --upgrade pip
 pip install --quiet -r requirements.txt
 echo "✅  Dependencies installed"
 
-# ── 5. ACP npm packages ───────────────────
-_ACP_PACKAGES="@agentclientprotocol/claude-agent-acp @zed-industries/codex-acp"
-_NPM_PREFIX="$HOME/.npm-global"
-_NPM_BIN="$_NPM_PREFIX/bin"
-
-_find_npm() {
-    local FULL_PATH="$PATH:/usr/local/bin:/opt/homebrew/bin:$HOME/.local/bin:$HOME/.nvm/versions/node/*/bin"
-    for _dir in $(echo "$FULL_PATH" | tr ':' ' '); do
-        [ -x "$_dir/npm" ] && echo "$_dir/npm" && return 0
-    done
-    return 1
-}
-
-if _NPM_BIN_PATH=$(_find_npm 2>/dev/null); then
-    echo "📦  Installing ACP npm packages..."
-    mkdir -p "$_NPM_BIN"
-    "$_NPM_BIN_PATH" install -g $_ACP_PACKAGES --prefix "$_NPM_PREFIX" --silent 2>/dev/null \
-        && echo "✅  ACP packages installed (claude-agent-acp, codex-acp)" \
-        || echo "⚠️   ACP npm install failed — run manually: npm install -g $_ACP_PACKAGES"
-
-    # Add ~/.npm-global/bin to PATH in shell profile if not already present
-    for _profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
-        if [ -f "$_profile" ] && ! grep -q "npm-global/bin" "$_profile" 2>/dev/null; then
-            echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> "$_profile"
-            echo "✅  Added ~/.npm-global/bin to PATH in $_profile"
-            break
-        fi
-    done
-    export PATH="$_NPM_BIN:$PATH"
-else
-    echo "⚠️   Node.js / npm not found — skipping ACP package install."
-    echo "    Install Node.js 18+, then run:"
-    echo "    npm install -g $_ACP_PACKAGES"
-fi
+# ── 5. ACP packages ───────────────────────────────────────────────
+echo "ℹ️   ACP 套件設定已移至 wizard 精靈（Step 4.5）。"
+echo "    精靈會根據你選擇的協作模式，僅安裝需要的套件。"
 
 # ── 6. first-run check ────────────────────
 # NOTE: install.sh is a legacy entry point. The canonical entry point is
