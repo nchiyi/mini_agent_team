@@ -8,6 +8,11 @@ max_message_length_telegram = 4096
 max_message_length_discord = 2000
 stream_edit_interval_seconds = 0.5
 
+[gateway.rate_limit]
+daily_token_budget = 0    # 0 = 無限制；建議個人使用設 200000（約 $1/day for Sonnet）
+weekly_token_budget = 0   # 0 = 無限制
+warn_threshold = 0.8      # 達到此比例時發出警告
+
 [runners.claude]
 type = "acp"
 path = "claude-agent-acp"

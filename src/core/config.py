@@ -40,6 +40,9 @@ class RateLimitConfig:
     per_user_per_minute: int = 10
     burst: int = 3
     max_concurrent_dispatches: int = 5
+    daily_token_budget: int = 0    # 0 = no limit
+    weekly_token_budget: int = 0   # 0 = no limit
+    warn_threshold: float = 0.8    # warn when usage reaches this fraction
 
 
 @dataclass
@@ -142,6 +145,9 @@ def load_config(
         per_user_per_minute=rl_raw.get("per_user_per_minute", 10),
         burst=rl_raw.get("burst", 3),
         max_concurrent_dispatches=rl_raw.get("max_concurrent_dispatches", 5),
+        daily_token_budget=rl_raw.get("daily_token_budget", 0),
+        weekly_token_budget=rl_raw.get("weekly_token_budget", 0),
+        warn_threshold=rl_raw.get("warn_threshold", 0.8),
     )
     gateway = GatewayConfig(
         default_runner=gw["default_runner"],

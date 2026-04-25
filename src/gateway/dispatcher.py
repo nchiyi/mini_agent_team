@@ -196,6 +196,7 @@ async def _dispatch_discussion(
     discussion_runners: list[str],
     discussion_rounds: int,
     prompt: str,
+    token_budget: int = 0,
 ) -> None:
     await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
                           role="user", content=inbound.text)
@@ -205,8 +206,16 @@ async def _dispatch_discussion(
     role_prompt = apply_role_prompt(prompt, session.active_role, session.cwd)
     prompt = (context + "\n\n" + role_prompt) if context else role_prompt
     history: list[tuple[str, str]] = []
+    consumed_tokens = 0
 
     for round_num in range(discussion_rounds):
+        if token_budget > 0 and consumed_tokens >= token_budget:
+            await send_reply(
+                f"⚠️ 已達 token budget 上限（{consumed_tokens:,}/{token_budget:,}），"
+                f"討論提前結束於第 {round_num} 輪。"
+            )
+            break
+
         runner_name = discussion_runners[round_num % len(discussion_runners)]
         runner = runners.get(runner_name)
         if not runner:
@@ -236,10 +245,12 @@ async def _dispatch_discussion(
             ):
                 chunks.append(chunk)
             output = "".join(chunks).strip()
+            _ct_out = _ct(output)
             await tier3.log_usage(
                 user_id=inbound.user_id, channel=inbound.channel, runner=runner_name,
-                prompt_tokens=_pt, completion_tokens=_ct(output),
+                prompt_tokens=_pt, completion_tokens=_ct_out,
             )
+            consumed_tokens += _pt + _ct_out
         except (TimeoutError, Exception) as e:
             logger.error("Discussion round %d error: %s", round_num + 1, e, exc_info=True)
             await send_reply(f"{label} error — stopping discussion.")
@@ -515,19 +526,42 @@ async def dispatch(
         await send_reply("Voice replies disabled.")
         return
     if cmd.is_usage:
+        from datetime import datetime, timezone, timedelta
         summary = await tier3.get_usage_summary(user_id=inbound.user_id)
-        if not summary:
-            await send_reply("No token usage recorded yet.")
-            return
-        lines = ["Token usage (estimated):"]
+        now = datetime.now(timezone.utc)
+        today_iso = now.strftime("%Y-%m-%d")
+        week_ago_iso = (now - timedelta(days=7)).isoformat()
+        tokens_today = await tier3.get_token_usage_since(user_id=inbound.user_id, since_iso=today_iso)
+        tokens_week = await tier3.get_token_usage_since(user_id=inbound.user_id, since_iso=week_ago_iso)
+
+        rl_cfg = cfg.gateway.rate_limit if cfg else None
+        daily_budget = rl_cfg.daily_token_budget if rl_cfg else 0
+        weekly_budget = rl_cfg.weekly_token_budget if rl_cfg else 0
+
+        def _budget_line(used: int, budget: int, label: str) -> str:
+            if budget > 0:
+                pct = used / budget * 100
+                remaining = max(budget - used, 0)
+                return f"{label}：{used:,} / {budget:,} tokens ({pct:.1f}%)，剩餘 {remaining:,}"
+            return f"{label}：{used:,} tokens（無上限）"
+
+        lines = [
+            _budget_line(tokens_today, daily_budget, "今日"),
+            _budget_line(tokens_week, weekly_budget, "近 7 天"),
+            "",
+            "各 Runner 累計：",
+        ]
         grand_total = 0
-        for runner_name, stats in summary.items():
+        for runner_name, stats in (summary or {}).items():
             lines.append(
                 f"  {runner_name}: {stats['prompt']:,} prompt + "
                 f"{stats['completion']:,} completion = {stats['total']:,} total"
             )
             grand_total += stats["total"]
-        lines.append(f"Total: {grand_total:,} tokens")
+        if grand_total:
+            lines.append(f"總計：{grand_total:,} tokens")
+        else:
+            lines.append("（尚無記錄）")
         await send_reply("\n".join(lines))
         return
     if cmd.is_status:
@@ -559,6 +593,28 @@ async def dispatch(
         await send_reply(f"Switched to {cmd.runner}")
         return
 
+    # Daily token budget warning check
+    if cfg and cfg.gateway.rate_limit.daily_token_budget > 0:
+        from datetime import datetime, timezone as _tz
+        _today_iso = datetime.now(_tz.utc).strftime("%Y-%m-%d")
+        _tokens_today = await tier3.get_token_usage_since(
+            user_id=inbound.user_id, since_iso=_today_iso
+        )
+        _daily_budget = cfg.gateway.rate_limit.daily_token_budget
+        _warn_threshold = cfg.gateway.rate_limit.warn_threshold
+        _usage_ratio = _tokens_today / _daily_budget
+        if _usage_ratio >= 1.0:
+            await send_reply(
+                f"⛔ 今日 token 已用盡（{_tokens_today:,} / {_daily_budget:,}）。"
+                f"如需繼續請明日再試。"
+            )
+            return
+        if _usage_ratio >= _warn_threshold:
+            await send_reply(
+                f"⚠️ 今日已使用 {_usage_ratio * 100:.0f}% token budget"
+                f"（{_tokens_today:,} / {_daily_budget:,}）。"
+            )
+
     _sem = rate_limiter.semaphore if rate_limiter is not None else contextlib.nullcontext()
     async with _sem:
         if cmd.is_module and module_registry:
@@ -582,12 +638,15 @@ async def dispatch(
             return
 
         if cmd.is_discussion:
+            _disc_runner_obj = runners.get(session.current_runner)
+            _disc_budget = _disc_runner_obj.context_token_budget if _disc_runner_obj else 0
             await _dispatch_discussion(
                 inbound=inbound, session=session, runners=runners,
                 tier3=tier3, assembler=assembler, recent_turns=recent_turns, send_reply=send_reply,
                 discussion_runners=cmd.discussion_runners,
                 discussion_rounds=cmd.discussion_rounds,
                 prompt=cmd.prompt,
+                token_budget=_disc_budget,
             )
             if cfg:
                 await maybe_distill(user_id=inbound.user_id, channel=inbound.channel,

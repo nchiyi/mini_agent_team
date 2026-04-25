@@ -70,6 +70,10 @@ class Tier3Store:
     CREATE INDEX IF NOT EXISTS idx_usage_user_runner
     ON usage_logs(user_id, runner)
     """
+    _CREATE_USAGE_TS_IDX = """
+    CREATE INDEX IF NOT EXISTS idx_usage_user_ts
+    ON usage_logs(user_id, ts)
+    """
 
     def __init__(self, db_path: str):
         self._path = Path(db_path)
@@ -89,6 +93,7 @@ class Tier3Store:
         await self._db.execute(self._CREATE_SETTINGS)
         await self._db.execute(self._CREATE_USAGE_LOGS)
         await self._db.execute(self._CREATE_USAGE_IDX)
+        await self._db.execute(self._CREATE_USAGE_TS_IDX)
         await self._db.commit()
         self._db.row_factory = aiosqlite.Row
         self._writer_task = asyncio.create_task(self._writer_loop())
@@ -241,6 +246,15 @@ class Tier3Store:
             (user_id, channel, runner, prompt_tokens, completion_tokens, total, ts),
         )
         await self._db.commit()
+
+    async def get_token_usage_since(self, *, user_id: int, since_iso: str) -> int:
+        """Return total tokens used by user since since_iso (ISO 8601 string)."""
+        async with self._db.execute(
+            "SELECT COALESCE(SUM(total_tokens), 0) AS t FROM usage_logs WHERE user_id=? AND ts >= ?",
+            (user_id, since_iso),
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row["t"]) if row else 0
 
     async def get_usage_summary(self, *, user_id: int) -> dict[str, dict[str, int]]:
         async with self._db.execute(
