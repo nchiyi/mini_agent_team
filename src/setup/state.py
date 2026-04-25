@@ -167,6 +167,7 @@ def _migrate_v1_to_v2(data: dict) -> dict:
         "deploy_mode": data.get("deploy_mode", "foreground"),
         "optional_packages": data.get("optional_packages", []),
     }
+    # acp_mode / installed_acp are v2-only; v1 files predate ACP so defaults apply
     return migrated
 
 
