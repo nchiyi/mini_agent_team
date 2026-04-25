@@ -106,9 +106,7 @@ class ACPRunner(BaseRunner):
         except Exception as e:
             logger.error("ACPRunner '%s' error: %s", self.name, e, exc_info=True)
             self._sessions.pop(user_id, None)
-            if (self._conn is not None
-                    and self._conn._reader_task is not None
-                    and self._conn._reader_task.done()):
+            if self._conn is not None and not self._conn.is_alive():
                 logger.warning("ACPRunner '%s': subprocess crashed, resetting for re-init", self.name)
                 async with self._init_lock:
                     self._initialized = False

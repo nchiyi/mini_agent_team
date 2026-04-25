@@ -66,6 +66,7 @@ def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
                 args=rc.args,
                 timeout_seconds=rc.timeout_seconds,
                 context_token_budget=rc.context_token_budget,
+                session_ttl_minutes=cfg.gateway.session_idle_minutes,
             )
         elif rc.type == "cli":
             runners[name] = CLIRunner(
@@ -306,6 +307,9 @@ async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.e
                     logger.error("Channel exited with error: %s", result, exc_info=result)
     finally:
         await ctx.tier3.close()
+        for runner in ctx.runners.values():
+            if hasattr(runner, "close"):
+                await runner.close()
 
 
 if __name__ == "__main__":

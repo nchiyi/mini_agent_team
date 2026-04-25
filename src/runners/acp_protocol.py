@@ -133,10 +133,16 @@ class ACPConnection:
     async def _respond(self, req_id: int, result: dict) -> None:
         await self._write({"jsonrpc": "2.0", "id": req_id, "result": result})
 
+    def is_alive(self) -> bool:
+        return self._reader_task is not None and not self._reader_task.done()
+
     async def _write(self, msg: dict) -> None:
         line = json.dumps(msg) + "\n"
-        self._proc.stdin.write(line.encode())
-        await self._proc.stdin.drain()
+        try:
+            self._proc.stdin.write(line.encode())
+            await self._proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+            raise Exception("ACP subprocess terminated unexpectedly") from e
 
     async def _read_loop(self) -> None:
         assert self._proc.stdout is not None
