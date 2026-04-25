@@ -41,6 +41,7 @@ class ACPRunner(BaseRunner):
 
         self._conn: ACPConnection | None = None
         self._init_lock = asyncio.Lock()
+        self._session_lock = asyncio.Lock()
         self._initialized = False
         # user_id → (session_id, last_used_monotonic)
         self._sessions: dict[int, tuple[str, float]] = {}
@@ -64,18 +65,19 @@ class ACPRunner(BaseRunner):
             logger.info("ACPRunner '%s' initialized (pid=%s)", self.name, proc.pid)
 
     async def _get_or_create_session(self, user_id: int, cwd: str) -> str:
-        now = time.monotonic()
-        if user_id in self._sessions:
-            session_id, last_used = self._sessions[user_id]
-            if now - last_used < self._session_ttl:
-                self._sessions[user_id] = (session_id, now)
-                return session_id
-            logger.info("ACPRunner '%s' session TTL expired for user %s", self.name, user_id)
+        async with self._session_lock:
+            now = time.monotonic()
+            if user_id in self._sessions:
+                session_id, last_used = self._sessions[user_id]
+                if now - last_used < self._session_ttl:
+                    self._sessions[user_id] = (session_id, now)
+                    return session_id
+                logger.info("ACPRunner '%s' session TTL expired for user %s", self.name, user_id)
 
-        session_id = await self._conn.new_session(cwd=cwd)
-        self._sessions[user_id] = (session_id, now)
-        logger.info("ACPRunner '%s' new session for user %s: %s", self.name, user_id, session_id)
-        return session_id
+            session_id = await self._conn.new_session(cwd=cwd)
+            self._sessions[user_id] = (session_id, now)
+            logger.info("ACPRunner '%s' new session for user %s: %s", self.name, user_id, session_id)
+            return session_id
 
     async def run(
         self,
@@ -103,6 +105,19 @@ class ACPRunner(BaseRunner):
             )
         except Exception as e:
             logger.error("ACPRunner '%s' error: %s", self.name, e, exc_info=True)
-            # Invalidate session so next call gets a fresh one
             self._sessions.pop(user_id, None)
+            if (self._conn is not None
+                    and self._conn._reader_task is not None
+                    and self._conn._reader_task.done()):
+                logger.warning("ACPRunner '%s': subprocess crashed, resetting for re-init", self.name)
+                async with self._init_lock:
+                    self._initialized = False
+                    self._conn = None
+                    self._sessions.clear()
             raise
+
+    async def close(self) -> None:
+        if self._conn is not None:
+            await self._conn.close()
+            self._conn = None
+            self._initialized = False

@@ -11,6 +11,7 @@ class BaseRunner(ABC):
         user_id: int,
         channel: str,
         cwd: str,
+        attachments: list[str] | None = None,
     ) -> AsyncIterator[str]:
         """Yield text chunks as the runner produces output."""
         ...

@@ -130,3 +130,46 @@ async def test_acp_runner_timeout_raises():
         with pytest.raises(TimeoutError):
             async for _ in runner.run("slow", user_id=1, channel="tg", cwd="/tmp"):
                 pass
+
+
+async def _consume(gen):
+    async for _ in gen:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_acp_runner_no_duplicate_sessions_concurrent():
+    from src.runners.acp_runner import ACPRunner
+
+    runner = ACPRunner(name="claude", command="claude-agent-acp", args=[],
+                       timeout_seconds=30, context_token_budget=4000)
+
+    new_session_count = 0
+    original_new_session = None
+
+    mock_conn = _make_mock_conn(["ok"])
+
+    original_new_session_fn = mock_conn.new_session
+
+    async def counting_new_session(cwd):
+        nonlocal new_session_count
+        new_session_count += 1
+        return await original_new_session_fn(cwd=cwd)
+
+    mock_conn.new_session = counting_new_session
+
+    with patch("src.runners.acp_runner.ACPConnection", return_value=mock_conn), \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_spawn:
+        mock_proc = MagicMock()
+        mock_proc.stdout = AsyncMock()
+        mock_proc.stdin = AsyncMock()
+        mock_proc.returncode = None
+        mock_spawn.return_value = mock_proc
+
+        # Concurrent calls for same user
+        await asyncio.gather(
+            _consume(runner.run("msg1", user_id=99, channel="tg", cwd="/tmp")),
+            _consume(runner.run("msg2", user_id=99, channel="tg", cwd="/tmp")),
+        )
+
+    assert new_session_count == 1, f"Expected 1 session, got {new_session_count}"
