@@ -12,7 +12,7 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 
-from src.core.config import load_config, Config
+from src.core.config import load_config, Config, _resolve_channel_auth
 from src.runners.audit import AuditLog
 from src.runners.cli_runner import CLIRunner
 from src.runners.acp_runner import ACPRunner
@@ -121,8 +121,11 @@ def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
 async def run_telegram(ctx: AppContext) -> None:
     cfg = ctx.cfg
     tg_app = Application.builder().token(cfg.telegram_token).build()
-    adapter = TelegramAdapter(bot=tg_app.bot, allowed_user_ids=cfg.allowed_user_ids,
-                              allow_all_users=cfg.allow_all_users)
+    tg_ids, tg_all = _resolve_channel_auth(
+        cfg, cfg.telegram.allowed_user_ids, cfg.telegram.allow_all_users
+    )
+    adapter = TelegramAdapter(bot=tg_app.bot, allowed_user_ids=tg_ids,
+                              allow_all_users=tg_all)
     bridge = StreamingBridge(adapter, edit_interval=cfg.gateway.stream_edit_interval_seconds)
     upload_dir = Path("data/uploads")
 
@@ -250,15 +253,18 @@ async def run_discord(ctx: AppContext) -> None:
             rate_limiter=ctx.rate_limiter,
         )
 
+    dc_ids, dc_all = _resolve_channel_auth(
+        cfg, cfg.discord.allowed_user_ids, cfg.discord.allow_all_users
+    )
     dc_adapter = DiscordAdapter(
         token=cfg.discord_token,
-        allowed_user_ids=cfg.allowed_user_ids,
+        allowed_user_ids=dc_ids,
         gateway_handler=gateway_handler,
         allowed_channel_ids=cfg.discord.allowed_channel_ids,
         allow_bot_messages=cfg.discord.allow_bot_messages,
         allow_user_messages=cfg.discord.allow_user_messages,
         trusted_bot_ids=cfg.discord.trusted_bot_ids,
-        allow_all_users=cfg.allow_all_users,
+        allow_all_users=dc_all,
     )
     logger.info("Discord bot starting")
     await dc_adapter.start()

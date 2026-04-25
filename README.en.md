@@ -52,7 +52,33 @@ python3 -m src.setup.wizard
 ```env
 TELEGRAM_BOT_TOKEN=your_token
 DISCORD_BOT_TOKEN=your_token       # optional
-ALLOWED_USER_IDS=123456789         # required — empty = deny all
+ALLOWED_USER_IDS=123456789         # global default — see Per-channel Auth below
+```
+
+### Per-channel Auth
+
+By default, `ALLOWED_USER_IDS` applies to every channel. You can override it per-channel inside `config/config.toml`:
+
+```toml
+# Global fallback (from secrets/.env or environment)
+# ALLOWED_USER_IDS=111,222
+
+# Telegram-only override (optional — omit to inherit global)
+[telegram]
+allowed_user_ids = [111, 333]   # only these IDs on Telegram
+# allow_all_users = false
+
+# Discord-only override (optional — omit to inherit global)
+[discord]
+allow_all_users = true          # open Discord to everyone regardless of global list
+```
+
+**Priority (highest → lowest):** per-channel explicit value → global `ALLOWED_USER_IDS` / `allow_all_users` → deny all
+
+At startup, one log line per channel confirms the effective policy:
+```
+telegram auth: strict (2 users) [source=channel-override]
+discord auth: open [source=channel-override]
 ```
 
 ### `config/config.toml`
