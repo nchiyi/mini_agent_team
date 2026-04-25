@@ -67,10 +67,12 @@ def _write_resume_state(path: str, current_step: str = "token_validation.done") 
 async def test_run_wizard_fresh_mode_calls_all_steps(tmp_path, capsys):
     """With no state file, wizard runs in FRESH mode and calls every step."""
     state_path = str(tmp_path / "state.json")
-    with patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as s1, \
+    with patch("src.setup.wizard.run_preflight", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as s1, \
          patch("src.setup.wizard.step_2_token", new_callable=AsyncMock) as s2, \
          patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock) as s3, \
          patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]) as s4, \
+         patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None) as s5, \
          patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock) as s6, \
          patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock) as s7, \
@@ -94,10 +96,12 @@ async def test_run_wizard_resume_mode_banner(tmp_path, capsys):
     state_path = str(tmp_path / "state.json")
     _write_resume_state(state_path, current_step="token_validation.done")
 
-    with patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock), \
+    with patch("src.setup.wizard.run_preflight", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_2_token", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]), \
+         patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None), \
          patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock), \
@@ -120,10 +124,12 @@ async def test_run_wizard_reset_mode_clears_state(tmp_path, capsys):
     _write_launch_state(state_path)
     assert Path(state_path).exists()
 
-    with patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as s1, \
+    with patch("src.setup.wizard.run_preflight", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as s1, \
          patch("src.setup.wizard.step_2_token", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]), \
+         patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None), \
          patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock), \
@@ -173,10 +179,12 @@ async def test_run_wizard_v1_resume_state(tmp_path, capsys):
         "optional_packages": [],
     }))
 
-    with patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as s1, \
+    with patch("src.setup.wizard.run_preflight", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as s1, \
          patch("src.setup.wizard.step_2_token", new_callable=AsyncMock) as s2, \
          patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock) as s3, \
          patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]), \
+         patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None), \
          patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock), \
