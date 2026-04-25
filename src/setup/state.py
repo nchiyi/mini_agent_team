@@ -39,6 +39,7 @@ class WizardState:
         "channels", "telegram_token", "discord_token",
         "allowed_user_ids", "selected_clis", "search_mode",
         "update_notifications", "deploy_mode", "optional_packages", "data",
+        "acp_mode", "installed_acp",
     )
 
     def __init__(
@@ -58,6 +59,8 @@ class WizardState:
         deploy_mode: str = "foreground",
         optional_packages: list | None = None,
         data: dict | None = None,
+        acp_mode: str = "",
+        installed_acp: list | None = None,
         # ── backward-compat: v1 integer step list ──────────────────────────
         completed_steps: list | None = None,
     ) -> None:
@@ -76,6 +79,8 @@ class WizardState:
         self.deploy_mode = deploy_mode
         self.optional_packages: list[str] = list(optional_packages) if optional_packages is not None else []
         self.data: dict = dict(data) if data is not None else {}
+        self.acp_mode = acp_mode
+        self.installed_acp: list[str] = list(installed_acp) if installed_acp is not None else []
 
         # Translate v1 integer steps into micro-step IDs on construction
         if completed_steps is not None:
@@ -110,6 +115,7 @@ _FIELDS = {
     "channels", "telegram_token", "discord_token",
     "allowed_user_ids", "selected_clis", "search_mode",
     "update_notifications", "deploy_mode", "optional_packages", "data",
+    "acp_mode", "installed_acp",
     "completed_steps",   # v1 key — WizardState.__init__ converts it
 }
 
@@ -205,6 +211,8 @@ def save_state(state: WizardState, path: str) -> None:
                 "update_notifications": state.update_notifications,
                 "deploy_mode": state.deploy_mode,
                 "optional_packages": state.optional_packages,
+                "acp_mode": state.acp_mode,
+                "installed_acp": state.installed_acp,
             }, f, indent=2)
     except OSError as e:
         raise RuntimeError(f"Cannot save wizard state to {path}: {e}") from e

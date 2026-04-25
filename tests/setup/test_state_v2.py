@@ -265,3 +265,40 @@ def test_int_step_shim_updates_current_step():
     mark_step_done(s, 1)
     # current_step should now point past step 1
     assert s.current_step != ""
+
+
+def test_wizard_state_acp_defaults():
+    state = WizardState()
+    assert state.acp_mode == ""
+    assert state.installed_acp == []
+
+
+def test_wizard_state_acp_persisted(tmp_path):
+    state = WizardState()
+    state.acp_mode = "orchestrator"
+    state.installed_acp = ["claude-agent-acp"]
+    path = str(tmp_path / "state.json")
+    save_state(state, path)
+    loaded = load_state(path)
+    assert loaded.acp_mode == "orchestrator"
+    assert loaded.installed_acp == ["claude-agent-acp"]
+
+
+def test_wizard_state_acp_missing_in_json_defaults(tmp_path):
+    """Old state files without acp_mode/installed_acp load without error."""
+    import json
+    path = str(tmp_path / "state.json")
+    old_data = {
+        "version": 2, "mode": "launch", "current_step": "launch.done",
+        "completed": ["cli_select.done"], "failed": [], "data": {},
+        "channels": ["telegram"], "telegram_token": "abc",
+        "discord_token": "", "allowed_user_ids": [1],
+        "selected_clis": ["claude"], "search_mode": "fts5",
+        "update_notifications": True, "deploy_mode": "foreground",
+        "optional_packages": [],
+    }
+    with open(path, "w") as f:
+        json.dump(old_data, f)
+    state = load_state(path)
+    assert state.acp_mode == ""
+    assert state.installed_acp == []
