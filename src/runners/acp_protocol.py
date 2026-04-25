@@ -258,7 +258,8 @@ class ACPConnection:
         if session_update == "tool_call_update" and update.get("status") == "completed":
             raw = update.get("rawOutput", "")
             if raw:
-                return raw + "\n"
+                text_out = raw if isinstance(raw, str) else "\n".join(str(x) for x in raw)
+                return text_out + "\n"
 
         return ""
 
