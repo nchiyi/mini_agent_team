@@ -87,6 +87,7 @@ class ACPRunner(BaseRunner):
         cwd: str,
         attachments: list[str] | None = None,
         role_prefix: str = "",
+        thinking: bool = False,
     ) -> AsyncIterator[str]:
         await self._ensure_initialized(cwd)
         session_id = await self._get_or_create_session(user_id, cwd)
@@ -99,7 +100,8 @@ class ACPRunner(BaseRunner):
         try:
             async with asyncio.timeout(self.timeout_seconds):
                 async for chunk in self._conn.prompt(
-                    session_id=session_id, text=prompt, role_prefix=role_prefix
+                    session_id=session_id, text=prompt, role_prefix=role_prefix,
+                    thinking_budget=8000 if thinking else 0,
                 ):
                     yield chunk
         except asyncio.TimeoutError:

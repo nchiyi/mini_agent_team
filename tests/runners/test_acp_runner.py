@@ -11,7 +11,7 @@ def _make_mock_conn(chunks: list[str], session_id: str = "sess-1"):
     conn.new_session = AsyncMock(return_value=session_id)
     conn.close = AsyncMock()
 
-    async def fake_prompt(session_id, text, role_prefix=""):
+    async def fake_prompt(session_id, text, role_prefix="", thinking_budget=0):
         for chunk in chunks:
             yield chunk
 
@@ -112,7 +112,7 @@ async def test_acp_runner_timeout_raises():
     runner = ACPRunner(name="claude", command="claude-agent-acp", args=[],
                        timeout_seconds=1, context_token_budget=4000)
 
-    async def slow_prompt(session_id, text, role_prefix=""):
+    async def slow_prompt(session_id, text, role_prefix="", thinking_budget=0):
         await asyncio.sleep(999)
         yield "never"
 
@@ -180,3 +180,40 @@ def test_runner_config_has_type_field():
     rc = RunnerConfig(path="", args=[], timeout_seconds=60,
                       context_token_budget=4000, type="acp")
     assert rc.type == "acp"
+
+
+@pytest.mark.asyncio
+async def test_acp_runner_thinking_flag_sets_budget():
+    """When thinking=True, ACPRunner must call conn.prompt with thinking_budget=8000."""
+    from src.runners.acp_runner import ACPRunner
+
+    called_with: dict = {}
+
+    async def fake_prompt(session_id, text, role_prefix="", thinking_budget=0):
+        called_with["thinking_budget"] = thinking_budget
+        yield "answer"
+
+    mock_conn = MagicMock()
+    mock_conn.initialize = AsyncMock(return_value={"protocolVersion": 1, "agentCapabilities": {}})
+    mock_conn.new_session = AsyncMock(return_value="sess-1")
+    mock_conn.close = AsyncMock()
+    mock_conn.prompt = fake_prompt
+
+    runner = ACPRunner(name="claude", command="claude-agent-acp", args=[],
+                       timeout_seconds=30, context_token_budget=4000)
+
+    with patch("src.runners.acp_runner.ACPConnection", return_value=mock_conn), \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_spawn:
+        mock_proc = MagicMock()
+        mock_proc.stdout = AsyncMock()
+        mock_proc.stdin = AsyncMock()
+        mock_proc.returncode = None
+        mock_spawn.return_value = mock_proc
+
+        chunks = []
+        async for c in runner.run("prove P=NP", user_id=1, channel="tg",
+                                   cwd="/tmp", thinking=True):
+            chunks.append(c)
+
+    assert called_with["thinking_budget"] == 8000
+    assert "answer" in "".join(chunks)
