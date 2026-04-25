@@ -5,6 +5,11 @@ from .router import ParsedCommand
 _RELAY_KEYWORDS = re.compile(r"接力|relay|chain|one after another", re.IGNORECASE)
 _DISCUSS_KEYWORDS = re.compile(r"討論|discuss|對話|exchange|conversation between", re.IGNORECASE)
 _DEBATE_KEYWORDS = re.compile(r"辯論|debate|argue|比較|compare|誰比較好|which is better", re.IGNORECASE)
+_REASONING_KEYWORDS = re.compile(
+    r"深入分析|仔細想|慢慢想|一步一步|詳細推導|複雜問題|深思"
+    r"|think carefully|step by step|reason through|analyze deeply",
+    re.IGNORECASE,
+)
 
 _RUNNER_ALIASES: dict[str, list[str]] = {
     "claude": ["claude", "claude-code", "claude code"],
@@ -46,6 +51,14 @@ class FastPathDetector:
     def detect(self, text: str) -> "ParsedCommand | None":
         if text.startswith("/"):
             return None
+
+        if _REASONING_KEYWORDS.search(text):
+            stripped = _REASONING_KEYWORDS.sub("", text).strip(" ,，:：")
+            if not stripped:
+                return None  # keyword with no actual question
+            runners = _find_runners(text, self._known)
+            primary_runner = runners[0] if runners else ""
+            return ParsedCommand(runner=primary_runner, prompt=stripped, is_reasoning=True)
 
         runners = _find_runners(text, self._known)
         if not runners:
