@@ -1,7 +1,10 @@
 import asyncio
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
-from src.setup.installer import is_cli_installed, install_cli, install_ollama, progress_reporter
+from src.setup.installer import (
+    is_cli_installed, install_cli, install_ollama, progress_reporter,
+    ACP_PACKAGES, is_acp_installed, install_acp_foreground, is_npm_available,
+)
 
 
 def test_is_cli_installed_found():
@@ -84,7 +87,6 @@ async def test_progress_reporter_exits_when_tasks_done():
 
 
 # ========== ACP Package Tests ==========
-from src.setup.installer import ACP_PACKAGES, is_acp_installed, install_acp_foreground, is_npm_available
 
 
 def test_acp_packages_has_claude_and_codex():
