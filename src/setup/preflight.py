@@ -36,9 +36,9 @@ def _check_python() -> tuple[bool, str]:
     )
 
 
-def _check_disk() -> tuple[bool, str]:
-    """Return (ok, message) for disk space check."""
-    stat = shutil.disk_usage("/")
+def _check_disk(cwd: str = "/") -> tuple[bool, str]:
+    """Return (ok, message) for disk space check on the partition containing cwd."""
+    stat = shutil.disk_usage(cwd)
     free_gb = stat.free / (1024**3)
     if free_gb >= _MIN_DISK_GB:
         return True, f"Disk: {free_gb:.1f} GB free (need ≥{_MIN_DISK_GB:.0f} GB)"
@@ -103,7 +103,7 @@ async def run_preflight(cwd: str) -> None:
 
     # Synchronous checks
     results.append(_check_python())
-    results.append(_check_disk())
+    results.append(_check_disk(cwd))
 
     # Parallel network probes
     net_results = await _check_network()

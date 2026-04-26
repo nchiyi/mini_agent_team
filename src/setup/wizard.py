@@ -170,7 +170,7 @@ async def step_2_token(state: WizardState) -> None:
                 _ok(f"Telegram token valid — {name_part}{id_part}")
                 confirm = _prompt("Is this your bot? (y/n)", "y")
                 if confirm.lower() == "n":
-                    state.telegram_token = None
+                    state.telegram_token = ""
                     _err("Token rejected. Please enter a different token.")
                     _attempts += 1
                     continue
@@ -204,7 +204,7 @@ async def step_2_token(state: WizardState) -> None:
                 _ok(f"Discord token valid — {name_part}{id_part}")
                 confirm = _prompt("Is this your bot? (y/n)", "y")
                 if confirm.lower() == "n":
-                    state.discord_token = None
+                    state.discord_token = ""
                     _err("Token rejected. Please enter a different token.")
                     _attempts += 1
                     continue
@@ -929,6 +929,7 @@ async def run_wizard(
         state.discord_token = headless_discord_token
     if headless_telegram_token or headless_discord_token:
         mark_micro_step_done(state, "token_validation.done")
+        _warn("Headless mode: tokens accepted without live validation — ensure tokens are correct.")
     if headless_allowed_user_ids:
         state.allowed_user_ids = [int(x) for x in headless_allowed_user_ids.split(",") if x.strip().isdigit()]
         mark_micro_step_done(state, "allowlist.done")

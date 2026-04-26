@@ -3,6 +3,7 @@ Non-destructive config writer with diff preview and 3-way prompt.
 """
 import difflib
 import os
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -121,7 +122,7 @@ def write_config_with_diff(path: str, new_content: str, label: str = "config.tom
             merge_target = backup
             print(f"  Opening {merge_target.name} in {editor}...")
             print(f"  Edit to your liking, save and close. The file will be copied to {p.name}.")
-            os.system(f'{editor} "{merge_target}"')
+            subprocess.run([editor, str(merge_target)])
             merged = merge_target.read_text()
             p.write_text(merged)
             print(f"  {_G}✓ Merged {label} saved{_X}")
@@ -178,7 +179,7 @@ def write_env_with_diff(path: str, new_content: str, label: str = ".env") -> Non
             merge_target = backup
             print(f"  Opening {merge_target.name} in {editor}...")
             print(f"  Edit to your liking, save and close. The file will be copied to {p.name}.")
-            os.system(f'{editor} "{merge_target}"')
+            subprocess.run([editor, str(merge_target)])
             merged = merge_target.read_text()
             p.write_text(merged)
             p.chmod(0o600)

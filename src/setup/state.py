@@ -194,8 +194,9 @@ def load_state(path: str) -> WizardState:
 
 def save_state(state: WizardState, path: str) -> None:
     try:
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w") as f:
             json.dump({
                 "version": state.version,
                 "mode": state.mode,
@@ -215,6 +216,7 @@ def save_state(state: WizardState, path: str) -> None:
                 "acp_mode": state.acp_mode,
                 "installed_acp": state.installed_acp,
             }, f, indent=2)
+        p.chmod(0o600)  # state file contains bot tokens — restrict to owner only
     except OSError as e:
         raise RuntimeError(f"Cannot save wizard state to {path}: {e}") from e
 

@@ -168,9 +168,9 @@ async def wait_for_ok_reply_telegram(
     Returns True on success.
     """
     offset: int | None = None
-    deadline = asyncio.get_event_loop().time() + timeout
+    deadline = asyncio.get_running_loop().time() + timeout
 
-    while asyncio.get_event_loop().time() < deadline:
+    while asyncio.get_running_loop().time() < deadline:
         params: dict[str, object] = {"timeout": 10, "allowed_updates": ["message"]}
         if offset is not None:
             params["offset"] = offset
@@ -226,7 +226,7 @@ async def wait_for_ok_reply_discord(
     intents = discord.Intents.default()
     intents.message_content = True
     client = discord.Client(intents=intents)
-    got_ok: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
+    got_ok: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
 
     @client.event
     async def on_message(message: discord.Message) -> None:  # type: ignore[misc]
