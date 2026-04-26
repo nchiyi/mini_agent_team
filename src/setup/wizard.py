@@ -882,6 +882,19 @@ async def run_wizard(
     state_path: str = "data/setup-state.json",
     reset: bool = False,
     cwd: str = ".",
+    *,
+    headless_channel: str | None = None,
+    headless_telegram_token: str | None = None,
+    headless_discord_token: str | None = None,
+    headless_allowed_user_ids: str | None = None,
+    headless_allow_all_users: bool = False,
+    headless_clis: str | None = None,
+    headless_search_mode: str | None = None,
+    headless_optional_packs: str | None = None,
+    headless_update_notifications: bool | None = None,
+    headless_deploy_mode: str | None = None,
+    headless_acp_mode: str | None = None,
+    skip_preflight: bool = False,
 ) -> None:
     cwd = os.path.abspath(cwd)
 
@@ -906,8 +919,50 @@ async def run_wizard(
         _ok("System already configured. Use --reset to reconfigure.")
         return
 
+    # ── Headless pre-population: apply CLI flags and mark steps done ────────
+    if headless_channel:
+        state.channels = [c.strip() for c in headless_channel.split(",") if c.strip()]
+        mark_micro_step_done(state, "channel_select.done")
+    if headless_telegram_token:
+        state.telegram_token = headless_telegram_token
+    if headless_discord_token:
+        state.discord_token = headless_discord_token
+    if headless_telegram_token or headless_discord_token:
+        mark_micro_step_done(state, "token_validation.done")
+    if headless_allowed_user_ids:
+        state.allowed_user_ids = [int(x) for x in headless_allowed_user_ids.split(",") if x.strip().isdigit()]
+        mark_micro_step_done(state, "allowlist.done")
+    elif headless_allow_all_users:
+        state.data["allow_all_users"] = True
+        mark_micro_step_done(state, "allowlist.done")
+    if headless_clis:
+        state.selected_clis = [c.strip() for c in headless_clis.split(",") if c.strip()]
+        mark_micro_step_done(state, "cli_select.done")
+    if headless_search_mode:
+        state.search_mode = headless_search_mode
+        mark_micro_step_done(state, "search_mode.done")
+    if headless_optional_packs is not None:
+        state.optional_packages = [p.strip() for p in headless_optional_packs.split(",") if p.strip()]
+        mark_micro_step_done(state, "optional_packages.done")
+    if headless_update_notifications is not None:
+        state.update_notifications = headless_update_notifications
+        mark_micro_step_done(state, "update_notifications.done")
+    if headless_deploy_mode:
+        state.deploy_mode = headless_deploy_mode
+        mark_micro_step_done(state, "deploy_mode.done")
+    _is_headless = any([
+        headless_channel, headless_telegram_token, headless_discord_token,
+        headless_allowed_user_ids, headless_allow_all_users, headless_clis,
+        headless_search_mode, headless_optional_packs is not None,
+        headless_update_notifications is not None, headless_deploy_mode,
+    ])
+    if _is_headless:
+        state.acp_mode = headless_acp_mode or "orchestrator"
+        mark_micro_step_done(state, "acp_setup.done")
+
     # fresh / resume / reset all run the full wizard (steps skip if done)
-    await run_preflight(cwd)
+    if not skip_preflight:
+        await run_preflight(cwd)
     await step_1_channel(state)
     save_state(state, state_path)
     await step_2_token(state)
@@ -931,7 +986,36 @@ async def run_wizard(
 
 if __name__ == "__main__":
     import argparse
-    _ap = argparse.ArgumentParser(description="Gateway Agent setup wizard")
+    _ap = argparse.ArgumentParser(
+        description="MAT Setup Wizard — interactive or headless (--channel ... flags)",
+    )
     _ap.add_argument("--reset", action="store_true", help="Wipe saved state and start from step 1")
+    _ap.add_argument("--skip-preflight", action="store_true", help="Skip pre-flight checks (CI use)")
+    # Headless flags — when all are provided the wizard runs without prompts
+    _ap.add_argument("--channel", metavar="telegram|discord|telegram,discord", help="Channel(s) to configure")
+    _ap.add_argument("--telegram-token", metavar="TOKEN", help="Telegram bot token")
+    _ap.add_argument("--discord-token", metavar="TOKEN", help="Discord bot token")
+    _ap.add_argument("--allowed-user-ids", metavar="ID1,ID2", help="Comma-separated allowed user IDs")
+    _ap.add_argument("--allow-all-users", action="store_true", help="Allow all users (skip allowlist)")
+    _ap.add_argument("--clis", metavar="claude,codex,...", help="CLI tools to install")
+    _ap.add_argument("--search-mode", choices=["fts5", "fts5+embedding"], help="Search mode")
+    _ap.add_argument("--optional-packs", metavar="voice,browser,...", help="Optional packs (empty string = none)")
+    _ap.add_argument("--update-notifications", action="store_true", default=None, help="Enable update notifications")
+    _ap.add_argument("--no-update-notifications", dest="update_notifications", action="store_false")
+    _ap.add_argument("--deploy-mode", choices=["foreground", "systemd", "docker"], help="Deploy mode")
     _args = _ap.parse_args()
-    asyncio.run(run_wizard(cwd=os.path.abspath("."), reset=_args.reset))
+    asyncio.run(run_wizard(
+        cwd=os.path.abspath("."),
+        reset=_args.reset,
+        skip_preflight=_args.skip_preflight,
+        headless_channel=_args.channel,
+        headless_telegram_token=_args.telegram_token,
+        headless_discord_token=_args.discord_token,
+        headless_allowed_user_ids=_args.allowed_user_ids,
+        headless_allow_all_users=_args.allow_all_users,
+        headless_clis=_args.clis,
+        headless_search_mode=_args.search_mode,
+        headless_optional_packs=_args.optional_packs,
+        headless_update_notifications=_args.update_notifications,
+        headless_deploy_mode=_args.deploy_mode,
+    ))

@@ -100,9 +100,9 @@ async def test_run_wizard_resume_mode_banner(tmp_path, capsys):
          patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_2_token", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock), \
-         patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]), \
+         patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
-         patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None), \
+         patch("src.setup.wizard.step_5_search", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_8_deploy", new_callable=AsyncMock), \
@@ -128,9 +128,9 @@ async def test_run_wizard_reset_mode_clears_state(tmp_path, capsys):
          patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as s1, \
          patch("src.setup.wizard.step_2_token", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock), \
-         patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]), \
+         patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
-         patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None), \
+         patch("src.setup.wizard.step_5_search", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_8_deploy", new_callable=AsyncMock), \
@@ -183,9 +183,9 @@ async def test_run_wizard_v1_resume_state(tmp_path, capsys):
          patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as s1, \
          patch("src.setup.wizard.step_2_token", new_callable=AsyncMock) as s2, \
          patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock) as s3, \
-         patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]), \
+         patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
-         patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None), \
+         patch("src.setup.wizard.step_5_search", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_8_deploy", new_callable=AsyncMock), \
@@ -218,3 +218,52 @@ async def test_run_wizard_v1_launch_state(tmp_path, capsys):
     s1.assert_not_called()
     out = capsys.readouterr().out
     assert "LAUNCH" in out
+
+
+# ── headless / CI mode ────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_run_wizard_headless_skips_all_interactive_steps(tmp_path):
+    """Headless flags pre-populate state; all steps skip their prompts."""
+    state_path = str(tmp_path / "state.json")
+
+    with patch("src.setup.wizard.step_9_launch", new_callable=AsyncMock) as mock_launch, \
+         patch("src.setup.wizard.save_state"):
+        await wizard.run_wizard(
+            state_path=state_path,
+            cwd=str(tmp_path),
+            skip_preflight=True,
+            headless_channel="telegram",
+            headless_telegram_token="123456:ABCdef",
+            headless_allowed_user_ids="42",
+            headless_clis="claude",
+            headless_search_mode="fts5",
+            headless_optional_packs="",
+            headless_update_notifications=True,
+            headless_deploy_mode="foreground",
+        )
+
+    mock_launch.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_run_wizard_skip_preflight_bypasses_network_checks(tmp_path):
+    """skip_preflight=True must not call run_preflight."""
+    state_path = str(tmp_path / "state.json")
+
+    with patch("src.setup.wizard.run_preflight", new_callable=AsyncMock) as mock_pf, \
+         patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_2_token", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_5_search", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_8_deploy", new_callable=AsyncMock), \
+         patch("src.setup.wizard.step_9_launch", new_callable=AsyncMock):
+        await wizard.run_wizard(
+            state_path=state_path, cwd=str(tmp_path), skip_preflight=True
+        )
+
+    mock_pf.assert_not_called()
