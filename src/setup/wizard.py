@@ -528,12 +528,18 @@ async def step_5_search(state: WizardState) -> None:
     mark_micro_step_done(state, "search_mode.done")
 
 
-_OPTIONAL_GROUPS: list[tuple[str, str, list[str]]] = [
-    ("discord_voice", "Discord 語音頻道  (PyNaCl)",             ["PyNaCl"]),
-    ("voice",         "語音輸入/輸出 STT/TTS  (groq, edge-tts)", ["groq", "edge-tts"]),
-    ("browser",       "瀏覽器技能  (playwright, html2text)",     ["playwright", "html2text"]),
-    ("tavily",        "Tavily 高級搜尋  (tavily-python)",        ["tavily-python"]),
+# (key, label, size_hint, packages)
+_OPTIONAL_GROUPS: list[tuple[str, str, str, list[str]]] = [
+    ("discord_voice", "Discord 語音頻道  (PyNaCl)",              "~10 MB",  ["PyNaCl"]),
+    ("voice",         "語音輸入/輸出 STT/TTS  (groq, edge-tts)", "~50 MB",  ["groq", "edge-tts"]),
+    ("browser",       "瀏覽器技能  (playwright + Chromium)",     "~1.5 GB", ["playwright", "html2text"]),
+    ("tavily",        "Tavily 高級搜尋  (tavily-python)",         "~1 MB",   ["tavily-python"]),
 ]
+
+# Packs that require a second confirmation before installing (large downloads).
+_HEAVY_PACKS: dict[str, str] = {
+    "browser": "~1.5 GB (Playwright + Chromium browser)",
+}
 
 
 def _pkg_installed(pkg: str) -> bool:
@@ -561,14 +567,15 @@ async def step_6_optional(state: WizardState) -> None:
         return
     set_current_step(state, "optional_packages.started")
     _hdr(6, "Optional Features")
+    print("  All optional — can be added later by re-running setup. Default: off.\n")
     selected: set[str] = set()
 
     while True:
         print("")
-        for i, (key, label, pkgs) in enumerate(_OPTIONAL_GROUPS, 1):
+        for i, (key, label, size, pkgs) in enumerate(_OPTIONAL_GROUPS, 1):
             mark = "x" if key in selected else " "
             status = _G + "installed" + _X if all(_pkg_installed(p) for p in pkgs) else _Y + "not installed" + _X
-            print(f"  [{mark}] {i}. {label}  — {status}")
+            print(f"  [{mark}] {i}. {label}  {_Y}({size}){_X}  — {status}")
         print("")
         raw = _prompt("Toggle options (e.g. 1 2), Enter to confirm (skip = none)")
         if not raw:
@@ -585,8 +592,18 @@ async def step_6_optional(state: WizardState) -> None:
                 else:
                     _err(f"Invalid option: {token}")
 
+    # Second confirmation for heavy packs
+    for key, size_desc in _HEAVY_PACKS.items():
+        if key in selected:
+            confirm = _prompt(
+                f"  ⚠ '{key}' requires {size_desc}. Download now? (y/n)", "n"
+            )
+            if confirm.lower() != "y":
+                selected.discard(key)
+                _warn(f"Skipped '{key}' — add later by re-running setup.")
+
     to_install: list[str] = []
-    for key, _, pkgs in _OPTIONAL_GROUPS:
+    for key, _, _size, pkgs in _OPTIONAL_GROUPS:
         if key in selected:
             for p in pkgs:
                 if not _pkg_installed(p):
