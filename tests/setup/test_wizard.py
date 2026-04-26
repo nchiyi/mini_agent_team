@@ -308,6 +308,38 @@ async def test_step5_embedding_returns_task(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_step5_ollama_fails_fallback_fts5(monkeypatch):
+    """Ollama install fails → user accepts FTS5 fallback → step completes."""
+    state = WizardState(completed_steps=[1, 2, 3, 4])
+    # choice=2 then "y" to accept FTS5 fallback
+    responses = iter(["2", "y"])
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: next(responses))
+    with patch(
+        "src.setup.wizard.install_ollama_foreground",
+        new_callable=AsyncMock,
+        return_value=False,
+    ):
+        await wizard.step_5_search(state)
+    assert state.search_mode == "fts5"
+    assert 5 in state.completed_steps
+
+
+@pytest.mark.asyncio
+async def test_step5_ollama_fails_user_declines_fallback(monkeypatch):
+    """Ollama install fails → user declines FTS5 fallback → step NOT marked done."""
+    state = WizardState(completed_steps=[1, 2, 3, 4])
+    responses = iter(["2", "n"])
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: next(responses))
+    with patch(
+        "src.setup.wizard.install_ollama_foreground",
+        new_callable=AsyncMock,
+        return_value=False,
+    ):
+        await wizard.step_5_search(state)
+    assert 5 not in state.completed_steps
+
+
+@pytest.mark.asyncio
 async def test_step5_skipped_if_done():
     state = WizardState(completed_steps=[1, 2, 3, 4, 5], search_mode="fts5+embedding")
     task = await wizard.step_5_search(state)

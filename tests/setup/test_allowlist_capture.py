@@ -107,28 +107,22 @@ async def test_discord_capture_import_error_returns_none():
 # ── step_3_allowlist — fail-loud behaviour ───────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_step3_empty_allowlist_user_chooses_n_loops_then_provides_id(monkeypatch):
-    """Empty allowlist + user chooses 'n' (refuse allow_all) → loops; second pass enters ID."""
+async def test_step3_empty_allowlist_user_chooses_n_deferred_config(monkeypatch):
+    """Empty allowlist + user refuses allow_all → warns and marks step done (deferred config)."""
     state = WizardState(channels=["discord"], completed_steps=[1, 2], discord_token="tok")
 
-    # First Discord capture: returns None (timeout).
-    # Second Discord capture (after loop): also None, but user types ID manually.
-    capture_calls = [None, None]
-    capture_iter = iter(capture_calls)
-
     async def _fake_discord_capture(token, timeout=30):
-        return next(capture_iter)
+        return None
 
-    # Prompts sequence:
-    # Loop 1: discord manual entry = "" (empty, no digit), fail-loud → n (refuse allow_all)
-    # Loop 2: discord manual entry = "555", exits loop
-    prompt_responses = iter(["", "n", "555", "y"])
+    # Prompts: opt-in = "y" (proceed with capture), manual entry = "" (skip), allow_all = "n"
+    prompt_responses = iter(["y", "", "n"])
     monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: next(prompt_responses))
 
     with patch("src.setup.wizard._capture_discord_user_id", side_effect=_fake_discord_capture):
         await wizard.step_3_allowlist(state)
 
-    assert state.allowed_user_ids == [555]
+    # Step completes even with empty allowlist — deferred config via .env
+    assert state.allowed_user_ids == []
     assert 3 in state.completed_steps
 
 
@@ -140,8 +134,8 @@ async def test_step3_empty_allowlist_user_chooses_y_sets_allow_all(monkeypatch):
     async def _fake_discord_capture(token, timeout=30):
         return None
 
-    # Prompts: manual entry = "" (empty), fail-loud → y (allow all)
-    prompt_responses = iter(["", "y"])
+    # Prompts: opt-in = "y" (proceed with capture), manual entry = "" (skip), allow_all = "y"
+    prompt_responses = iter(["y", "", "y"])
     monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: next(prompt_responses))
 
     with patch("src.setup.wizard._capture_discord_user_id", side_effect=_fake_discord_capture):

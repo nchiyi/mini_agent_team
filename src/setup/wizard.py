@@ -73,31 +73,52 @@ async def step_1_channel(state: WizardState) -> None:
     _hdr(1, "Channel Selection")
     selected: set[str] = set()
 
-    while True:
-        print("")
-        for i, ch in enumerate(_ALL_CHANNELS, 1):
-            mark = "x" if ch in selected else " "
-            print(f"  [{mark}] {i}. {ch.capitalize()}")
-        print("")
-        raw = _prompt("Toggle channels (e.g. 1  or  1 2), Enter to confirm")
-        if not raw:
-            if not selected:
+    try:
+        import questionary as _q
+        _has_questionary = True
+    except ImportError:
+        _has_questionary = False
+
+    if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+        while True:
+            result = _q.checkbox(
+                "Select channels (Space to toggle, Enter to confirm):",
+                choices=[_q.Choice(ch.capitalize(), value=ch) for ch in _ALL_CHANNELS],
+            ).ask()
+            if result is None:
+                print("\nSetup cancelled.")
+                sys.exit(0)
+            if not result:
                 _err("Select at least one channel.")
                 continue
+            selected = set(result)
             break
-        for token in raw.split():
-            if token.isdigit():
-                idx = int(token) - 1
-                if 0 <= idx < len(_ALL_CHANNELS):
-                    ch = _ALL_CHANNELS[idx]
-                    if ch in selected:
-                        selected.discard(ch)
+    else:
+        while True:
+            print("")
+            for i, ch in enumerate(_ALL_CHANNELS, 1):
+                mark = "x" if ch in selected else " "
+                print(f"  [{mark}] {i}. {ch.capitalize()}")
+            print("")
+            raw = _prompt("Toggle channels (e.g. 1  or  1 2), Enter to confirm")
+            if not raw:
+                if not selected:
+                    _err("Select at least one channel.")
+                    continue
+                break
+            for token in raw.split():
+                if token.isdigit():
+                    idx = int(token) - 1
+                    if 0 <= idx < len(_ALL_CHANNELS):
+                        ch = _ALL_CHANNELS[idx]
+                        if ch in selected:
+                            selected.discard(ch)
+                        else:
+                            selected.add(ch)
                     else:
-                        selected.add(ch)
+                        _err(f"Invalid option: {token}")
                 else:
-                    _err(f"Invalid option: {token}")
-            else:
-                _err(f"Invalid input: {token!r}")
+                    _err(f"Invalid input: {token!r}")
 
     state.channels = [ch for ch in _ALL_CHANNELS if ch in selected]
     _ok(f"Channels: {', '.join(state.channels)}")
@@ -301,13 +322,13 @@ async def step_3_allowlist(state: WizardState) -> None:
         _ok(f"Step 3 done (user IDs: {state.allowed_user_ids})")
         return
     set_current_step(state, "allowlist.started")
+    _hdr(3, "Allowlist — Authorised User IDs")
+    collected: list[int] = list(state.allowed_user_ids)
 
-    while True:
-        _hdr(3, "Allowlist — Authorised User IDs")
-        collected: list[int] = list(state.allowed_user_ids)
-
-        # ── Telegram auto-capture ─────────────────────────────────────────────
-        if "telegram" in state.channels and state.telegram_token:
+    # ── Telegram auto-capture ─────────────────────────────────────────────
+    if "telegram" in state.channels and state.telegram_token:
+        use_capture = _prompt("  Auto-capture your Telegram user ID? Send a message to your bot. (Y/n)", "y")
+        if use_capture.lower() != "n":
             uid = await _capture_telegram_user_id(state.telegram_token)
             if uid:
                 confirm = _prompt(f"  Captured: {uid} — Is this you? (y/n)", "y")
@@ -316,16 +337,22 @@ async def step_3_allowlist(state: WizardState) -> None:
                         collected.append(uid)
                     _ok(f"Telegram user ID confirmed: {uid}")
                 else:
-                    raw = _prompt("Enter your Telegram user ID manually")
+                    raw = _prompt("Enter your Telegram user ID manually (or Enter to skip)")
                     if raw.isdigit():
                         collected.append(int(raw))
             else:
-                raw = _prompt("Enter your Telegram user ID manually")
+                raw = _prompt("Enter your Telegram user ID manually (or Enter to skip)")
                 if raw.isdigit():
                     collected.append(int(raw))
+        else:
+            raw = _prompt("Enter your Telegram user ID manually (or Enter to skip)")
+            if raw.isdigit():
+                collected.append(int(raw))
 
-        # ── Discord auto-capture ──────────────────────────────────────────────
-        if "discord" in state.channels and state.discord_token:
+    # ── Discord auto-capture ──────────────────────────────────────────────
+    if "discord" in state.channels and state.discord_token:
+        use_capture = _prompt("  Auto-capture your Discord user ID? Send a message to your bot. (Y/n)", "y")
+        if use_capture.lower() != "n":
             uid = await _capture_discord_user_id(state.discord_token)
             if uid:
                 confirm = _prompt(f"  Captured: {uid} — Is this you? (y/n)", "y")
@@ -334,40 +361,40 @@ async def step_3_allowlist(state: WizardState) -> None:
                         collected.append(uid)
                     _ok(f"Discord user ID confirmed: {uid}")
                 else:
-                    raw = _prompt("Enter your Discord user ID manually")
+                    raw = _prompt("Enter your Discord user ID manually (or Enter to skip)")
                     if raw.isdigit():
                         collected.append(int(raw))
             else:
-                raw = _prompt("Enter your Discord user ID manually")
+                raw = _prompt("Enter your Discord user ID manually (or Enter to skip)")
                 if raw.isdigit():
                     collected.append(int(raw))
-
-        # ── Fallback: neither channel has a token (shouldn't happen normally) ─
-        if not state.channels or (
-            "telegram" not in state.channels and "discord" not in state.channels
-        ):
-            raw = _prompt("Enter your user ID")
+        else:
+            raw = _prompt("Enter your Discord user ID manually (or Enter to skip)")
             if raw.isdigit():
                 collected.append(int(raw))
 
-        state.allowed_user_ids = collected
+    # ── Fallback: neither channel has a token (shouldn't happen normally) ─
+    if not state.channels or (
+        "telegram" not in state.channels and "discord" not in state.channels
+    ):
+        raw = _prompt("Enter your user ID (or Enter to skip)")
+        if raw.isdigit():
+            collected.append(int(raw))
 
-        # ── Fail-loud if still empty ──────────────────────────────────────────
-        if not state.allowed_user_ids:
-            print(f"\n{_Y}⚠ No user IDs set.{_X}")
-            print("  Bot will reject ALL requests unless you set allow_all_users=true.")
-            allow_all = _prompt(
-                "  Allow ALL users? This is dangerous in public servers. (y/n)", "n"
-            )
-            if allow_all.lower() == "y":
-                state.data["allow_all_users"] = True
-                _warn("All users allowed — make sure this is intentional.")
-                break
-            # User said no — loop back to the top of step 3
-            _err("Re-starting step 3. Please provide at least one user ID.")
-            continue
+    state.allowed_user_ids = collected
 
-        break
+    # ── Handle empty allowlist gracefully — deferred config ──────────────
+    if not state.allowed_user_ids:
+        print(f"\n{_Y}⚠ No user IDs set.{_X}")
+        print("  Bot will reject ALL requests unless you set allow_all_users=true.")
+        allow_all = _prompt(
+            "  Allow ALL users? This is dangerous in public servers. (y/n)", "n"
+        )
+        if allow_all.lower() == "y":
+            state.data["allow_all_users"] = True
+            _warn("All users allowed — make sure this is intentional.")
+        else:
+            _warn("No user IDs configured — edit secrets/.env to add ALLOWED_USER_IDS before starting the bot.")
 
     mark_micro_step_done(state, "allowlist.done")
 
@@ -514,13 +541,19 @@ async def step_5_search(state: WizardState) -> None:
     print("  2. FTS5 + embedding (Ollama ~500MB — foreground install)")
     choice = _prompt("Choose", "1")
     if choice == "2":
-        state.search_mode = "fts5+embedding"
         print("  Installing Ollama (~500MB) — this will take a few minutes...")
         ok = await install_ollama_foreground()
         if not ok:
-            _err("Ollama install failed. Fix above and re-run, or choose FTS5 only.")
-            sys.exit(1)
-        _ok("Ollama installed")
+            _err("Ollama install failed.")
+            fallback = _prompt("  Continue with FTS5-only search? (Y/n)", "y")
+            if fallback.lower() == "n":
+                _warn("Search mode left unset — re-run setup or run /config later.")
+                return
+            state.search_mode = "fts5"
+            _warn("Falling back to FTS5. Embedding search disabled.")
+        else:
+            state.search_mode = "fts5+embedding"
+            _ok("Ollama installed")
         mark_micro_step_done(state, "search_mode.done")
         return
     state.search_mode = "fts5"
