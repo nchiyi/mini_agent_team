@@ -8,8 +8,8 @@ from src.setup.state import load_state, save_state, reset_state, detect_mode
 from src.setup.state import is_micro_step_done, mark_micro_step_done, set_current_step
 from src.setup.validator import validate_telegram_token, validate_discord_token
 from src.setup.installer import (
-    is_cli_installed, install_cli, install_cli_foreground,
-    install_ollama, install_ollama_foreground, progress_reporter,
+    is_cli_installed, install_cli_foreground,
+    install_ollama_foreground,
     _CLI_SIZES,
     ACP_PACKAGES, is_acp_installed, install_acp_foreground, is_npm_available,
 )
@@ -21,8 +21,6 @@ from src.setup.deploy import (
 from src.setup.config_writer import write_config_with_diff, write_env_with_diff
 from src.setup.preflight import run_preflight
 from src.setup.smoke_test import run_smoke_test
-
-_background_tasks: set[asyncio.Task] = set()
 
 _G = "\033[32m"
 _Y = "\033[33m"
@@ -377,10 +375,10 @@ async def step_3_allowlist(state: WizardState) -> None:
 _ALL_CLIS = ["claude", "codex", "gemini", "kiro"]
 
 
-async def step_4_clis(state: WizardState) -> list[asyncio.Task]:
+async def step_4_clis(state: WizardState) -> None:
     if is_micro_step_done(state, "cli_select.done"):
         _ok(f"Step 4 done (CLIs: {state.selected_clis})")
-        return []
+        return
     set_current_step(state, "cli_select.started")
     _hdr(4, "CLI Tools")
     for cli in _ALL_CLIS:
@@ -414,7 +412,6 @@ async def step_4_clis(state: WizardState) -> list[asyncio.Task]:
                 sys.exit(1)
             _ok(f"{cli} installed")
     mark_micro_step_done(state, "cli_select.done")
-    return []
 
 
 async def step_4_5_acp(state: WizardState) -> None:
@@ -507,10 +504,10 @@ async def step_4_5_acp(state: WizardState) -> None:
         _warn("若後續使用相關功能，請先手動安裝上述套件")
 
 
-async def step_5_search(state: WizardState) -> asyncio.Task | None:
+async def step_5_search(state: WizardState) -> None:
     if is_micro_step_done(state, "search_mode.done"):
         _ok(f"Step 5 done (search: {state.search_mode})")
-        return None
+        return
     set_current_step(state, "search_mode.started")
     _hdr(5, "Search Mode")
     print("  1. FTS5 keyword search (default, no extra install)")
@@ -525,11 +522,10 @@ async def step_5_search(state: WizardState) -> asyncio.Task | None:
             sys.exit(1)
         _ok("Ollama installed")
         mark_micro_step_done(state, "search_mode.done")
-        return None
+        return
     state.search_mode = "fts5"
     _ok("Search mode: FTS5")
     mark_micro_step_done(state, "search_mode.done")
-    return None
 
 
 _OPTIONAL_GROUPS: list[tuple[str, str, list[str]]] = [
@@ -724,19 +720,12 @@ def _print_completion_foreground(cwd: str) -> None:
 async def step_9_launch(
     state: WizardState,
     cwd: str,
-    bg_tasks: list[asyncio.Task],
 ) -> None:
     if is_micro_step_done(state, "launch.done"):
         _ok("Already configured — skipping launch step.")
         return
     set_current_step(state, "launch.started")
     _hdr(9, "Writing config and launching")
-    if bg_tasks:
-        print("  Waiting for background installs to complete...")
-        results = await asyncio.gather(*bg_tasks, return_exceptions=True)
-        for r in results:
-            if isinstance(r, Exception):
-                _warn(f"Background install error: {r}")
     create_data_dirs(cwd)
     runners = state.selected_clis or ["claude"]
     # Build config content using same template as deploy.py
@@ -901,8 +890,6 @@ async def run_wizard(
         return
 
     # fresh / resume / reset all run the full wizard (steps skip if done)
-    bg_tasks: list[asyncio.Task] = []
-
     await run_preflight(cwd)
     await step_1_channel(state)
     save_state(state, state_path)
@@ -910,14 +897,11 @@ async def run_wizard(
     save_state(state, state_path)
     await step_3_allowlist(state)
     save_state(state, state_path)
-    cli_tasks = await step_4_clis(state)
-    bg_tasks.extend(cli_tasks)
+    await step_4_clis(state)
     save_state(state, state_path)
     await step_4_5_acp(state)
     save_state(state, state_path)
-    ollama_task = await step_5_search(state)
-    if ollama_task:
-        bg_tasks.append(ollama_task)
+    await step_5_search(state)
     save_state(state, state_path)
     await step_6_optional(state)
     save_state(state, state_path)
@@ -925,7 +909,7 @@ async def run_wizard(
     save_state(state, state_path)
     await step_8_deploy(state, cwd=cwd)
     save_state(state, state_path)
-    await step_9_launch(state, cwd, bg_tasks)
+    await step_9_launch(state, cwd)
 
 
 if __name__ == "__main__":

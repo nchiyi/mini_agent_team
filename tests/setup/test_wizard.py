@@ -147,9 +147,8 @@ async def test_step4_selects_clis(monkeypatch):
     monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: "claude,codex")
     # is_cli_installed now returns (bool, version_str)
     with patch("src.setup.wizard.is_cli_installed", return_value=(True, "v1.0")):
-        tasks = await wizard.step_4_clis(state)
+        await wizard.step_4_clis(state)
     assert state.selected_clis == ["claude", "codex"]
-    assert tasks == []  # all installed, no install tasks
     assert 4 in state.completed_steps
 
 
@@ -164,9 +163,7 @@ async def test_step4_queues_install_for_missing(monkeypatch):
             new_callable=AsyncMock,
             return_value=True,
         ):
-            tasks = await wizard.step_4_clis(state)
-    # Foreground installs: step_4 always returns []
-    assert tasks == []
+            await wizard.step_4_clis(state)
     assert "claude" in state.selected_clis
 
 
@@ -182,8 +179,7 @@ async def test_step4_defaults_to_claude_on_empty(monkeypatch):
 @pytest.mark.asyncio
 async def test_step4_skipped_if_done():
     state = WizardState(completed_steps=[1, 2, 3, 4], selected_clis=["codex"])
-    tasks = await wizard.step_4_clis(state)
-    assert tasks == []
+    await wizard.step_4_clis(state)
     assert state.selected_clis == ["codex"]
 
 
@@ -404,9 +400,9 @@ async def test_run_wizard_reset_clears_state(tmp_path):
          patch("src.setup.wizard.step_1_channel", new_callable=AsyncMock) as mock_s1, \
          patch("src.setup.wizard.step_2_token", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_3_allowlist", new_callable=AsyncMock), \
-         patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock, return_value=[]), \
+         patch("src.setup.wizard.step_4_clis", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_4_5_acp", new_callable=AsyncMock), \
-         patch("src.setup.wizard.step_5_search", new_callable=AsyncMock, return_value=None), \
+         patch("src.setup.wizard.step_5_search", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_6_optional", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_7_updates", new_callable=AsyncMock), \
          patch("src.setup.wizard.step_8_deploy", new_callable=AsyncMock), \
@@ -440,7 +436,7 @@ async def test_step8_writes_config_and_env(tmp_path):
          patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
          patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=False), \
          patch("sys.exit"):
-        await wizard.step_9_launch(state, str(tmp_path), [])
+        await wizard.step_9_launch(state, str(tmp_path))
     mock_cfg.assert_called_once()
     mock_env.assert_called_once()
     # New API: write_env_with_diff receives (path, content_str, label=...)
@@ -475,7 +471,7 @@ async def test_step8_allow_all_users_written_to_env(tmp_path):
          patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
          patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=False), \
          patch("sys.exit"):
-        await wizard.step_9_launch(state, str(tmp_path), [])
+        await wizard.step_9_launch(state, str(tmp_path))
 
     env_content = mock_env.call_args[0][1]
     assert "ALLOW_ALL_USERS" in env_content
@@ -506,7 +502,7 @@ async def test_step8_allow_all_users_not_written_when_false(tmp_path):
          patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
          patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=False), \
          patch("sys.exit"):
-        await wizard.step_9_launch(state, str(tmp_path), [])
+        await wizard.step_9_launch(state, str(tmp_path))
 
     env_content = mock_env.call_args[0][1]
     assert "ALLOW_ALL_USERS" not in env_content
@@ -535,7 +531,7 @@ async def test_step8_systemd_calls_systemctl(tmp_path):
          patch("subprocess.run") as mock_run, \
          patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
          patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=True):
-        await wizard.step_9_launch(state, str(tmp_path), [])
+        await wizard.step_9_launch(state, str(tmp_path))
     mock_unit.assert_called_once()
     assert mock_run.call_count >= 1
 
@@ -563,6 +559,6 @@ async def test_step8_docker_calls_compose(tmp_path):
          patch("subprocess.run") as mock_run, \
          patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
          patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=True):
-        await wizard.step_9_launch(state, str(tmp_path), [])
+        await wizard.step_9_launch(state, str(tmp_path))
     mock_dc.assert_called_once()
     mock_run.assert_called_once()
