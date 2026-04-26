@@ -121,7 +121,7 @@ pip install --quiet --upgrade pip
 # requirements.txt is a pip-compile lock file for Linux x86_64.
 # On macOS some wheels (e.g. onnxruntime) are not available at the pinned
 # version, so we fall back to requirements.in (unpinned) on that platform.
-if [[ "$OSTYPE" == "darwin"* ]]; then
+if [ "$(uname -s)" = "Darwin" ]; then
     echo "ℹ️   macOS detected — installing from requirements.in (platform-flexible)"
     pip install --quiet -r requirements.in
 else
