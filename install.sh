@@ -118,7 +118,15 @@ echo "✅  Virtual environment active"
 # ── 4. dependencies ───────────────────────
 echo "📦  Installing dependencies..."
 pip install --quiet --upgrade pip
-pip install --quiet -r requirements.txt
+# requirements.txt is a pip-compile lock file for Linux x86_64.
+# On macOS some wheels (e.g. onnxruntime) are not available at the pinned
+# version, so we fall back to requirements.in (unpinned) on that platform.
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "ℹ️   macOS detected — installing from requirements.in (platform-flexible)"
+    pip install --quiet -r requirements.in
+else
+    pip install --quiet -r requirements.txt
+fi
 echo "✅  Dependencies installed"
 
 # ── 5. ACP packages ───────────────────────────────────────────────
