@@ -3,9 +3,9 @@ import os
 import subprocess
 import sys
 
-from src.setup.state import WizardState, is_step_done, mark_step_done
+from src.setup.state import WizardState
 from src.setup.state import load_state, save_state, reset_state, detect_mode
-from src.setup.state import is_micro_step_done, mark_micro_step_done
+from src.setup.state import is_micro_step_done, mark_micro_step_done, set_current_step
 from src.setup.validator import validate_telegram_token, validate_discord_token
 from src.setup.installer import (
     is_cli_installed, install_cli, install_cli_foreground,
@@ -68,9 +68,10 @@ _ALL_CHANNELS = ["telegram", "discord"]
 
 
 async def step_1_channel(state: WizardState) -> None:
-    if is_step_done(state, 1):
+    if is_micro_step_done(state, "channel_select.done"):
         _ok(f"Step 1 done (channels: {', '.join(state.channels)})")
         return
+    set_current_step(state, "channel_select.started")
     _hdr(1, "Channel Selection")
     selected: set[str] = set()
 
@@ -113,7 +114,7 @@ async def step_1_channel(state: WizardState) -> None:
         print("    → New Application → Bot → Reset Token → copy token")
         print("    Enable: Message Content Intent + Server Members Intent")
 
-    mark_step_done(state, 1)
+    mark_micro_step_done(state, "channel_select.done")
 
 
 def _error_message_telegram(result) -> str:
@@ -139,9 +140,10 @@ def _error_message_discord(result) -> str:
 
 
 async def step_2_token(state: WizardState) -> None:
-    if is_step_done(state, 2):
+    if is_micro_step_done(state, "token_validation.done"):
         _ok("Step 2 done (tokens validated)")
         return
+    set_current_step(state, "token_validation.started")
     _hdr(2, "Bot Token")
     if "telegram" in state.channels:
         _attempts = 0
@@ -211,7 +213,7 @@ async def step_2_token(state: WizardState) -> None:
                 break
             _attempts += 1
             _err(_error_message_discord(result))
-    mark_step_done(state, 2)
+    mark_micro_step_done(state, "token_validation.done")
 
 
 async def _capture_telegram_user_id(token: str, timeout: int = 30) -> int | None:
@@ -297,9 +299,10 @@ async def _capture_discord_user_id(token: str, timeout: int = 30) -> int | None:
 
 
 async def step_3_allowlist(state: WizardState) -> None:
-    if is_step_done(state, 3):
+    if is_micro_step_done(state, "allowlist.done"):
         _ok(f"Step 3 done (user IDs: {state.allowed_user_ids})")
         return
+    set_current_step(state, "allowlist.started")
 
     while True:
         _hdr(3, "Allowlist — Authorised User IDs")
@@ -368,16 +371,17 @@ async def step_3_allowlist(state: WizardState) -> None:
 
         break
 
-    mark_step_done(state, 3)
+    mark_micro_step_done(state, "allowlist.done")
 
 
 _ALL_CLIS = ["claude", "codex", "gemini", "kiro"]
 
 
 async def step_4_clis(state: WizardState) -> list[asyncio.Task]:
-    if is_step_done(state, 4):
+    if is_micro_step_done(state, "cli_select.done"):
         _ok(f"Step 4 done (CLIs: {state.selected_clis})")
         return []
+    set_current_step(state, "cli_select.started")
     _hdr(4, "CLI Tools")
     for cli in _ALL_CLIS:
         installed, version = is_cli_installed(cli)
@@ -409,7 +413,7 @@ async def step_4_clis(state: WizardState) -> list[asyncio.Task]:
                 _err(f"Failed to install {cli}. Fix the error above and re-run setup.")
                 sys.exit(1)
             _ok(f"{cli} installed")
-    mark_step_done(state, 4)
+    mark_micro_step_done(state, "cli_select.done")
     return []
 
 
@@ -504,9 +508,10 @@ async def step_4_5_acp(state: WizardState) -> None:
 
 
 async def step_5_search(state: WizardState) -> asyncio.Task | None:
-    if is_step_done(state, 5):
+    if is_micro_step_done(state, "search_mode.done"):
         _ok(f"Step 5 done (search: {state.search_mode})")
         return None
+    set_current_step(state, "search_mode.started")
     _hdr(5, "Search Mode")
     print("  1. FTS5 keyword search (default, no extra install)")
     print("  2. FTS5 + embedding (Ollama ~500MB — foreground install)")
@@ -519,11 +524,11 @@ async def step_5_search(state: WizardState) -> asyncio.Task | None:
             _err("Ollama install failed. Fix above and re-run, or choose FTS5 only.")
             sys.exit(1)
         _ok("Ollama installed")
-        mark_step_done(state, 5)
+        mark_micro_step_done(state, "search_mode.done")
         return None
     state.search_mode = "fts5"
     _ok("Search mode: FTS5")
-    mark_step_done(state, 5)
+    mark_micro_step_done(state, "search_mode.done")
     return None
 
 
@@ -555,9 +560,10 @@ async def _pip_install(packages: list[str]) -> bool:
 
 
 async def step_6_optional(state: WizardState) -> None:
-    if is_step_done(state, 6):
+    if is_micro_step_done(state, "optional_packages.done"):
         _ok(f"Step 6 done (optional: {state.optional_packages or 'none'})")
         return
+    set_current_step(state, "optional_packages.started")
     _hdr(6, "Optional Features")
     selected: set[str] = set()
 
@@ -609,26 +615,28 @@ async def step_6_optional(state: WizardState) -> None:
     else:
         _ok("No optional packages selected")
 
-    mark_step_done(state, 6)
+    mark_micro_step_done(state, "optional_packages.done")
 
 
 async def step_7_updates(state: WizardState) -> None:
-    if is_step_done(state, 7):
+    if is_micro_step_done(state, "update_notifications.done"):
         _ok(f"Step 7 done (update notifications: {state.update_notifications})")
         return
+    set_current_step(state, "update_notifications.started")
     _hdr(7, "Update Notifications")
     print("  Check for new GitHub releases on startup and print a notice.")
     print("  (Never auto-updates — you control when to update.)")
     choice = _prompt("Enable? (y/n)", "y")
     state.update_notifications = choice.lower() != "n"
     _ok(f"Update notifications: {'on' if state.update_notifications else 'off'}")
-    mark_step_done(state, 7)
+    mark_micro_step_done(state, "update_notifications.done")
 
 
 async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
-    if is_step_done(state, 8):
+    if is_micro_step_done(state, "deploy_mode.done"):
         _ok(f"Step 8 done (deploy: {state.deploy_mode})")
         return
+    set_current_step(state, "deploy_mode.started")
     _hdr(8, "Deploy Mode")
     print("  1. foreground  — run in terminal (Ctrl-C to stop)")
     print("  2. systemd     — user service, auto-restart, survives logout")
@@ -668,7 +676,7 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
             state.deploy_mode = "foreground"
             break
     _ok(f"Deploy mode: {state.deploy_mode}")
-    mark_step_done(state, 8)
+    mark_micro_step_done(state, "deploy_mode.done")
 
 
 def _print_completion_systemd(cwd: str) -> None:
@@ -718,9 +726,10 @@ async def step_9_launch(
     cwd: str,
     bg_tasks: list[asyncio.Task],
 ) -> None:
-    if is_step_done(state, 9):
+    if is_micro_step_done(state, "launch.done"):
         _ok("Already configured — skipping launch step.")
         return
+    set_current_step(state, "launch.started")
     _hdr(9, "Writing config and launching")
     if bg_tasks:
         print("  Waiting for background installs to complete...")
@@ -771,7 +780,7 @@ async def step_9_launch(
         _env_content,
         label=".env",
     )
-    mark_step_done(state, 9)
+    mark_micro_step_done(state, "launch.done")
     if state.deploy_mode == "systemd":
         write_systemd_unit(cwd)
         r1 = subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
