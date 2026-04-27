@@ -68,19 +68,19 @@ async def wait_for_bot_ready(
     """
     Read proc stdout/stderr and return (ready, conflict_detected).
 
-    ready is True when a ready signal is found (case-insensitive):
-      - "bot started" / "gateway ready" / "polling started" / "connected to discord"
+    Handles long-running containers whose --tail=50 history may contain old
+    409 Conflict errors followed by 200 OK recoveries:
+    - conflict flag is reset if 2 consecutive 200 OK responses appear after it
+    - ready signal (startup message) always wins immediately
 
-    conflict_detected is True when a Telegram 409 Conflict message is seen,
-    meaning another bot instance is already polling with the same token.
-
-    Returns (False, False) if *timeout* seconds elapse without any signal.
-    The stream is NOT closed by this function — the caller keeps reading.
+    Returns (False, True)  on unresolved conflict after timeout.
+    Returns (False, False) on timeout with no signal.
     """
     if proc.stdout is None:
         return False, False
 
     conflict = False
+    successes_after_conflict = 0
     try:
         async with asyncio.timeout(timeout):
             async for raw in proc.stdout:
@@ -90,8 +90,14 @@ async def wait_for_bot_ready(
                 lower = line.lower()
                 if any(sig in lower for sig in _CONFLICT_SIGNALS):
                     conflict = True
+                    successes_after_conflict = 0
+                elif conflict and "200 ok" in lower:
+                    successes_after_conflict += 1
+                    if successes_after_conflict >= 2:
+                        # Bot recovered from a historical conflict — treat as ready
+                        return True, False
                 if any(sig in lower for sig in _READY_SIGNALS):
-                    return True, conflict
+                    return True, False
     except TimeoutError:
         return False, conflict
     except (asyncio.CancelledError, GeneratorExit):

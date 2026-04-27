@@ -43,6 +43,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
+# httpx logs every HTTP request at INFO level, including the full URL which
+# contains the Telegram bot token. Suppress to WARNING to prevent token leakage.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("main")
 
 # Backward-compat re-export so tests importing `from main import dispatch` keep working
