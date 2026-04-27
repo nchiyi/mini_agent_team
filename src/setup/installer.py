@@ -78,6 +78,37 @@ async def install_cli_foreground(name: str) -> bool:
         return False
 
 
+async def install_docker_foreground() -> bool:
+    """Install Docker Desktop (macOS via Homebrew) or Docker Engine (Linux via official script).
+
+    Returns True on success, False on failure or unsupported platform.
+    """
+    import sys
+    try:
+        if sys.platform == "darwin":
+            brew = shutil.which("brew")
+            if not brew:
+                return False
+            proc = await asyncio.create_subprocess_exec(
+                brew, "install", "--cask", "docker",
+                stdout=None,
+                stderr=None,
+            )
+            await proc.wait()
+            return proc.returncode == 0
+        else:
+            # Linux: official Docker install script
+            proc = await asyncio.create_subprocess_exec(
+                "bash", "-c", "curl -fsSL https://get.docker.com | sh",
+                stdout=None,
+                stderr=None,
+            )
+            await proc.wait()
+            return proc.returncode == 0
+    except (FileNotFoundError, PermissionError, OSError):
+        return False
+
+
 async def install_ollama_foreground() -> bool:
     """Install Ollama and pull the embedding model, streaming output to the terminal.
 

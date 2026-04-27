@@ -9,7 +9,7 @@ from src.setup.state import is_micro_step_done, mark_micro_step_done, set_curren
 from src.setup.validator import validate_telegram_token, validate_discord_token
 from src.setup.installer import (
     is_cli_installed, install_cli_foreground,
-    install_ollama_foreground,
+    install_ollama_foreground, install_docker_foreground,
     _CLI_SIZES,
     ACP_PACKAGES, is_acp_installed, install_acp_foreground, is_npm_available,
 )
@@ -793,15 +793,45 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
             # Pre-validate: Docker is installed and daemon is running
             try:
                 r = subprocess.run(["docker", "info"], capture_output=True)
+                docker_found = True
             except FileNotFoundError:
-                _err("Docker not found. Install Docker Desktop first:")
-                _err("  https://docs.docker.com/desktop/mac/install/  (macOS)")
-                _err("  https://docs.docker.com/engine/install/       (Linux)")
-                continue
+                docker_found = False
+
+            if not docker_found:
+                _err("Docker not found.")
+                if sys.platform == "darwin":
+                    hint = "brew install --cask docker  (requires Homebrew)"
+                else:
+                    hint = "curl -fsSL https://get.docker.com | sh"
+                ans = _prompt(f"Auto-install Docker? ({hint}) (Y/n)", "y")
+                if ans.lower() != "n":
+                    print("  Installing Docker...")
+                    ok = await install_docker_foreground()
+                    if ok:
+                        _ok("Docker installed")
+                        if sys.platform == "darwin":
+                            _warn("Launch Docker Desktop, wait for it to start, then press Enter.")
+                            _prompt("Press Enter when Docker Desktop is running")
+                    else:
+                        if sys.platform == "darwin" and not __import__("shutil").which("brew"):
+                            _err("Homebrew not found. Install from https://brew.sh then retry.")
+                        else:
+                            _err("Auto-install failed. Install Docker manually and try again.")
+                        continue
+                else:
+                    _err("Docker required for this deploy mode. Choose a different option.")
+                    continue
+                # Re-check after install
+                try:
+                    r = subprocess.run(["docker", "info"], capture_output=True)
+                except FileNotFoundError:
+                    _err("Docker still not found after install. Try again after restarting your terminal.")
+                    continue
+
             if r.returncode != 0:
                 _err("Docker daemon not running.")
                 if sys.platform == "darwin":
-                    _err("Start Docker Desktop, then try again.")
+                    _err("Launch Docker Desktop and wait for it to be ready, then try again.")
                 else:
                     _err("Fix: sudo systemctl start docker")
                 continue
