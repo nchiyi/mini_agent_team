@@ -81,10 +81,10 @@ async def step_1_channel(state: WizardState) -> None:
 
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
         while True:
-            result = _q.checkbox(
+            result = await _q.checkbox(
                 "Select channels (Space to toggle, Enter to confirm):",
                 choices=[_q.Choice(ch.capitalize(), value=ch) for ch in _ALL_CHANNELS],
-            ).ask()
+            ).ask_async()
             if result is None:
                 print("\nSetup cancelled.")
                 sys.exit(0)
@@ -464,10 +464,10 @@ async def step_4_5_acp(state: WizardState) -> None:
     ]
 
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
-        result = _q.select(
+        result = await _q.select(
             "這些 AI 你希望怎麼合作？",
             choices=[_q.Choice(label, value=val) for val, label in _acp_choices],
-        ).ask()
+        ).ask_async()
         raw = result if result is not None else "1"
     else:
         print("這些 AI 你希望怎麼合作？\n")
@@ -564,13 +564,13 @@ async def step_5_search(state: WizardState) -> None:
         _has_questionary = False
 
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
-        result = _q.select(
+        result = await _q.select(
             "Search mode:",
             choices=[
                 _q.Choice("FTS5 keyword search  (default, no extra install)", value="1"),
                 _q.Choice("FTS5 + embedding  (Ollama ~500MB — foreground install)", value="2"),
             ],
-        ).ask()
+        ).ask_async()
         choice = result if result is not None else "1"
     else:
         print("  1. FTS5 keyword search (default, no extra install)")
@@ -650,10 +650,10 @@ async def step_6_optional(state: WizardState) -> None:
         for key, label, size, pkgs in _OPTIONAL_GROUPS:
             status = "installed" if all(_pkg_installed(p) for p in pkgs) else "not installed"
             choices.append(_q.Choice(f"{label}  ({size})  — {status}", value=key))
-        result = _q.checkbox(
+        result = await _q.checkbox(
             "Select optional features (Space to toggle, Enter to confirm, default: none):",
             choices=choices,
-        ).ask()
+        ).ask_async()
         if result is None:
             print("\nSetup cancelled.")
             sys.exit(0)
@@ -736,7 +736,7 @@ async def step_7_updates(state: WizardState) -> None:
         _has_questionary = False
 
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
-        result = _q.confirm("Enable update notifications?", default=True).ask()
+        result = await _q.confirm("Enable update notifications?", default=True).ask_async()
         state.update_notifications = result if result is not None else True
     else:
         choice = _prompt("Enable? (y/n)", "y")
@@ -766,10 +766,10 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
 
     while True:
         if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
-            result = _q.select(
+            result = await _q.select(
                 "Deploy mode:",
                 choices=[_q.Choice(label, value=val) for val, label in _deploy_choices],
-            ).ask()
+            ).ask_async()
             choice = result if result is not None else "1"
         else:
             print("  1. foreground  — run in terminal (Ctrl-C to stop)")
