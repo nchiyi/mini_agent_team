@@ -749,22 +749,17 @@ async def step_7_updates(state: WizardState) -> None:
 
 
 async def _wait_for_docker(timeout: int = 60) -> bool:
-    """Poll `docker info` every 2s until it succeeds or timeout is reached."""
+    """Poll `docker info` every 2s silently until it succeeds or timeout is reached."""
     import time
     deadline = time.monotonic() + timeout
-    attempt = 0
     while time.monotonic() < deadline:
-        attempt += 1
         try:
             r = subprocess.run(["docker", "info"], capture_output=True)
             if r.returncode == 0:
                 return True
         except FileNotFoundError:
             return False
-        remaining = int(deadline - time.monotonic())
-        print(f"  Waiting for Docker daemon... ({remaining}s remaining)", end="\r", flush=True)
         await asyncio.sleep(2)
-    print()  # newline after the \r line
     return False
 
 
