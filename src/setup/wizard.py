@@ -1030,7 +1030,7 @@ async def step_9_launch(
         print("  Running smoke test via docker logs…")
         docker_proc = await asyncio.create_subprocess_exec(
             "docker", "compose", "-f", os.path.join(cwd, "docker-compose.yml"),
-            "logs", "-f", "--tail=0",
+            "logs", "-f", "--tail=50",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )

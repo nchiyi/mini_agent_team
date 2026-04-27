@@ -110,7 +110,15 @@ async def install_colima_foreground() -> bool:
         await proc.wait()
         if proc.returncode != 0:
             return False
-        colima = shutil.which("colima") or "/opt/homebrew/bin/colima" or "/usr/local/bin/colima"
+        colima = shutil.which("colima")
+        if not colima:
+            import os as _os
+            for _c in ("/opt/homebrew/bin/colima", "/usr/local/bin/colima"):
+                if _os.path.isfile(_c):
+                    colima = _c
+                    break
+            else:
+                colima = "/opt/homebrew/bin/colima"
         proc2 = await asyncio.create_subprocess_exec(
             colima, "start",
             stdout=None,
