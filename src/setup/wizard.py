@@ -748,6 +748,26 @@ async def step_7_updates(state: WizardState) -> None:
     mark_micro_step_done(state, "update_notifications.done")
 
 
+async def _wait_for_docker(timeout: int = 60) -> bool:
+    """Poll `docker info` every 2s until it succeeds or timeout is reached."""
+    import time
+    deadline = time.monotonic() + timeout
+    attempt = 0
+    while time.monotonic() < deadline:
+        attempt += 1
+        try:
+            r = subprocess.run(["docker", "info"], capture_output=True)
+            if r.returncode == 0:
+                return True
+        except FileNotFoundError:
+            return False
+        remaining = int(deadline - time.monotonic())
+        print(f"  Waiting for Docker daemon... ({remaining}s remaining)", end="\r", flush=True)
+        await asyncio.sleep(2)
+    print()  # newline after the \r line
+    return False
+
+
 async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
     if is_micro_step_done(state, "deploy_mode.done"):
         _ok(f"Step 8 done (deploy: {state.deploy_mode})")
@@ -807,34 +827,37 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
                 if ans.lower() != "n":
                     print("  Installing Docker...")
                     ok = await install_docker_foreground()
-                    if ok:
-                        _ok("Docker installed")
-                        if sys.platform == "darwin":
-                            _warn("Launch Docker Desktop, wait for it to start, then press Enter.")
-                            _prompt("Press Enter when Docker Desktop is running")
-                    else:
+                    if not ok:
                         if sys.platform == "darwin" and not __import__("shutil").which("brew"):
                             _err("Homebrew not found. Install from https://brew.sh then retry.")
                         else:
                             _err("Auto-install failed. Install Docker manually and try again.")
                         continue
+                    _ok("Docker installed")
                 else:
                     _err("Docker required for this deploy mode. Choose a different option.")
                     continue
-                # Re-check after install
-                try:
-                    r = subprocess.run(["docker", "info"], capture_output=True)
-                except FileNotFoundError:
-                    _err("Docker still not found after install. Try again after restarting your terminal.")
-                    continue
+
+            # At this point docker binary exists; check if daemon is running.
+            # On macOS, Docker Desktop may need to be launched manually.
+            try:
+                r = subprocess.run(["docker", "info"], capture_output=True)
+            except FileNotFoundError:
+                _err("Docker binary not found. Restart your terminal and try again.")
+                continue
 
             if r.returncode != 0:
-                _err("Docker daemon not running.")
                 if sys.platform == "darwin":
-                    _err("Launch Docker Desktop and wait for it to be ready, then try again.")
+                    _warn("Docker Desktop is not running. Please launch it now.")
+                    _prompt("Press Enter to start polling (we'll wait up to 60s)")
                 else:
-                    _err("Fix: sudo systemctl start docker")
-                continue
+                    _warn("Docker daemon not running. Starting: sudo systemctl start docker")
+                    subprocess.run(["sudo", "systemctl", "start", "docker"], check=False)
+                ready = await _wait_for_docker(timeout=60)
+                if not ready:
+                    _err("Docker daemon not ready after 60s. Make sure Docker Desktop is running, then try again.")
+                    continue
+
             state.deploy_mode = "docker"
             break
         else:
