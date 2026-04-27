@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -47,6 +48,14 @@ RESULT_FAILED = "failed"
 
 _VERIFICATION_MSG = "Setup complete, reply 'ok' to verify"
 
+# Redact bot tokens from log lines before printing to terminal.
+# Telegram tokens look like: 123456789:ABCdef...
+_TOKEN_RE = re.compile(r'/bot\d{5,15}:[A-Za-z0-9_-]{35,}/')
+
+
+def _redact(line: str) -> str:
+    return _TOKEN_RE.sub('/bot[REDACTED]/', line)
+
 
 # ---------------------------------------------------------------------------
 # 1. wait_for_bot_ready
@@ -76,7 +85,7 @@ async def wait_for_bot_ready(
         async with asyncio.timeout(timeout):
             async for raw in proc.stdout:
                 line = raw.decode(errors="replace").rstrip()
-                sys.stdout.write(f"  {line}\n")
+                sys.stdout.write(f"  {_redact(line)}\n")
                 sys.stdout.flush()
                 lower = line.lower()
                 if any(sig in lower for sig in _CONFLICT_SIGNALS):

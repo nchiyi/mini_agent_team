@@ -770,11 +770,18 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
     set_current_step(state, "deploy_mode.started")
     _hdr(8, "Deploy Mode")
 
-    _deploy_choices = [
-        ("1", "foreground  — run in terminal (Ctrl-C to stop)"),
-        ("2", "systemd     — user service, auto-restart, survives logout"),
-        ("3", "docker      — docker compose (requires Docker)"),
-    ]
+    _on_mac = sys.platform == "darwin"
+    if _on_mac:
+        _deploy_choices = [
+            ("1", "foreground  — run in terminal (Ctrl-C to stop)"),
+            ("3", "docker      — docker compose (requires Docker)"),
+        ]
+    else:
+        _deploy_choices = [
+            ("1", "foreground  — run in terminal (Ctrl-C to stop)"),
+            ("2", "systemd     — user service, auto-restart, survives logout"),
+            ("3", "docker      — docker compose (requires Docker)"),
+        ]
 
     while True:
         if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
@@ -788,7 +795,8 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
             choice = result
         else:
             print("  1. foreground  — run in terminal (Ctrl-C to stop)")
-            print("  2. systemd     — user service, auto-restart, survives logout")
+            if not _on_mac:
+                print("  2. systemd     — user service, auto-restart, survives logout")
             print("  3. docker      — docker compose (requires Docker)")
             choice = _prompt("Choose", "1")
         if choice == "2":
@@ -1015,6 +1023,24 @@ async def step_9_launch(
             _err("Smoke test failed — bot did not respond. Check logs above.")
             sys.exit(1)
     elif state.deploy_mode == "docker":
+        # Guard: stop any direct python main.py processes that would cause 409 Conflict
+        _pgrep = subprocess.run(
+            ["pgrep", "-f", "python.*main\\.py"],
+            capture_output=True,
+        )
+        if _pgrep.returncode == 0:
+            pids = _pgrep.stdout.decode().strip().split()
+            _warn(f"Found running bot process(es): {', '.join(pids)}")
+            _warn("These must be stopped before Docker mode to avoid Telegram 409 Conflict.")
+            ans = _prompt("Stop them now? (Y/n)", "y").strip().lower()
+            if ans in ("", "y", "yes"):
+                subprocess.run(["pkill", "-f", "python.*main\\.py"], check=False)
+                import time as _time; _time.sleep(2)
+                _ok("Stopped existing bot processes.")
+            else:
+                _err("Cannot proceed — stop the duplicate processes manually first.")
+                return
+
         write_docker_compose(cwd)
         try:
             r = subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
