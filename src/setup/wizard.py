@@ -20,7 +20,7 @@ from src.setup.deploy import (
 )
 from src.setup.config_writer import write_config_with_diff, write_env_with_diff
 from src.setup.preflight import run_preflight
-from src.setup.smoke_test import run_smoke_test
+from src.setup.smoke_test import run_smoke_test, RESULT_OK, RESULT_CONFLICT
 
 try:
     import questionary as _q
@@ -1002,10 +1002,15 @@ async def step_9_launch(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        ok = await run_smoke_test(state, journal_proc)
+        result = await run_smoke_test(state, journal_proc)
         journal_proc.terminate()
-        if ok:
+        if result == RESULT_OK:
             _print_completion_systemd(cwd)
+        elif result == RESULT_CONFLICT:
+            _err("Telegram 409 Conflict — another bot instance is already polling with this token.")
+            _warn("Stop the duplicate instance, then restart the service:")
+            print("     systemctl --user restart gateway-agent")
+            sys.exit(1)
         else:
             _err("Smoke test failed — bot did not respond. Check logs above.")
             sys.exit(1)
@@ -1029,9 +1034,15 @@ async def step_9_launch(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        ok = await run_smoke_test(state, docker_proc)
+        result = await run_smoke_test(state, docker_proc)
         docker_proc.terminate()
-        if ok:
+        if result == RESULT_OK:
+            _print_completion_docker(cwd, running=True)
+        elif result == RESULT_CONFLICT:
+            _warn("Telegram 409 Conflict — another bot instance is already running with this token.")
+            _warn("Container is up, but the bot cannot connect. Stop the duplicate instance:")
+            print(f"     docker compose -f {cwd}/docker-compose.yml down")
+            print("     # also stop any other process using the same Telegram token")
             _print_completion_docker(cwd, running=True)
         else:
             _err("Smoke test timed out — container may still be building or starting.")
@@ -1049,8 +1060,8 @@ async def step_9_launch(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        ok = await run_smoke_test(state, proc)
-        if ok:
+        result = await run_smoke_test(state, proc)
+        if result == RESULT_OK:
             _print_completion_foreground(cwd)
             print("  Bot is running. Press Ctrl-C to stop.")
             try:
@@ -1059,6 +1070,11 @@ async def step_9_launch(
                     sys.stdout.buffer.flush()
             except (KeyboardInterrupt, asyncio.CancelledError):
                 proc.terminate()
+        elif result == RESULT_CONFLICT:
+            _err("Telegram 409 Conflict — another bot instance is already polling with this token.")
+            _warn("Stop the duplicate instance, then re-run setup or restart manually.")
+            proc.terminate()
+            sys.exit(1)
         else:
             _err("Smoke test failed — bot did not respond. Check logs above.")
             proc.terminate()

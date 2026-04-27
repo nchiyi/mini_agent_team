@@ -34,6 +34,17 @@ _READY_SIGNALS = (
     "connected to discord",
 )
 
+_CONFLICT_SIGNALS = (
+    "terminated by other getupdates",
+    "telegram.error.conflict",
+    "conflict: terminated by",
+)
+
+# Return values for run_smoke_test
+RESULT_OK = "ok"
+RESULT_CONFLICT = "conflict"
+RESULT_FAILED = "failed"
+
 _VERIFICATION_MSG = "Setup complete, reply 'ok' to verify"
 
 
@@ -44,41 +55,41 @@ _VERIFICATION_MSG = "Setup complete, reply 'ok' to verify"
 async def wait_for_bot_ready(
     proc: asyncio.subprocess.Process,
     timeout: int = 60,
-) -> bool:
+) -> tuple[bool, bool]:
     """
-    Read proc stdout/stderr and return True when a ready signal is found.
+    Read proc stdout/stderr and return (ready, conflict_detected).
 
-    Ready signals (case-insensitive):
-      - "bot started"
-      - "gateway ready"
-      - "polling started"
-      - "connected to discord"
+    ready is True when a ready signal is found (case-insensitive):
+      - "bot started" / "gateway ready" / "polling started" / "connected to discord"
 
-    Returns False if *timeout* seconds elapse without any signal.
+    conflict_detected is True when a Telegram 409 Conflict message is seen,
+    meaning another bot instance is already polling with the same token.
+
+    Returns (False, False) if *timeout* seconds elapse without any signal.
     The stream is NOT closed by this function — the caller keeps reading.
     """
     if proc.stdout is None:
-        return False
+        return False, False
 
-    # We collect lines for diagnostic purposes (shared buffer lives in caller).
+    conflict = False
     try:
         async with asyncio.timeout(timeout):
             async for raw in proc.stdout:
                 line = raw.decode(errors="replace").rstrip()
-                # Echo to terminal so the user sees live output
                 sys.stdout.write(f"  {line}\n")
                 sys.stdout.flush()
                 lower = line.lower()
+                if any(sig in lower for sig in _CONFLICT_SIGNALS):
+                    conflict = True
                 if any(sig in lower for sig in _READY_SIGNALS):
-                    return True
+                    return True, conflict
     except TimeoutError:
-        return False
+        return False, conflict
     except (asyncio.CancelledError, GeneratorExit):
         raise
     except Exception:
-        return False
-    # Stream closed before signal
-    return False
+        return False, conflict
+    return False, conflict
 
 
 # ---------------------------------------------------------------------------
@@ -284,22 +295,20 @@ def _print_diagnostic(
 async def run_smoke_test(
     state: "WizardState",
     proc: asyncio.subprocess.Process,
-) -> bool:
+) -> str:
     """
-    Orchestrate the full smoke test:
+    Orchestrate the full smoke test.
+
+    Returns one of: RESULT_OK, RESULT_CONFLICT, RESULT_FAILED.
 
     1. wait_for_bot_ready (reads stdout from *proc*)
     2. For each channel in state.channels:
        - send_verification_{channel}
        - wait_for_ok_reply_{channel}
-    3. Return True if all pass, False + diagnostic on any failure.
 
     If state.data.get("allow_all_users") is True and state.allowed_user_ids
-    is empty, the verification DM step is skipped (bot won't know who to ping).
+    is empty, the verification DM step is skipped.
     """
-    # ------------------------------------------------------------------
-    # Guard: if allow_all_users and no known user_id, skip verification
-    # ------------------------------------------------------------------
     allow_all = state.data.get("allow_all_users", False)
     has_user = bool(state.allowed_user_ids)
 
@@ -308,12 +317,13 @@ async def run_smoke_test(
             f"{_Y}⚠ allow_all_users is set and no specific user ID captured — "
             f"skipping smoke-test verification DM.{_X}"
         )
-        # Still wait for ready signal so we know the bot started
-        _ready = await wait_for_bot_ready(proc, timeout=60)
+        _ready, _conflict = await wait_for_bot_ready(proc, timeout=60)
+        if _conflict:
+            return RESULT_CONFLICT
         if not _ready:
             _print_diagnostic(proc.returncode, [])
-            return False
-        return True
+            return RESULT_FAILED
+        return RESULT_OK
 
     target_user_id = state.allowed_user_ids[0] if has_user else None
 
@@ -321,16 +331,17 @@ async def run_smoke_test(
     # Step 1: wait for bot ready signal
     # ------------------------------------------------------------------
     print("  Waiting for bot ready signal…")
-    ready = await wait_for_bot_ready(proc, timeout=60)
+    ready, conflict = await wait_for_bot_ready(proc, timeout=60)
+    if conflict:
+        return RESULT_CONFLICT
     if not ready:
         _print_diagnostic(proc.returncode, [])
-        return False
+        return RESULT_FAILED
 
     print(f"{_G}✓ Bot ready signal received.{_X}")
 
     if target_user_id is None:
-        # No user to ping — call it done
-        return True
+        return RESULT_OK
 
     # ------------------------------------------------------------------
     # Step 2: verification DM + ok-reply for each channel
@@ -353,7 +364,7 @@ async def run_smoke_test(
         if not sent:
             print(f"{_R}✗ Could not send verification message via {channel}.{_X}")
             _print_diagnostic(proc.returncode, [])
-            return False
+            return RESULT_FAILED
 
         print(f"  Waiting for 'ok' reply via {channel} (up to 120 s)…")
 
@@ -369,8 +380,8 @@ async def run_smoke_test(
         if not replied:
             print(f"{_R}✗ No 'ok' reply from user via {channel} within 120 s.{_X}")
             _print_diagnostic(proc.returncode, [])
-            return False
+            return RESULT_FAILED
 
         print(f"{_G}✓ Received 'ok' reply via {channel}.{_X}")
 
-    return True
+    return RESULT_OK
