@@ -844,13 +844,14 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
             if r.returncode != 0:
                 if sys.platform == "darwin":
                     _warn("Docker Desktop is not running. Please launch it now.")
-                    _prompt("Press Enter to start polling (we'll wait up to 60s)")
+                    _prompt("Press Enter when you have opened Docker Desktop")
+                    print("  Waiting for Docker daemon to be ready...")
                 else:
                     _warn("Docker daemon not running. Starting: sudo systemctl start docker")
                     subprocess.run(["sudo", "systemctl", "start", "docker"], check=False)
-                ready = await _wait_for_docker(timeout=60)
+                ready = await _wait_for_docker(timeout=180)
                 if not ready:
-                    _err("Docker daemon not ready after 60s. Make sure Docker Desktop is running, then try again.")
+                    _err("Docker daemon not ready after 3 minutes. Make sure Docker Desktop is running, then try again.")
                     continue
 
             state.deploy_mode = "docker"
