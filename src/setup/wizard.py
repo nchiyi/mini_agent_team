@@ -9,7 +9,7 @@ from src.setup.state import is_micro_step_done, mark_micro_step_done, set_curren
 from src.setup.validator import validate_telegram_token, validate_discord_token
 from src.setup.installer import (
     is_cli_installed, install_cli_foreground,
-    install_ollama_foreground, install_docker_foreground,
+    install_ollama_foreground, install_docker_foreground, install_colima_foreground,
     _CLI_SIZES,
     ACP_PACKAGES, is_acp_installed, install_acp_foreground, is_npm_available,
 )
@@ -815,23 +815,43 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
             if not docker_found:
                 _err("Docker not found.")
                 if sys.platform == "darwin":
-                    hint = "brew install --cask docker  (requires Homebrew)"
-                else:
-                    hint = "curl -fsSL https://get.docker.com | sh"
-                ans = _prompt(f"Auto-install Docker? ({hint}) (Y/n)", "y")
-                if ans.lower() != "n":
-                    print("  Installing Docker...")
-                    ok = await install_docker_foreground()
-                    if not ok:
-                        if sys.platform == "darwin" and not __import__("shutil").which("brew"):
-                            _err("Homebrew not found. Install from https://brew.sh then retry.")
-                        else:
-                            _err("Auto-install failed. Install Docker manually and try again.")
+                    print("\n  How would you like to install Docker?\n")
+                    print("  1. Colima  (lightweight, CLI only, ~500 MB — recommended)")
+                    print("     brew install colima docker && colima start")
+                    print("  2. Docker Desktop  (full GUI app, ~1 GB)")
+                    print("     brew install --cask docker")
+                    print("  3. Skip — choose a different deploy mode\n")
+                    docker_install_choice = _prompt("Choose", "1")
+                    if docker_install_choice == "3":
                         continue
-                    _ok("Docker installed")
+                    elif docker_install_choice == "2":
+                        print("  Installing Docker Desktop (this may take a few minutes)...")
+                        ok = await install_docker_foreground()
+                        if not ok:
+                            _err("Docker Desktop install failed. Try manually: brew install --cask docker")
+                            continue
+                        _ok("Docker Desktop installed")
+                        _warn("Launch Docker Desktop app, then press Enter.")
+                        _prompt("Press Enter when Docker Desktop is running")
+                    else:
+                        print("  Installing Colima + Docker CLI (this may take a few minutes)...")
+                        ok = await install_colima_foreground()
+                        if not ok:
+                            _err("Colima install failed. Try manually: brew install colima docker && colima start")
+                            continue
+                        _ok("Colima started — Docker daemon is ready")
                 else:
-                    _err("Docker required for this deploy mode. Choose a different option.")
-                    continue
+                    ans = _prompt("Auto-install Docker Engine? (curl -fsSL https://get.docker.com | sh) (Y/n)", "y")
+                    if ans.lower() != "n":
+                        print("  Installing Docker Engine...")
+                        ok = await install_docker_foreground()
+                        if not ok:
+                            _err("Auto-install failed. Install Docker manually and try again.")
+                            continue
+                        _ok("Docker Engine installed")
+                    else:
+                        _err("Docker required for this deploy mode. Choose a different option.")
+                        continue
 
             # At this point docker binary exists; check if daemon is running.
             # On macOS, Docker Desktop may need to be launched manually.

@@ -1,6 +1,19 @@
 import asyncio
 import shutil
 import subprocess
+import sys
+
+
+def _find_brew() -> str | None:
+    """Return the path to brew, checking common macOS locations."""
+    for candidate in (
+        shutil.which("brew"),
+        "/opt/homebrew/bin/brew",   # Apple Silicon
+        "/usr/local/bin/brew",      # Intel
+    ):
+        if candidate and shutil.which(candidate) or (candidate and __import__("os").path.isfile(candidate)):
+            return candidate
+    return None
 
 
 _CLI_INSTALL: dict[str, list[str]] = {
@@ -78,15 +91,47 @@ async def install_cli_foreground(name: str) -> bool:
         return False
 
 
-async def install_docker_foreground() -> bool:
-    """Install Docker Desktop (macOS via Homebrew) or Docker Engine (Linux via official script).
+async def install_colima_foreground() -> bool:
+    """Install Colima + Docker CLI via Homebrew and start the Colima VM.
 
-    Returns True on success, False on failure or unsupported platform.
+    Colima is a lightweight Docker Engine for macOS that does not require
+    the Docker Desktop GUI.  Returns True when `docker info` is reachable
+    after installation.
     """
-    import sys
+    brew = _find_brew()
+    if not brew:
+        return False
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            brew, "install", "colima", "docker",
+            stdout=None,
+            stderr=None,
+        )
+        await proc.wait()
+        if proc.returncode != 0:
+            return False
+        colima = shutil.which("colima") or "/opt/homebrew/bin/colima" or "/usr/local/bin/colima"
+        proc2 = await asyncio.create_subprocess_exec(
+            colima, "start",
+            stdout=None,
+            stderr=None,
+        )
+        await proc2.wait()
+        return proc2.returncode == 0
+    except (FileNotFoundError, PermissionError, OSError):
+        return False
+
+
+async def install_docker_foreground() -> bool:
+    """Install Docker Desktop (macOS via Homebrew cask) or Docker Engine (Linux).
+
+    On macOS this installs the full Docker Desktop GUI app.
+    For a lightweight alternative, use install_colima_foreground().
+    Returns True on success.
+    """
     try:
         if sys.platform == "darwin":
-            brew = shutil.which("brew")
+            brew = _find_brew()
             if not brew:
                 return False
             proc = await asyncio.create_subprocess_exec(
@@ -97,7 +142,6 @@ async def install_docker_foreground() -> bool:
             await proc.wait()
             return proc.returncode == 0
         else:
-            # Linux: official Docker install script
             proc = await asyncio.create_subprocess_exec(
                 "bash", "-c", "curl -fsSL https://get.docker.com | sh",
                 stdout=None,
