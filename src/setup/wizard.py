@@ -790,19 +790,21 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
             state.deploy_mode = "systemd"
             break
         elif choice == "3":
-            # Pre-validate: Docker daemon must be reachable
-            r = subprocess.run(["docker", "info"], capture_output=True)
-            if r.returncode != 0:
-                _err("Docker daemon not running. Fix: sudo systemctl start docker")
+            # Pre-validate: Docker is installed and daemon is running
+            try:
+                r = subprocess.run(["docker", "info"], capture_output=True)
+            except FileNotFoundError:
+                _err("Docker not found. Install Docker Desktop first:")
+                _err("  https://docs.docker.com/desktop/mac/install/  (macOS)")
+                _err("  https://docs.docker.com/engine/install/       (Linux)")
                 continue
-            # Attempt a dry-run build to catch Dockerfile issues early (optional)
-            r2 = subprocess.run(
-                ["docker", "build", "--no-cache", "--dry-run", "."],
-                capture_output=True,
-                cwd=cwd,
-            )
-            if r2.returncode != 0:
-                _warn("docker build --dry-run failed (may be unsupported by this Docker version) — continuing anyway")
+            if r.returncode != 0:
+                _err("Docker daemon not running.")
+                if sys.platform == "darwin":
+                    _err("Start Docker Desktop, then try again.")
+                else:
+                    _err("Fix: sudo systemctl start docker")
+                continue
             state.deploy_mode = "docker"
             break
         else:
@@ -936,7 +938,12 @@ async def step_9_launch(
             sys.exit(1)
     elif state.deploy_mode == "docker":
         write_docker_compose(cwd)
-        r = subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
+        try:
+            r = subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
+        except FileNotFoundError:
+            _err("docker not found — cannot launch container.")
+            _print_completion_docker(cwd, running=False)
+            return
         if r.returncode != 0:
             _err("docker compose up -d failed — see error above.")
             _print_completion_docker(cwd, running=False)
