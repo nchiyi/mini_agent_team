@@ -29,6 +29,15 @@ except ImportError:
     _q = None  # type: ignore[assignment]
     _has_questionary = False
 
+
+async def _q_ask(question) -> object:
+    # prompt_toolkit's ask_async() uses loop.add_reader on stdin, which fails
+    # on macOS kqueue. Run the sync .ask() in a thread instead — it creates
+    # its own event loop and reads stdin via /dev/tty without touching the
+    # outer loop's selector.
+    return await asyncio.to_thread(question.ask)
+
+
 _G = "\033[32m"
 _Y = "\033[33m"
 _R = "\033[31m"
@@ -82,10 +91,10 @@ async def step_1_channel(state: WizardState) -> None:
 
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
         while True:
-            result = await _q.checkbox(
+            result = await _q_ask(_q.checkbox(
                 "Select channels (Space to toggle, Enter to confirm):",
                 choices=[_q.Choice(ch.capitalize(), value=ch) for ch in _ALL_CHANNELS],
-            ).ask_async()
+            ))
             if result is None:
                 print("\nSetup cancelled.")
                 sys.exit(0)
@@ -460,10 +469,10 @@ async def step_4_5_acp(state: WizardState) -> None:
     ]
 
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
-        result = await _q.select(
+        result = await _q_ask(_q.select(
             "這些 AI 你希望怎麼合作？",
             choices=[_q.Choice(label, value=val) for val, label in _acp_choices],
-        ).ask_async()
+        ))
         if result is None:
             print("\nSetup cancelled.")
             sys.exit(0)
@@ -557,13 +566,13 @@ async def step_5_search(state: WizardState) -> None:
     _hdr(5, "Search Mode")
 
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
-        result = await _q.select(
+        result = await _q_ask(_q.select(
             "Search mode:",
             choices=[
                 _q.Choice("FTS5 keyword search  (default, no extra install)", value="1"),
                 _q.Choice("FTS5 + embedding  (Ollama ~500MB — foreground install)", value="2"),
             ],
-        ).ask_async()
+        ))
         if result is None:
             print("\nSetup cancelled.")
             sys.exit(0)
@@ -640,10 +649,10 @@ async def step_6_optional(state: WizardState) -> None:
         for key, label, size, pkgs in _OPTIONAL_GROUPS:
             status = "installed" if all(_pkg_installed(p) for p in pkgs) else "not installed"
             choices.append(_q.Choice(f"{label}  ({size})  — {status}", value=key))
-        result = await _q.checkbox(
+        result = await _q_ask(_q.checkbox(
             "Select optional features (Space to toggle, Enter to confirm, default: none):",
             choices=choices,
-        ).ask_async()
+        ))
         if result is None:
             print("\nSetup cancelled.")
             sys.exit(0)
@@ -720,7 +729,7 @@ async def step_7_updates(state: WizardState) -> None:
     print("  (Never auto-updates — you control when to update.)")
 
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
-        result = await _q.confirm("Enable update notifications?", default=True).ask_async()
+        result = await _q_ask(_q.confirm("Enable update notifications?", default=True))
         state.update_notifications = result if result is not None else True
     else:
         choice = _prompt("Enable? (y/n)", "y")
@@ -744,10 +753,10 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
 
     while True:
         if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
-            result = await _q.select(
+            result = await _q_ask(_q.select(
                 "Deploy mode:",
                 choices=[_q.Choice(label, value=val) for val, label in _deploy_choices],
-            ).ask_async()
+            ))
             if result is None:
                 print("\nSetup cancelled.")
                 sys.exit(0)
