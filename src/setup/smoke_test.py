@@ -360,7 +360,9 @@ async def run_smoke_test(
 
     # ------------------------------------------------------------------
     # Step 2: verification DM + ok-reply for each channel
+    # At least one channel must succeed; others produce warnings not failures.
     # ------------------------------------------------------------------
+    any_verified = False
     for channel in state.channels:
         print(f"  Sending verification message via {channel}…")
 
@@ -377,9 +379,9 @@ async def run_smoke_test(
             continue
 
         if not sent:
-            print(f"{_R}✗ Could not send verification message via {channel}.{_X}")
-            _print_diagnostic(proc.returncode, [])
-            return RESULT_FAILED
+            print(f"{_Y}⚠ Could not send verification message via {channel} — skipping.{_X}")
+            print(f"  (Discord DMs require the bot to share a server with the user){_X}" if channel == "discord" else "")
+            continue
 
         print(f"  Waiting for 'ok' reply via {channel} (up to 120 s)…")
 
@@ -393,10 +395,14 @@ async def run_smoke_test(
             )
 
         if not replied:
-            print(f"{_R}✗ No 'ok' reply from user via {channel} within 120 s.{_X}")
-            _print_diagnostic(proc.returncode, [])
-            return RESULT_FAILED
+            print(f"{_Y}⚠ No 'ok' reply from user via {channel} within 120 s.{_X}")
+            continue
 
         print(f"{_G}✓ Received 'ok' reply via {channel}.{_X}")
+        any_verified = True
+
+    if not any_verified:
+        _print_diagnostic(proc.returncode, [])
+        return RESULT_FAILED
 
     return RESULT_OK

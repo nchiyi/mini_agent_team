@@ -15,6 +15,17 @@ if [ ! -t 0 ] && [ -z "${_MAT_REEXEC:-}" ]; then
 fi
 DIR="mini_agent_team"
 
+# Guard: detect if install.sh is being run from INSIDE the repo directory.
+# Running `curl | bash install.sh` from within mini_agent_team causes a nested
+# clone at mini_agent_team/mini_agent_team, breaking DEFAULT_CWD and paths.
+if [ -f "main.py" ] && [ -f "setup.py" ] && git rev-parse --git-dir > /dev/null 2>&1; then
+    echo "❌  Error: install.sh must be run from the PARENT directory, not from inside the repo."
+    echo "    Run:"
+    echo "      cd .."
+    echo "      curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install.sh | bash"
+    exit 1
+fi
+
 echo ""
 echo "╔══════════════════════════════════════╗"
 echo "║     mini_agent_team  installer       ║"

@@ -979,7 +979,8 @@ async def step_9_launch(
         env["ALLOWED_USER_IDS"] = ",".join(str(i) for i in state.allowed_user_ids)
     if state.data.get("allow_all_users"):
         env["ALLOW_ALL_USERS"] = "true"
-    env["DEFAULT_CWD"] = cwd
+    # In Docker mode the bot runs inside the container at /app, not at the host path.
+    env["DEFAULT_CWD"] = "/app" if state.deploy_mode == "docker" else cwd
     _env_lines = [
         '{k}="{v}"'.format(
             k=k,
