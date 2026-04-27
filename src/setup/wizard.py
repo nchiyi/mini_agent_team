@@ -22,6 +22,13 @@ from src.setup.config_writer import write_config_with_diff, write_env_with_diff
 from src.setup.preflight import run_preflight
 from src.setup.smoke_test import run_smoke_test
 
+try:
+    import questionary as _q
+    _has_questionary = True
+except ImportError:
+    _q = None  # type: ignore[assignment]
+    _has_questionary = False
+
 _G = "\033[32m"
 _Y = "\033[33m"
 _R = "\033[31m"
@@ -72,12 +79,6 @@ async def step_1_channel(state: WizardState) -> None:
     set_current_step(state, "channel_select.started")
     _hdr(1, "Channel Selection")
     selected: set[str] = set()
-
-    try:
-        import questionary as _q
-        _has_questionary = True
-    except ImportError:
-        _has_questionary = False
 
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
         while True:
@@ -446,16 +447,11 @@ async def step_4_5_acp(state: WizardState) -> None:
         _ok(f"Step 4.5 done (mode: {state.acp_mode})")
         return
 
+    set_current_step(state, "acp_setup.started")
     _hdr("4.5", "AI 協作模式")
 
     cli_list = ", ".join(state.selected_clis) if state.selected_clis else "（未選擇）"
     print(f"\n你已選擇的 AI 工具：{cli_list}\n")
-
-    try:
-        import questionary as _q
-        _has_questionary = True
-    except ImportError:
-        _has_questionary = False
 
     _acp_choices = [
         ("1", "讓 Claude 自己決定怎麼協調 — 只需安裝 1 個套件"),
@@ -468,7 +464,10 @@ async def step_4_5_acp(state: WizardState) -> None:
             "這些 AI 你希望怎麼合作？",
             choices=[_q.Choice(label, value=val) for val, label in _acp_choices],
         ).ask_async()
-        raw = result if result is not None else "1"
+        if result is None:
+            print("\nSetup cancelled.")
+            sys.exit(0)
+        raw = result
     else:
         print("這些 AI 你希望怎麼合作？\n")
         print("  [1] 讓 Claude 自己決定怎麼協調")
@@ -557,12 +556,6 @@ async def step_5_search(state: WizardState) -> None:
     set_current_step(state, "search_mode.started")
     _hdr(5, "Search Mode")
 
-    try:
-        import questionary as _q
-        _has_questionary = True
-    except ImportError:
-        _has_questionary = False
-
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
         result = await _q.select(
             "Search mode:",
@@ -571,7 +564,10 @@ async def step_5_search(state: WizardState) -> None:
                 _q.Choice("FTS5 + embedding  (Ollama ~500MB — foreground install)", value="2"),
             ],
         ).ask_async()
-        choice = result if result is not None else "1"
+        if result is None:
+            print("\nSetup cancelled.")
+            sys.exit(0)
+        choice = result
     else:
         print("  1. FTS5 keyword search (default, no extra install)")
         print("  2. FTS5 + embedding (Ollama ~500MB — foreground install)")
@@ -638,12 +634,6 @@ async def step_6_optional(state: WizardState) -> None:
     _hdr(6, "Optional Features")
     print("  All optional — can be added later by re-running setup. Default: off.\n")
     selected: set[str] = set()
-
-    try:
-        import questionary as _q
-        _has_questionary = True
-    except ImportError:
-        _has_questionary = False
 
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
         choices = []
@@ -729,12 +719,6 @@ async def step_7_updates(state: WizardState) -> None:
     print("  Check for new GitHub releases on startup and print a notice.")
     print("  (Never auto-updates — you control when to update.)")
 
-    try:
-        import questionary as _q
-        _has_questionary = True
-    except ImportError:
-        _has_questionary = False
-
     if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
         result = await _q.confirm("Enable update notifications?", default=True).ask_async()
         state.update_notifications = result if result is not None else True
@@ -752,12 +736,6 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
     set_current_step(state, "deploy_mode.started")
     _hdr(8, "Deploy Mode")
 
-    try:
-        import questionary as _q
-        _has_questionary = True
-    except ImportError:
-        _has_questionary = False
-
     _deploy_choices = [
         ("1", "foreground  — run in terminal (Ctrl-C to stop)"),
         ("2", "systemd     — user service, auto-restart, survives logout"),
@@ -770,7 +748,10 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
                 "Deploy mode:",
                 choices=[_q.Choice(label, value=val) for val, label in _deploy_choices],
             ).ask_async()
-            choice = result if result is not None else "1"
+            if result is None:
+                print("\nSetup cancelled.")
+                sys.exit(0)
+            choice = result
         else:
             print("  1. foreground  — run in terminal (Ctrl-C to stop)")
             print("  2. systemd     — user service, auto-restart, survives logout")
@@ -827,10 +808,14 @@ def _print_completion_systemd(cwd: str) -> None:
     print(f"{_B}{'='*W}{_X}\n")
 
 
-def _print_completion_docker(cwd: str) -> None:
+def _print_completion_docker(cwd: str, *, running: bool = True) -> None:
     W = 52
     print(f"\n{_B}{'='*W}{_X}")
-    print(f"{_G}{_B}  ✅  Setup complete — bot is running!{_X}")
+    if running:
+        print(f"{_G}{_B}  ✅  Setup complete — bot is running!{_X}")
+    else:
+        print(f"{_Y}{_B}  ⚠  Config written — start manually:{_X}")
+        print(f"     docker compose -f {cwd}/docker-compose.yml up -d")
     print(f"{_B}{'='*W}{_X}")
     print(f"  {_B}Daily operations:{_X}")
     print(f"    docker compose -f {cwd}/docker-compose.yml ps       # status")
@@ -935,8 +920,7 @@ async def step_9_launch(
         r = subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
         if r.returncode != 0:
             _err("docker compose up -d failed — see error above.")
-            _warn("Config files are written. Start manually: docker compose up -d")
-            _print_completion_docker(cwd)
+            _print_completion_docker(cwd, running=False)
             return
         _ok("Docker container started")
         print("  Running smoke test via docker logs…")
@@ -949,11 +933,10 @@ async def step_9_launch(
         ok = await run_smoke_test(state, docker_proc)
         docker_proc.terminate()
         if ok:
-            _print_completion_docker(cwd)
+            _print_completion_docker(cwd, running=True)
         else:
             _err("Smoke test timed out — container may still be building or starting.")
-            _warn("Check status: docker compose logs -f")
-            _print_completion_docker(cwd)
+            _print_completion_docker(cwd, running=False)
     else:
         python = os.path.join(cwd, "venv", "bin", "python3")
         if not os.path.exists(python):
