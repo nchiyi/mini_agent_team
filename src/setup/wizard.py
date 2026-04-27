@@ -31,11 +31,21 @@ except ImportError:
 
 
 async def _q_ask(question) -> object:
-    # prompt_toolkit's ask_async() uses loop.add_reader on stdin, which fails
-    # on macOS kqueue. Run the sync .ask() in a thread instead — it creates
-    # its own event loop and reads stdin via /dev/tty without touching the
-    # outer loop's selector.
-    return await asyncio.to_thread(question.ask)
+    # macOS kqueue cannot register stdin fd for EVENT_READ via asyncio
+    # (OSError [Errno 22]).  Fix: run the prompt in a thread with a fresh
+    # SelectorEventLoop backed by PollSelector (select.poll), which does
+    # support watching stdin on macOS.  Thread-local set_event_loop is safe
+    # here — it does not affect the outer loop running in the main thread.
+    def _run():
+        import selectors
+        loop = asyncio.SelectorEventLoop(selectors.PollSelector())
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(question.unsafe_ask_async())
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
+    return await asyncio.to_thread(_run)
 
 
 _G = "\033[32m"
