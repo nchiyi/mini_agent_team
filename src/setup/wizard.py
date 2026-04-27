@@ -450,18 +450,37 @@ async def step_4_5_acp(state: WizardState) -> None:
 
     cli_list = ", ".join(state.selected_clis) if state.selected_clis else "（未選擇）"
     print(f"\n你已選擇的 AI 工具：{cli_list}\n")
-    print("這些 AI 你希望怎麼合作？\n")
-    print("  [1] 讓 Claude 自己決定怎麼協調")
-    print("      你直接對 Claude 說「請同時問 Codex 和 Gemini 的意見」，")
-    print("      Claude 自己去呼叫它們、整合結果，再統一回答你。")
-    print("      → 只需要安裝 1 個套件\n")
-    print("  [2] 用指令讓 AI 輪流發言")
-    print("      輸入 /discuss 或 /debate，")
-    print("      bot 會依照你設定的順序讓每個 AI 依序發言，最後彙整。")
-    print("      → 每個 AI 各需要 1 個套件\n")
-    print("  [3] 兩種都要\n")
 
-    raw = _prompt("選擇", "1").strip()
+    try:
+        import questionary as _q
+        _has_questionary = True
+    except ImportError:
+        _has_questionary = False
+
+    _acp_choices = [
+        ("1", "讓 Claude 自己決定怎麼協調 — 只需安裝 1 個套件"),
+        ("2", "用指令讓 AI 輪流發言 (/discuss, /debate) — 每個 AI 各需 1 個套件"),
+        ("3", "兩種都要"),
+    ]
+
+    if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+        result = _q.select(
+            "這些 AI 你希望怎麼合作？",
+            choices=[_q.Choice(label, value=val) for val, label in _acp_choices],
+        ).ask()
+        raw = result if result is not None else "1"
+    else:
+        print("這些 AI 你希望怎麼合作？\n")
+        print("  [1] 讓 Claude 自己決定怎麼協調")
+        print("      你直接對 Claude 說「請同時問 Codex 和 Gemini 的意見」，")
+        print("      Claude 自己去呼叫它們、整合結果，再統一回答你。")
+        print("      → 只需要安裝 1 個套件\n")
+        print("  [2] 用指令讓 AI 輪流發言")
+        print("      輸入 /discuss 或 /debate，")
+        print("      bot 會依照你設定的順序讓每個 AI 依序發言，最後彙整。")
+        print("      → 每個 AI 各需要 1 個套件\n")
+        print("  [3] 兩種都要\n")
+        raw = _prompt("選擇", "1").strip()
     primary = state.selected_clis[0] if state.selected_clis else ""
 
     if raw == "1":
@@ -537,9 +556,26 @@ async def step_5_search(state: WizardState) -> None:
         return
     set_current_step(state, "search_mode.started")
     _hdr(5, "Search Mode")
-    print("  1. FTS5 keyword search (default, no extra install)")
-    print("  2. FTS5 + embedding (Ollama ~500MB — foreground install)")
-    choice = _prompt("Choose", "1")
+
+    try:
+        import questionary as _q
+        _has_questionary = True
+    except ImportError:
+        _has_questionary = False
+
+    if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+        result = _q.select(
+            "Search mode:",
+            choices=[
+                _q.Choice("FTS5 keyword search  (default, no extra install)", value="1"),
+                _q.Choice("FTS5 + embedding  (Ollama ~500MB — foreground install)", value="2"),
+            ],
+        ).ask()
+        choice = result if result is not None else "1"
+    else:
+        print("  1. FTS5 keyword search (default, no extra install)")
+        print("  2. FTS5 + embedding (Ollama ~500MB — foreground install)")
+        choice = _prompt("Choose", "1")
     if choice == "2":
         print("  Installing Ollama (~500MB) — this will take a few minutes...")
         ok = await install_ollama_foreground()
@@ -603,27 +639,47 @@ async def step_6_optional(state: WizardState) -> None:
     print("  All optional — can be added later by re-running setup. Default: off.\n")
     selected: set[str] = set()
 
-    while True:
-        print("")
-        for i, (key, label, size, pkgs) in enumerate(_OPTIONAL_GROUPS, 1):
-            mark = "x" if key in selected else " "
-            status = _G + "installed" + _X if all(_pkg_installed(p) for p in pkgs) else _Y + "not installed" + _X
-            print(f"  [{mark}] {i}. {label}  {_Y}({size}){_X}  — {status}")
-        print("")
-        raw = _prompt("Toggle options (e.g. 1 2), Enter to confirm (skip = none)")
-        if not raw:
-            break
-        for token in raw.split():
-            if token.isdigit():
-                idx = int(token) - 1
-                if 0 <= idx < len(_OPTIONAL_GROUPS):
-                    key = _OPTIONAL_GROUPS[idx][0]
-                    if key in selected:
-                        selected.discard(key)
+    try:
+        import questionary as _q
+        _has_questionary = True
+    except ImportError:
+        _has_questionary = False
+
+    if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+        choices = []
+        for key, label, size, pkgs in _OPTIONAL_GROUPS:
+            status = "installed" if all(_pkg_installed(p) for p in pkgs) else "not installed"
+            choices.append(_q.Choice(f"{label}  ({size})  — {status}", value=key))
+        result = _q.checkbox(
+            "Select optional features (Space to toggle, Enter to confirm, default: none):",
+            choices=choices,
+        ).ask()
+        if result is None:
+            print("\nSetup cancelled.")
+            sys.exit(0)
+        selected = set(result)
+    else:
+        while True:
+            print("")
+            for i, (key, label, size, pkgs) in enumerate(_OPTIONAL_GROUPS, 1):
+                mark = "x" if key in selected else " "
+                status = _G + "installed" + _X if all(_pkg_installed(p) for p in pkgs) else _Y + "not installed" + _X
+                print(f"  [{mark}] {i}. {label}  {_Y}({size}){_X}  — {status}")
+            print("")
+            raw = _prompt("Toggle options (e.g. 1 2), Enter to confirm (skip = none)")
+            if not raw:
+                break
+            for token in raw.split():
+                if token.isdigit():
+                    idx = int(token) - 1
+                    if 0 <= idx < len(_OPTIONAL_GROUPS):
+                        key = _OPTIONAL_GROUPS[idx][0]
+                        if key in selected:
+                            selected.discard(key)
+                        else:
+                            selected.add(key)
                     else:
-                        selected.add(key)
-                else:
-                    _err(f"Invalid option: {token}")
+                        _err(f"Invalid option: {token}")
 
     # Second confirmation for heavy packs
     for key, size_desc in _HEAVY_PACKS.items():
@@ -672,8 +728,19 @@ async def step_7_updates(state: WizardState) -> None:
     _hdr(7, "Update Notifications")
     print("  Check for new GitHub releases on startup and print a notice.")
     print("  (Never auto-updates — you control when to update.)")
-    choice = _prompt("Enable? (y/n)", "y")
-    state.update_notifications = choice.lower() != "n"
+
+    try:
+        import questionary as _q
+        _has_questionary = True
+    except ImportError:
+        _has_questionary = False
+
+    if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+        result = _q.confirm("Enable update notifications?", default=True).ask()
+        state.update_notifications = result if result is not None else True
+    else:
+        choice = _prompt("Enable? (y/n)", "y")
+        state.update_notifications = choice.lower() != "n"
     _ok(f"Update notifications: {'on' if state.update_notifications else 'off'}")
     mark_micro_step_done(state, "update_notifications.done")
 
@@ -684,11 +751,31 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
         return
     set_current_step(state, "deploy_mode.started")
     _hdr(8, "Deploy Mode")
-    print("  1. foreground  — run in terminal (Ctrl-C to stop)")
-    print("  2. systemd     — user service, auto-restart, survives logout")
-    print("  3. docker      — docker compose (requires Docker)")
+
+    try:
+        import questionary as _q
+        _has_questionary = True
+    except ImportError:
+        _has_questionary = False
+
+    _deploy_choices = [
+        ("1", "foreground  — run in terminal (Ctrl-C to stop)"),
+        ("2", "systemd     — user service, auto-restart, survives logout"),
+        ("3", "docker      — docker compose (requires Docker)"),
+    ]
+
     while True:
-        choice = _prompt("Choose", "1")
+        if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+            result = _q.select(
+                "Deploy mode:",
+                choices=[_q.Choice(label, value=val) for val, label in _deploy_choices],
+            ).ask()
+            choice = result if result is not None else "1"
+        else:
+            print("  1. foreground  — run in terminal (Ctrl-C to stop)")
+            print("  2. systemd     — user service, auto-restart, survives logout")
+            print("  3. docker      — docker compose (requires Docker)")
+            choice = _prompt("Choose", "1")
         if choice == "2":
             # Pre-validate: systemd user session must be running
             r = subprocess.run(
@@ -847,9 +934,11 @@ async def step_9_launch(
         write_docker_compose(cwd)
         r = subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
         if r.returncode != 0:
-            _warn("docker compose returned non-zero — check container status manually")
-        else:
-            _ok("Docker container started")
+            _err("docker compose up -d failed — see error above.")
+            _warn("Config files are written. Start manually: docker compose up -d")
+            _print_completion_docker(cwd)
+            return
+        _ok("Docker container started")
         print("  Running smoke test via docker logs…")
         docker_proc = await asyncio.create_subprocess_exec(
             "docker", "compose", "-f", os.path.join(cwd, "docker-compose.yml"),
@@ -862,8 +951,9 @@ async def step_9_launch(
         if ok:
             _print_completion_docker(cwd)
         else:
-            _err("Smoke test failed — bot did not respond. Check logs above.")
-            sys.exit(1)
+            _err("Smoke test timed out — container may still be building or starting.")
+            _warn("Check status: docker compose logs -f")
+            _print_completion_docker(cwd)
     else:
         python = os.path.join(cwd, "venv", "bin", "python3")
         if not os.path.exists(python):
