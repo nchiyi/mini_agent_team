@@ -371,6 +371,19 @@ async def run_smoke_test(
         return RESULT_OK
 
     # ------------------------------------------------------------------
+    # When verify_reply=False (Docker/systemd), the bot ready signal is
+    # already sufficient proof of health. Skip the DM verification entirely:
+    # for a freshly-created bot the user hasn't started a conversation yet,
+    # so Telegram returns "chat not found" — that's expected, not a failure.
+    # ------------------------------------------------------------------
+    if not verify_reply:
+        print(
+            f"{_Y}  (Skipping verification DM — send a message to the bot to "
+            f"start a conversation.){_X}"
+        )
+        return RESULT_OK
+
+    # ------------------------------------------------------------------
     # Step 2: verification DM + ok-reply for each channel
     # At least one channel must succeed; others produce warnings not failures.
     # ------------------------------------------------------------------
