@@ -30,6 +30,28 @@ except ImportError:
     _has_questionary = False
 
 
+def _can_use_questionary() -> bool:
+    """Decide whether to render arrow-key UI vs plain-text fallback.
+
+    The previous gate used sys.stdin.isatty() and sys.stdout.isatty(), which
+    return False under `curl ... | bash` even though /dev/tty is reachable.
+    questionary's prompt_toolkit backend can open /dev/tty directly on POSIX,
+    so the only real requirement is that a controlling terminal exists.
+    """
+    if not _has_questionary:
+        return False
+    if sys.platform == "win32":
+        # Windows has no /dev/tty; require actual TTY on stdin/stdout.
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    # Detached environments (some CI runners, cron, container without -t)
+    # don't have /dev/tty; fall back to plain text there.
+    try:
+        with open("/dev/tty", "r+"):
+            return True
+    except OSError:
+        return False
+
+
 async def _q_ask(question) -> object:
     # macOS kqueue cannot register stdin fd for EVENT_READ via asyncio
     # (OSError [Errno 22]).  Fix: run the prompt in a thread with a fresh
@@ -99,7 +121,7 @@ async def step_1_channel(state: WizardState) -> None:
     _hdr(1, "Channel Selection")
     selected: set[str] = set()
 
-    if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+    if _can_use_questionary():
         while True:
             result = await _q_ask(_q.checkbox(
                 "Select channels (Space to toggle, Enter to confirm):",
@@ -466,21 +488,42 @@ async def step_4_clis(state: WizardState) -> None:
         return
     set_current_step(state, "cli_select.started")
     _hdr(4, "CLI Tools")
+
+    # Build label list with installed status / size hints once.
+    labels: list[tuple[str, str]] = []  # (cli, label_for_display)
     for cli in _ALL_CLIS:
         installed, version = is_cli_installed(cli)
         if installed:
             ver_str = f" ({version})" if version else ""
-            print(f"  {cli}: installed{ver_str}")
+            labels.append((cli, f"{cli}: installed{ver_str}"))
         else:
             size_str = _CLI_SIZES.get(cli, "")
             size_part = f" ({size_str})" if size_str else ""
-            print(f"  {cli}: not installed{size_part}")
-    raw = _prompt("Select CLIs (comma-separated: claude,codex,gemini,kiro)", "claude")
-    tokens = [c.strip() for c in raw.split(",") if c.strip()]
-    selected = [c for c in tokens if c in _ALL_CLIS]
-    invalid = [c for c in tokens if c not in _ALL_CLIS]
-    if invalid:
-        _warn(f"Unrecognised CLIs ignored: {invalid}")
+            labels.append((cli, f"{cli}: not installed{size_part}"))
+
+    if _can_use_questionary():
+        # Pre-select claude by default — same as the text fallback's default.
+        result = await _q_ask(_q.checkbox(
+            "Select CLI tools to use (Space to toggle, Enter to confirm):",
+            choices=[
+                _q.Choice(label, value=cli, checked=(cli == "claude"))
+                for cli, label in labels
+            ],
+        ))
+        if result is None:
+            print("\nSetup cancelled.")
+            sys.exit(0)
+        selected = list(result) if result else []
+    else:
+        for _, label in labels:
+            print(f"  {label}")
+        raw = _prompt("Select CLIs (comma-separated: claude,codex,gemini,kiro)", "claude")
+        tokens = [c.strip() for c in raw.split(",") if c.strip()]
+        selected = [c for c in tokens if c in _ALL_CLIS]
+        invalid = [c for c in tokens if c not in _ALL_CLIS]
+        if invalid:
+            _warn(f"Unrecognised CLIs ignored: {invalid}")
+
     if not selected:
         selected = ["claude"]
         _ok("Defaulting to claude")
@@ -516,7 +559,7 @@ async def step_4_5_acp(state: WizardState) -> None:
         ("3", "兩種都要"),
     ]
 
-    if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+    if _can_use_questionary():
         result = await _q_ask(_q.select(
             "這些 AI 你希望怎麼合作？",
             choices=[_q.Choice(label, value=val) for val, label in _acp_choices],
@@ -613,7 +656,7 @@ async def step_5_search(state: WizardState) -> None:
     set_current_step(state, "search_mode.started")
     _hdr(5, "Search Mode")
 
-    if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+    if _can_use_questionary():
         result = await _q_ask(_q.select(
             "Search mode:",
             choices=[
@@ -692,7 +735,7 @@ async def step_6_optional(state: WizardState) -> None:
     print("  All optional — can be added later by re-running setup. Default: off.\n")
     selected: set[str] = set()
 
-    if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+    if _can_use_questionary():
         choices = []
         for key, label, size, pkgs in _OPTIONAL_GROUPS:
             status = "installed" if all(_pkg_installed(p) for p in pkgs) else "not installed"
@@ -776,7 +819,7 @@ async def step_7_updates(state: WizardState) -> None:
     print("  Check for new GitHub releases on startup and print a notice.")
     print("  (Never auto-updates — you control when to update.)")
 
-    if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+    if _can_use_questionary():
         result = await _q_ask(_q.confirm("Enable update notifications?", default=True))
         state.update_notifications = result if result is not None else True
     else:
@@ -822,7 +865,7 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
         ]
 
     while True:
-        if _has_questionary and sys.stdin.isatty() and sys.stdout.isatty():
+        if _can_use_questionary():
             result = await _q_ask(_q.select(
                 "Deploy mode:",
                 choices=[_q.Choice(label, value=val) for val, label in _deploy_choices],
