@@ -209,3 +209,33 @@ async def test_build_messages_isolated_by_bot_id(tmp_path):
     assert all("from dev" not in c for c in search_contents)
 
     await t3.close()
+
+
+async def test_context_isolated_by_chat_id(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    from src.core.memory.tier1 import Tier1Store
+    from src.core.memory.context import ContextAssembler
+
+    t3 = Tier3Store(db_path=str(tmp_path / "db/history.db"))
+    await t3.init()
+    t1 = Tier1Store(permanent_dir=str(tmp_path / "tier1"))
+    t1.remember(user_id=1, channel="telegram", bot_id="dev",
+                chat_id=-100, content="group fact")
+    t1.remember(user_id=1, channel="telegram", bot_id="dev",
+                chat_id=1, content="dm fact")
+    await t3.save_turn(user_id=1, channel="telegram", bot_id="dev",
+                       chat_id=-100, role="user", content="group msg")
+    await t3.save_turn(user_id=1, channel="telegram", bot_id="dev",
+                       chat_id=1, role="user", content="dm msg")
+
+    assembler = ContextAssembler(tier1=t1, tier3=t3, max_tokens=4000)
+    group_ctx = await assembler.build(user_id=1, channel="telegram",
+                                      bot_id="dev", chat_id=-100, recent_turns=10)
+    dm_ctx = await assembler.build(user_id=1, channel="telegram",
+                                   bot_id="dev", chat_id=1, recent_turns=10)
+    assert "group fact" in group_ctx and "group msg" in group_ctx
+    assert "dm fact" not in group_ctx and "dm msg" not in group_ctx
+    assert "dm fact" in dm_ctx and "dm msg" in dm_ctx
+    assert "group fact" not in dm_ctx and "group msg" not in dm_ctx
+
+    await t3.close()

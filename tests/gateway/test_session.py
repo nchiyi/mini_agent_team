@@ -113,3 +113,32 @@ def test_inbound_message_bot_id_settable():
     from src.channels.base import InboundMessage
     m = InboundMessage(user_id=1, channel="telegram", text="hi", message_id="m1", bot_id="dev")
     assert m.bot_id == "dev"
+
+
+def test_session_keyed_by_chat_id_when_provided():
+    from src.gateway.session import SessionManager
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    s_dm = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev")
+    s_g1 = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev", chat_id=-100)
+    s_g2 = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev", chat_id=-200)
+    assert s_dm is not s_g1
+    assert s_g1 is not s_g2
+    assert s_g1.chat_id == -100
+    assert s_g2.chat_id == -200
+
+
+def test_session_chat_id_defaults_to_user_id_in_dm():
+    from src.gateway.session import SessionManager
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    s = mgr.get_or_create(user_id=42, channel="telegram", bot_id="dev")
+    # DM convention: chat_id = user_id when omitted.
+    assert s.chat_id == 42
+
+
+def test_session_b1_caller_without_chat_id_still_works():
+    """A caller that omits chat_id should hit the same session it created last time."""
+    from src.gateway.session import SessionManager
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    a = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev")
+    b = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev")
+    assert a is b
