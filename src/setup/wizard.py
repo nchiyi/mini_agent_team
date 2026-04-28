@@ -1020,7 +1020,6 @@ async def step_9_launch(
         return
     set_current_step(state, "launch.started")
     _hdr(9, "Writing config and launching")
-    _stop_running_bot_instances(cwd)
     create_data_dirs(cwd)
     runners = state.selected_clis or ["claude"]
     # Build config content using same template as deploy.py
@@ -1263,6 +1262,10 @@ async def run_wizard(
         mark_micro_step_done(state, "acp_setup.done")
 
     # fresh / resume / reset all run the full wizard (steps skip if done)
+    # Stop any running bot instances BEFORE any step that polls Telegram/Discord.
+    # _capture_telegram_user_id (step 3) starts its own polling and will conflict
+    # with a running Docker container or service that uses the same token.
+    _stop_running_bot_instances(cwd)
     if not skip_preflight:
         await run_preflight(cwd)
     await step_1_channel(state)
