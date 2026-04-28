@@ -75,3 +75,11 @@ def test_concurrent_register_and_resolve_threadsafe():
     for t in threads:
         t.join()
     assert errors == []
+
+
+def test_appcontext_has_bot_registry_and_turns():
+    """AppContext gains bot_registry + bot_turns fields after B-2 Task 4."""
+    from src.gateway.app_context import AppContext
+    fields = AppContext.__dataclass_fields__
+    assert "bot_registry" in fields
+    assert "bot_turns" in fields

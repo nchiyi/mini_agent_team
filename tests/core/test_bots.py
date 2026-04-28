@@ -44,3 +44,52 @@ def test_no_tokens_returns_empty(monkeypatch):
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     bots = load_bots(raw_toml={}, default_runner="claude")
     assert bots == []
+
+
+def test_bot_config_group_defaults():
+    from src.core.bots import BotConfig
+    b = BotConfig(id="dev")
+    assert b.bot_username == ""
+    assert b.bot_id_telegram == 0
+    assert b.allow_bot_messages == "off"
+    assert b.trusted_bot_ids is None
+    assert b.allowed_chat_ids is None
+    assert b.allow_all_groups is False
+
+
+def test_load_bots_parses_group_fields(monkeypatch):
+    monkeypatch.setenv("BOT_DEV_TOKEN", "1:dev")
+    raw = {
+        "bots": {
+            "dev": {
+                "token_env": "BOT_DEV_TOKEN",
+                "default_runner": "claude",
+                "allow_bot_messages": "mentions",
+                "allowed_chat_ids": [-100123, -200456],
+                "allow_all_groups": False,
+                "trusted_bot_ids": [555, 666],
+            },
+        }
+    }
+    from src.core.bots import load_bots
+    bots = load_bots(raw_toml=raw, default_runner="claude")
+    assert len(bots) == 1
+    b = bots[0]
+    assert b.allow_bot_messages == "mentions"
+    assert b.allowed_chat_ids == [-100123, -200456]
+    assert b.allow_all_groups is False
+    assert b.trusted_bot_ids == [555, 666]
+
+
+def test_load_bots_group_fields_default_when_missing(monkeypatch):
+    """If [bots.X] doesn't set group fields, defaults apply."""
+    monkeypatch.setenv("BOT_DEV_TOKEN", "1:dev")
+    raw = {"bots": {"dev": {"token_env": "BOT_DEV_TOKEN"}}}
+    from src.core.bots import load_bots
+    bots = load_bots(raw_toml=raw, default_runner="claude")
+    assert len(bots) == 1
+    b = bots[0]
+    assert b.allow_bot_messages == "off"
+    assert b.allowed_chat_ids is None
+    assert b.allow_all_groups is False
+    assert b.trusted_bot_ids is None

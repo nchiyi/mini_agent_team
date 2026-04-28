@@ -16,6 +16,12 @@ class BotConfig:
     allowed_user_ids: list[int] | None = None
     allow_all_users: bool | None = None
     label: str = ""
+    bot_username: str = ""              # filled at startup from getMe()
+    bot_id_telegram: int = 0            # Telegram numeric bot id from getMe()
+    allow_bot_messages: str = "off"     # "off" | "mentions" | "all"
+    trusted_bot_ids: list[int] | None = None
+    allowed_chat_ids: list[int] | None = None
+    allow_all_groups: bool = False
 
     @property
     def token(self) -> str:
@@ -39,6 +45,10 @@ def load_bots(raw_toml: dict[str, Any], default_runner: str) -> list[BotConfig]:
                 allowed_user_ids=raw.get("allowed_user_ids"),
                 allow_all_users=raw.get("allow_all_users"),
                 label=raw.get("label", ""),
+                allow_bot_messages=raw.get("allow_bot_messages", "off"),
+                trusted_bot_ids=raw.get("trusted_bot_ids"),
+                allowed_chat_ids=raw.get("allowed_chat_ids"),
+                allow_all_groups=raw.get("allow_all_groups", False),
             )
             if not cfg.token:
                 logger.warning(

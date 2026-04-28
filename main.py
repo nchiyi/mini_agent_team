@@ -22,6 +22,8 @@ from src.channels.discord_adapter import DiscordAdapter
 from src.channels.base import InboundMessage, BaseAdapter
 from src.channels.attachments import safe_ext, download_telegram_file
 from src.gateway.app_context import AppContext
+from src.gateway.bot_registry import BotRegistry
+from src.gateway.bot_turns import BotTurnTracker
 from src.gateway.dispatcher import dispatch, apply_role_prompt, maybe_distill
 from src.gateway.router import Router
 from src.gateway.session import SessionManager
@@ -108,6 +110,8 @@ def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
         max_concurrent=rl_cfg.max_concurrent_dispatches,
         enabled=rl_cfg.enabled,
     )
+    bot_registry = BotRegistry()
+    bot_turns = BotTurnTracker()
     return AppContext(
         cfg=cfg,
         runners=runners,
@@ -119,6 +123,8 @@ def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
         assembler=assembler,
         nlu_detector=nlu_detector,
         rate_limiter=rate_limiter,
+        bot_registry=bot_registry,
+        bot_turns=bot_turns,
     )
 
 
