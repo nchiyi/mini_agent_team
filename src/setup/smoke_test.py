@@ -29,6 +29,9 @@ _B = "\033[1m"
 _X = "\033[0m"
 
 _READY_SIGNALS = (
+    "telegram bot running",          # main.py: [main] INFO: Telegram bot running
+    "application started",            # PTB: [telegram.ext.Application] INFO: Application started
+    "shard id none has connected",    # discord.py: [discord.gateway] INFO: Shard ID None has connected to Gateway
     "bot started",
     "gateway ready",
     "polling started",
