@@ -251,6 +251,48 @@ allow_bot_messages  = "off"            # off / mentions / all
 trusted_bot_ids     = []
 ```
 
+### 多 bot 模式（B-1）
+
+把不同任務分到不同 bot：daily code 找 `@dev_bot`（Claude）、code review 找 `@review_bot`（Codex）、查資料找 `@search_bot`（Gemini）。一個 MAT process 同時服務多個 Telegram bot，每個 bot 各自有自己的 token、預設 runner、預設 role。
+
+**Memory 完全隔離**：每個 (user_id, channel, bot_id) 三元組各有獨立的 Tier 1 / Tier 3 記憶；不同 bot 的對話歷史絕不互通。同一個 user 在 dev_bot 提到「我的專案叫 FooApp」，search_bot 不會知道。
+
+**目前限制**：本階段（B-1）僅支援私訊；多 bot 在同一個群組互相 @mention / 辯論的能力屬 B-2，尚未實作。
+
+#### 設定步驟（v1：手動編輯 config）
+
+1. 用 [@BotFather](https://t.me/BotFather) 建立每個 bot，記下各自的 token。
+2. 編輯 `secrets/.env`，每個 bot 一行：
+   ```
+   BOT_DEV_TOKEN="11111:abcdef..."
+   BOT_SEARCH_TOKEN="22222:fedcba..."
+   BOT_REVIEW_TOKEN="33333:ghijkl..."
+   ALLOWED_USER_IDS="<你的 Telegram user id>"
+   ```
+3. 編輯 `config/config.toml`，為每個 bot 加一個 `[bots.<id>]` 區塊（範本見 `config/config.toml.example` 末段）：
+   ```toml
+   [bots.dev]
+   channel        = "telegram"
+   token_env      = "BOT_DEV_TOKEN"
+   default_runner = "claude"
+   default_role   = "fullstack-dev"
+
+   [bots.search]
+   channel        = "telegram"
+   token_env      = "BOT_SEARCH_TOKEN"
+   default_runner = "gemini"
+   default_role   = "researcher"
+   ```
+4. `mat restart`。日誌應該出現多行 `Telegram bot running [<id>]`，每個 bot 一行。
+
+#### Legacy 單 bot 路徑
+
+`config.toml` 沒有任何 `[bots.*]` 區塊時，MAT 會自動讀 `TELEGRAM_BOT_TOKEN` env 並合成一個 `id="default"` 的 bot —— 既有的單 bot 安裝完全不需要動。
+
+#### 為什麼不用 wizard 互動 collect？
+
+B-1 階段保留 wizard 為單 bot UX。多 bot 用戶手動編 toml + .env 即可，雜訊較少。互動式 multi-bot 收集（B-1 計畫的完整 task 9）會放在後續 iteration（風險 / 測試成本對應收益不夠）。
+
 ## 認證 CLI agents（docker 模式必跑一次）
 
 Docker 模式下 bot 跑在隔離的容器內，不能直接讀宿主的 OAuth 憑證（特別是 macOS 把 Claude Code 憑證存在 Keychain，**不是檔案**，無論怎麼 mount 都拿不到）。

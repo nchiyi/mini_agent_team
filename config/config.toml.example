@@ -105,3 +105,38 @@ allow_bot_messages = "off"     # "off" | "mentions" | "all"  — default: "off"
 #     - allow_bot_messages = "mentions"/"all" + trusted_bot_ids empty
 #       → any bot satisfying the mentions rule is accepted
 # trusted_bot_ids = []         # e.g. [123456789012345678, 987654321098765432]
+
+# ── 多 bot 模式（B-1） ──────────────────────────────────────────────────
+# 在同一個 MAT process 啟用多個 Telegram bot，每個 bot 預先綁一個 CLI runner
+# + roster role。 Memory 以 (user_id, channel, bot_id) 三元組隔離；不同 bot
+# 的對話歷史絕不互通。
+#
+# 快速設定步驟：
+#   1. 用 @BotFather 建立額外 bot，取得 token。
+#   2. 在 secrets/.env 寫入 BOT_<ID>_TOKEN=... （ID 大寫，例 BOT_DEV_TOKEN）。
+#   3. 取消下面範例的註解、改成你的 bot id / runner / role。
+#   4. 重新啟動 MAT (`mat restart`)。
+#
+# 沒有 [bots.*] 區塊時，MAT 會走 legacy 單 bot 路徑（只認 TELEGRAM_BOT_TOKEN）—
+# 既有安裝可以無痛升級。
+#
+# [bots.dev]
+# channel        = "telegram"
+# token_env      = "BOT_DEV_TOKEN"     # secrets/.env 內的 env var name
+# default_runner = "claude"            # 此 bot 預設交給哪個 runner
+# default_role   = "fullstack-dev"     # roster/<slug>.md 的 slug，可省略
+# label          = "Dev Assistant"     # 純顯示用
+#
+# [bots.search]
+# channel        = "telegram"
+# token_env      = "BOT_SEARCH_TOKEN"
+# default_runner = "gemini"
+# default_role   = "researcher"
+# label          = "Researcher"
+#
+# [bots.review]
+# channel        = "telegram"
+# token_env      = "BOT_REVIEW_TOKEN"
+# default_runner = "codex"
+# default_role   = "code-auditor"
+# label          = "Code Reviewer"
