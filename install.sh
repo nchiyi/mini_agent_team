@@ -357,7 +357,7 @@ if _is_configured; then
             ;;
         4)
             echo "🔄  Resetting wizard state..."
-            ./venv/bin/python3 -m src.setup.wizard --reset </dev/tty
+            ./venv/bin/python3 -m src.setup.wizard --reset </dev/tty >/dev/tty 2>&1
             ;;
         *)
             echo "👋  Bye."
@@ -368,5 +368,9 @@ else
     echo ""
     echo "🧙  Launching setup wizard..."
     echo ""
-    ./venv/bin/python3 -m src.setup.wizard </dev/tty
+    # Force stdin AND stdout to /dev/tty: when install.sh runs via
+    # `curl | bash`, stdout may not be a real TTY, which makes
+    # questionary fall back to plain-text prompts. Forcing /dev/tty
+    # keeps the arrow-key checkbox UI working.
+    ./venv/bin/python3 -m src.setup.wizard </dev/tty >/dev/tty 2>&1
 fi
