@@ -1021,6 +1021,27 @@ def _stop_running_bot_instances(cwd: str) -> None:
     _time.sleep(5)  # allow Telegram server to release the polling connection
 
 
+def _clear_telegram_polling_session(token: str) -> None:
+    """Force-clear any active getUpdates session on Telegram's server.
+
+    Calling deleteWebhook with drop_pending_updates=True tells Telegram to
+    terminate the current long-poll slot and discard pending updates.  This
+    works even when the previous process has already been killed locally —
+    Telegram may keep the slot open until the TCP connection times out (~60s).
+    """
+    import urllib.request as _req, json as _json
+    url = f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=true"
+    try:
+        with _req.urlopen(url, timeout=10) as resp:
+            data = _json.loads(resp.read())
+            if data.get("ok"):
+                _ok("Telegram polling session cleared (deleteWebhook)")
+            else:
+                _warn(f"deleteWebhook returned: {data}")
+    except Exception as exc:
+        _warn(f"Could not clear Telegram session: {exc}")
+
+
 async def step_9_launch(
     state: WizardState,
     cwd: str,
@@ -1030,6 +1051,11 @@ async def step_9_launch(
         return
     set_current_step(state, "launch.started")
     _hdr(9, "Writing config and launching")
+    # Force-clear Telegram's server-side polling session before launching.
+    # Local process kills are insufficient — Telegram keeps the slot open
+    # until the TCP connection times out, causing 409 in the new instance.
+    if state.telegram_token:
+        _clear_telegram_polling_session(state.telegram_token)
     create_data_dirs(cwd)
     runners = state.selected_clis or ["claude"]
     # Build config content using same template as deploy.py
