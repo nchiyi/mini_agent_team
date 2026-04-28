@@ -17,6 +17,7 @@ from src.runners.audit import AuditLog
 from src.runners.cli_runner import CLIRunner
 from src.runners.acp_runner import ACPRunner
 from src.channels.telegram import TelegramAdapter
+from src.channels.telegram_runner import run_telegram_for_bot
 from src.channels.discord_adapter import DiscordAdapter
 from src.channels.base import InboundMessage, BaseAdapter
 from src.channels.attachments import safe_ext, download_telegram_file
@@ -121,26 +122,6 @@ def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
     )
 
 
-async def run_telegram(ctx: AppContext) -> None:
-    """Legacy single-bot launcher.
-
-    Picks the first ``cfg.bots`` entry with ``channel == "telegram"`` and
-    delegates to ``run_telegram_for_bot``. Task 8 replaces ``main()`` so it
-    schedules one ``run_telegram_for_bot`` task per bot in parallel; this
-    shim keeps the file working between commits.
-    """
-    from src.channels.telegram_runner import run_telegram_for_bot
-
-    bot_cfg = next(
-        (b for b in ctx.cfg.bots if b.channel == "telegram"),
-        None,
-    )
-    if bot_cfg is None:
-        logger.warning("No telegram bot configured; run_telegram is a no-op.")
-        return
-    await run_telegram_for_bot(ctx, bot_cfg)
-
-
 async def run_discord(ctx: AppContext) -> None:
     cfg = ctx.cfg
     discord_bridges: dict[int, StreamingBridge] = {}
@@ -179,6 +160,23 @@ async def run_discord(ctx: AppContext) -> None:
     await dc_adapter.start()
 
 
+def _build_channel_tasks(ctx: AppContext) -> list:
+    """Return one coroutine per configured channel.
+
+    - One ``run_telegram_for_bot`` coroutine per ``cfg.bots`` entry whose
+      ``channel == "telegram"``.
+    - One ``run_discord`` coroutine if ``cfg.discord_token`` is set.
+    Discord remains single-bot for now; a future plan extends it.
+    """
+    coroutines = []
+    for bot_cfg in ctx.cfg.bots:
+        if bot_cfg.channel == "telegram":
+            coroutines.append(run_telegram_for_bot(ctx, bot_cfg))
+    if ctx.cfg.discord_token:
+        coroutines.append(run_discord(ctx))
+    return coroutines
+
+
 async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.env") -> None:
     cfg = load_config(config_path=cfg_path, env_path=env_path)
     audit = AuditLog(audit_dir=cfg.audit.path, max_entries=cfg.audit.max_entries)
@@ -200,11 +198,7 @@ async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.e
             "Set ALLOWED_USER_IDS in secrets/.env to permit access."
         )
 
-    coroutines = []
-    if cfg.telegram_token:
-        coroutines.append(run_telegram(ctx))
-    if cfg.discord_token:
-        coroutines.append(run_discord(ctx))
+    coroutines = _build_channel_tasks(ctx)
 
     if not coroutines:
         logger.error("No tokens configured. Set TELEGRAM_BOT_TOKEN or DISCORD_BOT_TOKEN.")
