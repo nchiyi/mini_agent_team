@@ -69,10 +69,23 @@ class SessionManager:
         self._voice_enabled: dict[tuple[int, str, str, int], bool] = {}
         self._tier3: "Tier3Store | None" = None
         self._settings_loaded: set[tuple[int, str, str, int]] = set()
+        self._pending_tasks: set[asyncio.Task] = set()
 
     def attach_tier3(self, tier3: "Tier3Store") -> None:
         """Attach a Tier3Store so settings are persisted to SQLite."""
         self._tier3 = tier3
+
+    def _spawn_persist(self, coro) -> None:
+        """Schedule a Tier3 persist coroutine; keep a strong reference so the
+        task isn't GC'd before completion. No-op when not in async context."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            coro.close()
+            return
+        task = loop.create_task(coro)
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
 
     # ── role state ────────────────────────────────────────────────────────
 
@@ -99,12 +112,12 @@ class SessionManager:
         if session:
             session.active_role = role
         if self._tier3 is not None:
-            try:
-                asyncio.get_event_loop().create_task(
-                    self._tier3.set_active_role(user_id=user_id, channel=channel, role=role)
+            self._spawn_persist(
+                self._tier3.set_active_role(
+                    user_id=user_id, channel=channel,
+                    bot_id=bot_id, chat_id=chat_id, role=role,
                 )
-            except RuntimeError:
-                pass
+            )
 
     def clear_active_role(
         self, user_id: int, channel: str, bot_id: str = "default",
@@ -130,12 +143,12 @@ class SessionManager:
             chat_id = user_id
         self._voice_enabled[(user_id, channel, bot_id, chat_id)] = enabled
         if self._tier3 is not None:
-            try:
-                asyncio.get_event_loop().create_task(
-                    self._tier3.set_voice_enabled(user_id=user_id, channel=channel, enabled=enabled)
+            self._spawn_persist(
+                self._tier3.set_voice_enabled(
+                    user_id=user_id, channel=channel,
+                    bot_id=bot_id, chat_id=chat_id, enabled=enabled,
                 )
-            except RuntimeError:
-                pass
+            )
 
     # ── settings restore ──────────────────────────────────────────────────
 
@@ -151,17 +164,22 @@ class SessionManager:
             return
         self._settings_loaded.add(key)
         try:
-            role = await self._tier3.get_active_role(user_id=user_id, channel=channel)
+            role = await self._tier3.get_active_role(
+                user_id=user_id, channel=channel, bot_id=bot_id, chat_id=chat_id,
+            )
             if role:
                 self._active_roles[key] = role
                 session = self._sessions.get(key)
                 if session:
                     session.active_role = role
-            voice = await self._tier3.get_voice_enabled(user_id=user_id, channel=channel)
+            voice = await self._tier3.get_voice_enabled(
+                user_id=user_id, channel=channel, bot_id=bot_id, chat_id=chat_id,
+            )
             if voice:
                 self._voice_enabled[key] = voice
         except Exception:
-            logger.debug("Failed to restore settings for %s/%s", user_id, channel, exc_info=True)
+            logger.debug("Failed to restore settings for %s/%s/%s/%s",
+                         user_id, channel, bot_id, chat_id, exc_info=True)
 
     # ── session lifecycle ─────────────────────────────────────────────────
 

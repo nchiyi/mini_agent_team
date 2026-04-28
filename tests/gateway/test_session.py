@@ -142,3 +142,44 @@ def test_session_b1_caller_without_chat_id_still_works():
     a = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev")
     b = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev")
     assert a is b
+
+
+@pytest.mark.asyncio
+async def test_session_set_active_role_persists_per_bot_per_chat(tmp_path):
+    """Verify set_active_role threads bot_id/chat_id into Tier3."""
+    from src.gateway.session import SessionManager
+    from src.core.memory.tier3 import Tier3Store
+    t3 = Tier3Store(db_path=str(tmp_path / "history.db"))
+    await t3.init()
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    mgr.attach_tier3(t3)
+
+    mgr.set_active_role(user_id=1, channel="telegram", role="dev-role", bot_id="dev")
+    mgr.set_active_role(user_id=1, channel="telegram", role="search-role", bot_id="search")
+    # let scheduled tasks complete
+    await asyncio.sleep(0.1)
+
+    dev_role = await t3.get_active_role(user_id=1, channel="telegram", bot_id="dev")
+    search_role = await t3.get_active_role(user_id=1, channel="telegram", bot_id="search")
+    default_role = await t3.get_active_role(user_id=1, channel="telegram", bot_id="default")
+    assert dev_role == "dev-role"
+    assert search_role == "search-role"
+    assert default_role == ""  # nothing was written under default bot
+    await t3.close()
+
+
+@pytest.mark.asyncio
+async def test_session_restore_uses_bot_and_chat_scoping(tmp_path):
+    from src.gateway.session import SessionManager
+    from src.core.memory.tier3 import Tier3Store
+    t3 = Tier3Store(db_path=str(tmp_path / "history.db"))
+    await t3.init()
+    # Pre-seed Tier3 directly with per-bot settings
+    await t3.set_active_role(user_id=1, channel="telegram", bot_id="dev", role="seeded-dev")
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    mgr.attach_tier3(t3)
+    await mgr.restore_settings_if_needed(user_id=1, channel="telegram", bot_id="dev")
+    assert mgr.get_active_role(user_id=1, channel="telegram", bot_id="dev") == "seeded-dev"
+    # Other bot's role should NOT be polluted
+    assert mgr.get_active_role(user_id=1, channel="telegram", bot_id="other") == ""
+    await t3.close()
