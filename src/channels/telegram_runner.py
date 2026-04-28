@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import re
+from dataclasses import replace
 from pathlib import Path
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
@@ -28,6 +29,51 @@ logger = logging.getLogger(__name__)
 _SAFE_EXT = re.compile(r'^\.[a-zA-Z0-9]{1,10}$')
 
 
+def _build_inbound_from_update(update, *, bot_id, registry) -> InboundMessage:
+    """Pure helper: construct an InboundMessage with B-2 group fields populated.
+
+    Extracted so we can unit-test mention parsing / chat_id extraction
+    without spinning up a real Telegram Application.
+    """
+    msg = update.message
+    text = msg.text or msg.caption or ""
+
+    mentioned: list[str] = []
+    seen: set[str] = set()
+    for ent in (msg.entities or []):
+        if getattr(ent, "type", None) != "mention":
+            continue
+        mention_text = text[ent.offset:ent.offset + ent.length]
+        resolved = registry.resolve(channel="telegram", username=mention_text)
+        if resolved and resolved not in seen:
+            mentioned.append(resolved)
+            seen.add(resolved)
+
+    reply_to = msg.reply_to_message
+    reply_to_message_id = (
+        str(reply_to.message_id) if reply_to is not None else None
+    )
+    reply_to_user_id = (
+        reply_to.from_user.id
+        if reply_to is not None and reply_to.from_user is not None
+        else None
+    )
+
+    return InboundMessage(
+        user_id=update.effective_user.id,
+        channel="telegram",
+        text=text or "(no text)",
+        message_id=str(msg.message_id),
+        bot_id=bot_id,
+        chat_id=msg.chat.id,
+        chat_type=msg.chat.type,
+        mentioned_bot_ids=mentioned,
+        from_bot=bool(msg.from_user and msg.from_user.is_bot),
+        reply_to_message_id=reply_to_message_id,
+        reply_to_user_id=reply_to_user_id,
+    )
+
+
 async def run_telegram_for_bot(ctx: AppContext, bot_cfg: BotConfig) -> None:
     """Launch one Telegram polling loop bound to a single bot.
 
@@ -36,6 +82,16 @@ async def run_telegram_for_bot(ctx: AppContext, bot_cfg: BotConfig) -> None:
     """
     cfg = ctx.cfg
     tg_app = Application.builder().token(bot_cfg.token).build()
+
+    me = await tg_app.bot.get_me()
+    bot_cfg.bot_username = me.username or ""
+    bot_cfg.bot_id_telegram = me.id or 0
+    ctx.bot_registry.register(
+        channel="telegram",
+        username=bot_cfg.bot_username,
+        bot_id=bot_cfg.id,
+    )
+    logger.info("Registered bot @%s as %s", bot_cfg.bot_username, bot_cfg.id)
 
     # 3-level precedence: bot-level override → channel-level override → global.
     allowed = (
@@ -69,13 +125,14 @@ async def run_telegram_for_bot(ctx: AppContext, bot_cfg: BotConfig) -> None:
         await context.bot.send_chat_action(
             chat_id=update.effective_chat.id, action="typing",
         )
-        inbound = InboundMessage(
-            user_id=user_id,
-            channel="telegram",
+        inbound = _build_inbound_from_update(
+            update, bot_id=bot_cfg.id, registry=ctx.bot_registry,
+        )
+        # caller-side may have stripped/processed text differently
+        inbound = replace(
+            inbound,
             text=text or "(no text)",
-            message_id=str(update.message.message_id),
             attachments=attachments,
-            bot_id=bot_cfg.id,
         )
 
         voice_reply = ctx.session_mgr.is_voice_enabled(
