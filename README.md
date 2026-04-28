@@ -107,19 +107,11 @@ curl -fsSL https://raw.githubusercontent.com/nchiyi/mini_agent_team/main/install
 | 3 | clone repo + 建 venv + `pip install -r requirements.txt` |
 | 4 | 啟動設定精靈（步驟 1-9，方向鍵 + Space + Enter 操作）|
 | 5 | 選 docker 模式時自動 build 容器並啟動 |
+| 6 | 自動把 `mat` symlink 到 `/usr/local/bin/mat`（會 sudo 一次）|
 
-精靈完成後 bot **已上線**，不需要額外指令。
+精靈完成後 bot **已上線**，且 `mat` 指令在任何目錄都能用，不需要額外動作。
 
-### 2. 安裝 mat 全域指令（一次就好）
-
-```bash
-cd ~/mini_agent_team
-sudo ./mat install-cmd
-```
-
-之後在任何目錄都能用 `mat ...`。
-
-### 3. 手動安裝
+### 2. 手動安裝（替代方式）
 
 ```bash
 git clone https://github.com/nchiyi/mini_agent_team.git
@@ -127,6 +119,7 @@ cd mini_agent_team
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ./venv/bin/python3 setup.py
+sudo ./mat install-cmd     # 安裝 mat 全域指令（自動安裝若用 install.sh 則跳過）
 ```
 
 ---
@@ -149,48 +142,64 @@ pip install -r requirements.txt
 
 ---
 
-## 日常操作
+## 日常操作（全部用 `mat`）
 
-### `mat` 全域指令（推薦）
+`mat` 是唯一的使用者面向指令，會根據 `data/setup-state.json` 的 `deploy_mode` 自動 dispatch 到對應後端（docker / launchd / systemd），所以你不需要記不同模式的指令差異。
 
-```bash
-mat start          # 背景啟動（依設定的部署模式）
-mat stop           # 停止
-mat restart        # 重啟
-mat status         # 查看執行狀態
-mat logs [N]       # 看日誌（預設 tail -f；可傳行數）
-mat run            # 前景執行（除錯用）
-mat config         # 修改 Token / 白名單
-mat setup          # 重跑設定精靈
-mat update         # git pull + 重啟
-```
-
-### Docker 模式
+### 生命週期
 
 ```bash
-cd ~/mini_agent_team
-docker compose ps                     # 狀態
-docker compose logs -f gateway        # 即時日誌
-docker compose restart                # 重啟
-docker compose down                   # 停止
-docker compose up -d --build          # 改設定後重 build
+mat start                  # 啟動 bot
+mat stop                   # 停止
+mat restart                # 重啟
+mat status                 # 查看執行狀態
+mat run                    # 前景執行（除錯用，繞過 backend）
 ```
 
-### Systemd 模式（Linux）
+### 日誌
 
 ```bash
-systemctl --user status   gateway-agent
-systemctl --user restart  gateway-agent
-journalctl --user -u gateway-agent -f
+mat logs                   # 即時 tail -f（Ctrl-C 離開）
+mat logs 100               # 最後 100 行
+mat logs grep "telegram"   # 只顯示包含 telegram 的行
+mat logs error             # 只看 error / exception / traceback
+mat logs today             # 只看今天的訊息
+mat debug on               # 開啟詳細除錯日誌（會自動重啟）
+mat debug off              # 關閉
 ```
 
-### Launchd 模式（macOS）
+### 設定 / 維護
 
 ```bash
-launchctl list | grep gateway
-launchctl stop  com.kiwi.gateway-agent     # 暫停（KeepAlive 會自動重啟）
-launchctl unload ~/Library/LaunchAgents/com.kiwi.gateway-agent.plist  # 完全停止
+mat config                 # 修改 Token / 白名單（會自動重啟）
+mat setup                  # 重跑設定精靈（保留現有設定，只改要改的）
+mat update                 # git pull + 重啟（docker 模式則重 build）
+mat mode                   # 顯示目前 deploy_mode（除錯用）
 ```
+
+### Service unit（launchd / systemd 模式才需要）
+
+```bash
+mat service-install        # 寫入並載入 launchd plist 或 systemd unit
+mat service-uninstall      # 卸載
+```
+
+Docker 模式下這兩個會印「不適用」訊息（Docker container 本身就是 daemon，由 Docker daemon 管）。
+
+### Backend 對照表（mat 內部如何 dispatch）
+
+| `mat` 指令 | `docker` 模式 | `launchd` / `systemd` 模式 |
+|-----------|---------------|---------------------------|
+| `start` | `docker compose up -d` | `./agent start` |
+| `stop` | `docker compose down` | `./agent stop` |
+| `restart` | `docker compose restart` | `./agent restart` |
+| `status` | `docker compose ps` | `./agent status` |
+| `logs` | `docker compose logs -f gateway` | `tail -f data/bot.log` |
+| `update` | `git pull` + `docker compose up -d --build` | `git pull` + `./agent restart` |
+| `run` | venv 直接跑 main.py（繞過 docker，純前景）| 同 |
+| `config` | 編輯 secrets/.env 後重啟 | 同 |
+
+> `./agent` 是底層 service 管理腳本，被 `mat` 在 launchd/systemd 模式時內部呼叫。一般使用者不必直接執行 `./agent`。
 
 ---
 
