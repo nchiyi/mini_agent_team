@@ -374,3 +374,26 @@ else
     # keeps the arrow-key checkbox UI working.
     ./venv/bin/python3 -m src.setup.wizard </dev/tty >/dev/tty 2>&1
 fi
+
+# ── 7. install global `mat` command ──────────────────────────────
+# After wizard finishes (success or failure), make `mat` reachable from any
+# directory so the user doesn't have to cd into the project for daily ops.
+echo ""
+MAT_TARGET="$(pwd)/mat"
+GLOBAL_MAT="/usr/local/bin/mat"
+if [ -x "$MAT_TARGET" ]; then
+    if [ -L "$GLOBAL_MAT" ] && [ "$(readlink "$GLOBAL_MAT" 2>/dev/null)" = "$MAT_TARGET" ]; then
+        echo "✅  Global 'mat' already linked → $MAT_TARGET"
+    else
+        echo "📎  Installing global 'mat' command (sudo required for /usr/local/bin)..."
+        if [ ! -d /usr/local/bin ]; then
+            sudo mkdir -p /usr/local/bin
+        fi
+        if sudo ln -sf "$MAT_TARGET" "$GLOBAL_MAT"; then
+            echo "✅  Installed: $GLOBAL_MAT → $MAT_TARGET"
+        else
+            echo "⚠️   Could not symlink to $GLOBAL_MAT. You can install manually later:"
+            echo "      cd $(pwd) && sudo ./mat install-cmd"
+        fi
+    fi
+fi

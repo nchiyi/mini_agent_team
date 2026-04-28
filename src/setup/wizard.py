@@ -1014,50 +1014,59 @@ async def step_8_deploy(state: WizardState, cwd: str = ".") -> None:
     mark_micro_step_done(state, "deploy_mode.done")
 
 
-def _print_completion_systemd(cwd: str) -> None:
-    W = 52
-    print(f"\n{_B}{'='*W}{_X}")
-    print(f"{_G}{_B}  ✅  Setup complete — bot is running!{_X}")
-    print(f"{_B}{'='*W}{_X}")
-    print(f"  {_B}Daily operations:{_X}")
-    print("    systemctl --user status  gateway-agent   # status")
-    print("    systemctl --user stop    gateway-agent   # stop")
-    print("    systemctl --user restart gateway-agent   # restart")
-    print("    journalctl --user -u gateway-agent -f    # live logs")
-    print(f"    ./venv/bin/python3 -m src.setup.wizard --reset       # reconfigure")
-    print(f"    bash {cwd}/uninstall.sh                  # uninstall")
-    print(f"{_B}{'='*W}{_X}\n")
+def _print_unified_completion(cwd: str, mode: str, *, running: bool = True) -> None:
+    """Single completion message for every deploy mode.
 
-
-def _print_completion_docker(cwd: str, *, running: bool = True) -> None:
-    W = 52
+    All daily ops are now exposed via the `mat` global command which dispatches
+    to docker / launchd / systemd internally — so the help text doesn't need
+    to differ across modes.
+    """
+    W = 64
     print(f"\n{_B}{'='*W}{_X}")
     if running:
         print(f"{_G}{_B}  ✅  Setup complete — bot is running!{_X}")
-    else:
+    elif mode == "docker":
         print(f"{_Y}{_B}  ⚠  Config written — start manually:{_X}")
-        print(f"     docker compose -f {cwd}/docker-compose.yml up -d")
+        print(f"     mat start")
+    else:
+        print(f"{_Y}{_B}  ⚠  Setup partial — see warnings above.{_X}")
     print(f"{_B}{'='*W}{_X}")
-    print(f"  {_B}Daily operations:{_X}")
-    print(f"    docker compose -f {cwd}/docker-compose.yml ps       # status")
-    print(f"    docker compose -f {cwd}/docker-compose.yml logs -f  # live logs")
-    print(f"    docker compose -f {cwd}/docker-compose.yml down     # stop")
-    print(f"    ./venv/bin/python3 -m src.setup.wizard --reset                   # reconfigure")
-    print(f"    bash {cwd}/uninstall.sh                              # uninstall")
+    print(f"  Deploy mode: {_B}{mode}{_X}    Project dir: {cwd}")
+    print()
+    print(f"  {_B}Daily operations (use `mat`):{_X}")
+    print(f"    mat status              查看執行狀態")
+    print(f"    mat logs                即時 tail -f 日誌")
+    print(f"    mat logs <N>            最後 N 行")
+    print(f"    mat logs grep <pat>     過濾關鍵字")
+    print(f"    mat logs error          只看錯誤訊息")
+    print(f"    mat restart             重啟 bot")
+    print(f"    mat stop / start        停 / 啟")
+    print(f"    mat debug on | off      切換 DEBUG_LOG 並重啟")
+    print()
+    print(f"  {_B}Configuration:{_X}")
+    print(f"    mat config              修改 Token / 白名單")
+    print(f"    mat setup               重跑設定精靈")
+    print(f"    mat update              git pull + 重啟 / 重 build")
+    print(f"    mat mode                顯示目前 deploy mode（除錯用）")
+    print()
+    print(f"  {_B}Other:{_X}")
+    print(f"    mat run                 前景執行（除錯用，繞過 backend）")
+    print(f"    mat help                完整指令清單")
+    print(f"    bash {cwd}/uninstall.sh   完整移除")
     print(f"{_B}{'='*W}{_X}\n")
+
+
+# Backwards-compat wrappers (some old code paths call these by name).
+def _print_completion_systemd(cwd: str) -> None:
+    _print_unified_completion(cwd, "systemd", running=True)
+
+
+def _print_completion_docker(cwd: str, *, running: bool = True) -> None:
+    _print_unified_completion(cwd, "docker", running=running)
 
 
 def _print_completion_foreground(cwd: str) -> None:
-    W = 52
-    print(f"\n{_B}{'='*W}{_X}")
-    print(f"{_G}{_B}  ✅  Setup complete — bot is running!{_X}")
-    print(f"{_B}{'='*W}{_X}")
-    print(f"  {_B}Daily operations:{_X}")
-    print("    ./venv/bin/python3 main.py               # start (foreground)")
-    print("    Ctrl-C                                   # stop")
-    print("    ./venv/bin/python3 -m src.setup.wizard --reset       # reconfigure")
-    print(f"    bash {cwd}/uninstall.sh                  # uninstall")
-    print(f"{_B}{'='*W}{_X}\n")
+    _print_unified_completion(cwd, "foreground", running=True)
 
 
 def _stop_running_bot_instances(cwd: str) -> None:

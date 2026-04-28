@@ -114,16 +114,74 @@ case "$CMD" in
         ;;
     logs)
         shift
+        SUB="${1:-tail}"
         case "$(_backend)" in
             docker)
-                # Optional first arg: number of tail lines (default: follow).
-                if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
-                    _dc logs --tail "$1" gateway
-                else
-                    _dc logs -f gateway
-                fi
+                case "$SUB" in
+                    tail|"")          _dc logs -f gateway ;;
+                    [0-9]*)           _dc logs --tail "$SUB" gateway ;;
+                    grep)
+                        [ -n "${2:-}" ] || { echo "用法: mat logs grep <pattern>"; exit 1; }
+                        _dc logs gateway 2>&1 | grep -i "$2"
+                        ;;
+                    error|errors)
+                        _dc logs gateway 2>&1 | grep -iE 'error|exception|traceback|critical'
+                        ;;
+                    today)
+                        _dc logs gateway --since "$(date +%Y-%m-%d)T00:00:00"
+                        ;;
+                    *)
+                        echo "用法: mat logs [tail|<N>|grep <pat>|error|today]"; exit 1
+                        ;;
+                esac
                 ;;
-            *)  exec "$AGENT" logs "${@:-tail}" ;;
+            *)  exec "$AGENT" logs "$@" ;;
+        esac
+        ;;
+    debug)
+        # Toggle DEBUG_LOG in secrets/.env, then restart to pick it up.
+        SUB="${2:-}"
+        case "$SUB" in
+            on|off)
+                ENV_FILE="$MAT_DIR/secrets/.env"
+                mkdir -p "$MAT_DIR/secrets"
+                touch "$ENV_FILE"
+                if grep -q '^DEBUG_LOG=' "$ENV_FILE"; then
+                    # POSIX-portable in-place sed (macOS BSD vs GNU).
+                    _tmp="$(mktemp)"
+                    sed "s/^DEBUG_LOG=.*/DEBUG_LOG=$([ "$SUB" = on ] && echo true || echo false)/" "$ENV_FILE" > "$_tmp"
+                    mv "$_tmp" "$ENV_FILE"
+                else
+                    echo "DEBUG_LOG=$([ "$SUB" = on ] && echo true || echo false)" >> "$ENV_FILE"
+                fi
+                chmod 600 "$ENV_FILE"
+                echo "✅  DEBUG_LOG = $([ "$SUB" = on ] && echo true || echo false)"
+                # Restart so the bot picks up the new env var.
+                "$0" restart
+                ;;
+            *)
+                echo "用法: mat debug on|off"; exit 1
+                ;;
+        esac
+        ;;
+    service-install)
+        # Install service unit (launchd plist on macOS, systemd unit on Linux).
+        # Docker mode has no equivalent — the container itself IS the daemon
+        # and is managed by Docker.
+        case "$(_backend)" in
+            docker)
+                echo "⚠️   Docker 模式下沒有 service unit；container 本身就是 daemon。"
+                echo "    若要切到 launchd/systemd，請改 deploy_mode 並重跑 wizard。"
+                ;;
+            *)  exec "$AGENT" install ;;
+        esac
+        ;;
+    service-uninstall)
+        case "$(_backend)" in
+            docker)
+                echo "⚠️   Docker 模式下沒有 service unit。要停 container：mat stop"
+                ;;
+            *)  exec "$AGENT" uninstall ;;
         esac
         ;;
     run)
@@ -190,18 +248,33 @@ case "$CMD" in
         BACKEND="$(_backend 2>/dev/null || echo unknown)"
         echo "用法：mat <指令>      （目前部署模式：$BACKEND）"
         echo ""
-        echo "  start        啟動 bot"
-        echo "  stop         停止 bot"
-        echo "  restart      重啟 bot"
-        echo "  status       查看執行狀態"
-        echo "  logs [N]     查看日誌（預設 tail -f，可傳行數）"
-        echo "  run          前景執行（開發 / 除錯，繞過 backend）"
-        echo "  setup        首次設定或重新配置 wizard"
-        echo "  update       git pull + 重啟 / 重 build"
-        echo "  config       修改 Token / 白名單"
-        echo "  mode         顯示目前 deploy mode（除錯用）"
+        echo "  生命週期"
+        echo "    start                 啟動 bot"
+        echo "    stop                  停止 bot"
+        echo "    restart               重啟 bot"
+        echo "    status                查看執行狀態"
+        echo "    run                   前景執行（除錯用，繞過 backend）"
         echo ""
-        echo "  install-cmd  安裝 mat 指令到 /usr/local/bin（執行一次即可）"
+        echo "  日誌"
+        echo "    logs                  即時 tail（Ctrl-C 離開）"
+        echo "    logs <N>              最後 N 行"
+        echo "    logs grep <pattern>   過濾關鍵字"
+        echo "    logs error            只看錯誤訊息"
+        echo "    logs today            只看今天的訊息"
+        echo "    debug on | off        切換 DEBUG_LOG 並重啟"
+        echo ""
+        echo "  設定 / 維護"
+        echo "    setup                 首次設定或重新配置 wizard"
+        echo "    config                修改 Token / 白名單"
+        echo "    update                git pull + 重啟 / 重 build"
+        echo "    mode                  顯示目前 deploy mode（除錯用）"
+        echo ""
+        echo "  service unit（launchd / systemd 模式）"
+        echo "    service-install       建立並載入 service"
+        echo "    service-uninstall     卸載 service"
+        echo ""
+        echo "  全域指令"
+        echo "    install-cmd           安裝 mat 到 /usr/local/bin（一次性）"
         echo ""
         echo "  指令會依 deploy mode 自動 dispatch："
         echo "    docker → docker compose ..."
