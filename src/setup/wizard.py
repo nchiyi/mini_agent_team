@@ -941,6 +941,73 @@ def _print_completion_foreground(cwd: str) -> None:
     print(f"{_B}{'='*W}{_X}\n")
 
 
+def _stop_running_bot_instances(cwd: str) -> None:
+    """Detect and interactively stop all running bot instances before launch."""
+    import time as _time
+
+    found: list[tuple[str, list[str]]] = []
+    actions: list = []
+
+    # 1. python main.py (foreground / venv)
+    pgrep = subprocess.run(["pgrep", "-f", "python.*main\\.py"], capture_output=True)
+    if pgrep.returncode == 0:
+        pids = pgrep.stdout.decode().strip().split()
+        found.append(("python process", pids))
+        actions.append(lambda: subprocess.run(["pkill", "-f", "python.*main\\.py"], check=False))
+
+    # 2. Docker containers for this project
+    try:
+        dc = subprocess.run(
+            ["docker", "compose", "ps", "--quiet"],
+            cwd=cwd, capture_output=True, text=True,
+        )
+        if dc.returncode == 0 and dc.stdout.strip():
+            ids = dc.stdout.strip().split()
+            found.append(("Docker container", ids))
+            _cwd = cwd
+            actions.append(lambda: subprocess.run(["docker", "compose", "down"], cwd=_cwd, check=False))
+    except FileNotFoundError:
+        pass
+
+    # 3. launchd service (macOS)
+    if sys.platform == "darwin":
+        _plist = "com.kiwi.gateway-agent"
+        lc = subprocess.run(["launchctl", "list", _plist], capture_output=True)
+        if lc.returncode == 0:
+            found.append(("launchd service", [_plist]))
+            actions.append(lambda: subprocess.run(["launchctl", "stop", _plist], check=False))
+
+    # 4. systemd service (Linux)
+    if sys.platform != "darwin":
+        sc = subprocess.run(
+            ["systemctl", "--user", "is-active", "gateway-agent"],
+            capture_output=True,
+        )
+        if sc.returncode == 0:
+            found.append(("systemd service", ["gateway-agent"]))
+            actions.append(lambda: subprocess.run(
+                ["systemctl", "--user", "stop", "gateway-agent"], check=False
+            ))
+
+    if not found:
+        return
+
+    _warn("Detected running bot instance(s) — a new launch will cause Telegram 409 Conflict:")
+    for kind, ids in found:
+        print(f"    {kind}: {', '.join(ids)}")
+    print()
+
+    ans = _prompt("Stop all running instances now? (Y/n)", "y").strip().lower()
+    if ans not in ("", "y", "yes"):
+        _err("Aborted — stop existing instances manually to avoid 409 Conflict.")
+        sys.exit(1)
+
+    for (kind, _), action in zip(found, actions):
+        action()
+        _ok(f"Stopped {kind}")
+    _time.sleep(2)
+
+
 async def step_9_launch(
     state: WizardState,
     cwd: str,
@@ -950,6 +1017,7 @@ async def step_9_launch(
         return
     set_current_step(state, "launch.started")
     _hdr(9, "Writing config and launching")
+    _stop_running_bot_instances(cwd)
     create_data_dirs(cwd)
     runners = state.selected_clis or ["claude"]
     # Build config content using same template as deploy.py
@@ -1024,24 +1092,6 @@ async def step_9_launch(
             _err("Smoke test failed — bot did not respond. Check logs above.")
             sys.exit(1)
     elif state.deploy_mode == "docker":
-        # Guard: stop any direct python main.py processes that would cause 409 Conflict
-        _pgrep = subprocess.run(
-            ["pgrep", "-f", "python.*main\\.py"],
-            capture_output=True,
-        )
-        if _pgrep.returncode == 0:
-            pids = _pgrep.stdout.decode().strip().split()
-            _warn(f"Found running bot process(es): {', '.join(pids)}")
-            _warn("These must be stopped before Docker mode to avoid Telegram 409 Conflict.")
-            ans = _prompt("Stop them now? (Y/n)", "y").strip().lower()
-            if ans in ("", "y", "yes"):
-                subprocess.run(["pkill", "-f", "python.*main\\.py"], check=False)
-                import time as _time; _time.sleep(2)
-                _ok("Stopped existing bot processes.")
-            else:
-                _err("Cannot proceed — stop the duplicate processes manually first.")
-                return
-
         write_docker_compose(cwd)
         try:
             r = subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
