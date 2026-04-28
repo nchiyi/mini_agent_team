@@ -205,23 +205,59 @@ if [ "$(_py_ver_num "$PYTHON_BIN")" -lt 311 ]; then
         fi
         echo "✅  Python $PY_VER installed"
     elif [[ "$OSTYPE" == "darwin"* ]]; then
-        if command -v brew &>/dev/null; then
-            echo "💡  Detected macOS with Homebrew."
-            echo "    This will run: brew install python@3.11"
-            printf "🔧  Auto-install Python 3.11 now? [y/N]: " >/dev/tty
+        # Bootstrap Homebrew first if missing — required to install Python 3.11.
+        if ! command -v brew &>/dev/null; then
+            # brew may be installed but not on PATH yet (e.g. Apple Silicon)
+            for _brew_path in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+                if [ -x "$_brew_path" ]; then
+                    eval "$($_brew_path shellenv)"
+                    break
+                fi
+            done
+        fi
+        if ! command -v brew &>/dev/null; then
+            echo "💡  Homebrew not detected — required to install Python 3.11+ on macOS."
+            echo "    Will run the official installer:"
+            echo "      /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+            printf "🔧  Auto-install Homebrew now? [y/N]: " >/dev/tty
             read -r _DO_INSTALL </dev/tty
-            if [[ "$_DO_INSTALL" =~ ^[Yy]$ ]]; then
-                brew install python@3.11
-                PYTHON_BIN="$(brew --prefix python@3.11)/bin/python3.11"
-                PY_VER=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-                echo "✅  Python $PY_VER installed"
-            else
-                echo "👉  Manual install: brew install python@3.11"
+            if [[ ! "$_DO_INSTALL" =~ ^[Yy]$ ]]; then
+                echo "👉  Manual install: visit https://brew.sh, then re-run this installer."
                 exit 1
             fi
+            # Run Homebrew's installer non-interactively. NONINTERACTIVE=1 makes
+            # the installer skip its own sudo prompt loop; user is still prompted
+            # once for the password, which is fine.
+            NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            # Pick up brew on PATH for the rest of this script + load shellenv.
+            for _brew_path in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+                if [ -x "$_brew_path" ]; then
+                    eval "$($_brew_path shellenv)"
+                    BREW_PATH="$_brew_path"
+                    break
+                fi
+            done
+            if ! command -v brew &>/dev/null; then
+                echo "❌  Homebrew install completed but brew not found on PATH."
+                echo "    Re-open your terminal and re-run this installer."
+                exit 1
+            fi
+            echo "✅  Homebrew installed at $(brew --prefix)"
+            echo "💡  To make brew permanent in new shells, add to ~/.zprofile:"
+            echo "    echo 'eval \"\$($(brew --prefix)/bin/brew shellenv)\"' >> ~/.zprofile"
+        fi
+
+        echo "💡  Detected macOS with Homebrew."
+        echo "    Will run: brew install python@3.11"
+        printf "🔧  Auto-install Python 3.11 now? [y/N]: " >/dev/tty
+        read -r _DO_INSTALL </dev/tty
+        if [[ "$_DO_INSTALL" =~ ^[Yy]$ ]]; then
+            brew install python@3.11
+            PYTHON_BIN="$(brew --prefix python@3.11)/bin/python3.11"
+            PY_VER=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+            echo "✅  Python $PY_VER installed"
         else
-            echo "💡  macOS — install Homebrew first (https://brew.sh) then rerun, or:"
-            echo "    download from https://www.python.org/downloads/"
+            echo "👉  Manual install: brew install python@3.11"
             exit 1
         fi
     else
