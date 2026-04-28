@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# mat — mini_agent_team 快捷指令
+# 安裝後可在任何目錄執行：sudo ln -sf "$(pwd)/mat" /usr/local/bin/mat
+set -euo pipefail
+
+MAT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+AGENT="$MAT_DIR/agent"
+PYTHON="$MAT_DIR/venv/bin/python3"
+
+_check_venv() {
+    if [ ! -x "$PYTHON" ]; then
+        echo "❌  venv 尚未建立，請先執行：mat setup"
+        exit 1
+    fi
+}
+
+CMD="${1:-help}"
+
+case "$CMD" in
+    start)
+        _check_venv
+        exec "$AGENT" start
+        ;;
+    stop)
+        exec "$AGENT" stop
+        ;;
+    restart)
+        _check_venv
+        exec "$AGENT" restart
+        ;;
+    status)
+        exec "$AGENT" status
+        ;;
+    logs)
+        shift
+        exec "$AGENT" logs "${@:-tail}"
+        ;;
+    run)
+        _check_venv
+        echo "▶  Foreground mode (Ctrl-C 停止)"
+        cd "$MAT_DIR"
+        exec "$PYTHON" main.py
+        ;;
+    setup)
+        cd "$MAT_DIR"
+        if [ ! -x "$PYTHON" ]; then
+            echo "🐍  建立 venv..."
+            python3 -m venv venv
+            source venv/bin/activate
+            echo "📦  安裝套件..."
+            if [ "$(uname -s)" = "Darwin" ]; then
+                pip install --quiet -r requirements.in
+            else
+                pip install --quiet -r requirements.txt
+            fi
+        fi
+        exec "$PYTHON" setup.py
+        ;;
+    update)
+        echo "⬇  git pull..."
+        git -C "$MAT_DIR" pull --ff-only
+        echo "✅  已更新"
+        ;;
+    config)
+        exec "$AGENT" config
+        ;;
+    install-cmd)
+        SCRIPT="$(readlink -f "$0" 2>/dev/null || echo "$MAT_DIR/mat")"
+        sudo ln -sf "$SCRIPT" /usr/local/bin/mat
+        echo "✅  已安裝：/usr/local/bin/mat"
+        ;;
+    help|--help|-h|*)
+        echo "用法：mat <指令>"
+        echo ""
+        echo "  start        背景啟動（launchd / systemd）"
+        echo "  stop         停止服務"
+        echo "  restart      重啟服務"
+        echo "  status       查看狀態"
+        echo "  logs [N]     查看日誌（預設 tail -f，可傳行數）"
+        echo "  run          前景執行（開發 / 除錯用）"
+        echo "  setup        首次設定或重新配置 wizard"
+        echo "  update       git pull 最新版本"
+        echo "  config       修改 Token / 白名單"
+        echo ""
+        echo "  install-cmd  安裝 mat 指令到 /usr/local/bin（執行一次即可）"
+        ;;
+esac
