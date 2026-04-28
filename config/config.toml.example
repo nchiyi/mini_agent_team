@@ -165,6 +165,7 @@ allow_bot_messages = "off"     # "off" | "mentions" | "all"  — default: "off"
 # allow_all_groups     = false                  # 預設 false：白名單模式
 # allowed_chat_ids     = [-1001234567890]       # 只在這個群組答話
 # allow_bot_messages   = "mentions"             # 別的 bot @ 我才回（off | mentions | all）
+# respond_to_at_all   = false                  # 預設 false：忽略 @all/@大家/@everyone；改 true 才會回應
 # trusted_bot_ids      = []                     # 空 = 允許所有 bot；填則白名單
 #
 # [bots.search]

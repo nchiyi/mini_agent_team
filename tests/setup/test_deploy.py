@@ -285,3 +285,31 @@ def test_write_config_toml_full_b2_bot_block(tmp_path):
     assert "allow_all_groups = true" in content
     assert "allowed_chat_ids = [-100]" in content
     assert "trusted_bot_ids = [9999]" in content
+
+
+def test_write_config_toml_emits_respond_to_at_all_true(tmp_path):
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude"],
+        "bots": [
+            {"id": "dev", "token_env": "BOT_DEV_TOKEN",
+             "respond_to_at_all": True},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "respond_to_at_all = true" in content
+
+
+def test_write_config_toml_omits_respond_to_at_all_false(tmp_path):
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude"],
+        "bots": [
+            {"id": "dev", "token_env": "BOT_DEV_TOKEN",
+             "respond_to_at_all": False},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "respond_to_at_all" not in content

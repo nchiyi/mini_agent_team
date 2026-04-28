@@ -120,6 +120,23 @@ def _should_handle(
     return bot_cfg.id in inbound.mentioned_bot_ids
 
 
+def _maybe_expand_at_all(
+    inbound: "InboundMessage",
+    bot_cfg: "BotConfig",
+    registry,
+) -> "InboundMessage":
+    """If bot_cfg opts in, expand @all/@大家/@everyone to the registered bot ids;
+    otherwise return the inbound unchanged. Pure function."""
+    if not bot_cfg.respond_to_at_all:
+        return inbound
+    from dataclasses import replace
+    from src.gateway.dispatcher import _expand_at_all
+    expanded = _expand_at_all(inbound, registry)
+    if expanded == list(inbound.mentioned_bot_ids):
+        return inbound
+    return replace(inbound, mentioned_bot_ids=expanded)
+
+
 async def run_telegram_for_bot(ctx: AppContext, bot_cfg: BotConfig) -> None:
     """Launch one Telegram polling loop bound to a single bot.
 
@@ -181,10 +198,7 @@ async def run_telegram_for_bot(ctx: AppContext, bot_cfg: BotConfig) -> None:
             attachments=attachments,
         )
 
-        from src.gateway.dispatcher import _expand_at_all
-        expanded = _expand_at_all(inbound, ctx.bot_registry)
-        if expanded != inbound.mentioned_bot_ids:
-            inbound = replace(inbound, mentioned_bot_ids=expanded)
+        inbound = _maybe_expand_at_all(inbound, bot_cfg, ctx.bot_registry)
 
         if not _should_handle(inbound, bot_cfg, ctx.bot_turns):
             return

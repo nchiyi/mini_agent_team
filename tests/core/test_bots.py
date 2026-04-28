@@ -93,3 +93,20 @@ def test_load_bots_group_fields_default_when_missing(monkeypatch):
     assert b.allowed_chat_ids is None
     assert b.allow_all_groups is False
     assert b.trusted_bot_ids is None
+
+
+def test_bot_config_respond_to_at_all_default_false():
+    from src.core.bots import BotConfig
+    b = BotConfig(id="dev")
+    assert b.respond_to_at_all is False
+
+
+def test_load_bots_parses_respond_to_at_all(monkeypatch):
+    monkeypatch.setenv("BOT_DEV_TOKEN", "1:dev")
+    raw = {"bots": {"dev": {
+        "token_env": "BOT_DEV_TOKEN",
+        "respond_to_at_all": True,
+    }}}
+    from src.core.bots import load_bots
+    bots = load_bots(raw_toml=raw, default_runner="claude")
+    assert bots[0].respond_to_at_all is True

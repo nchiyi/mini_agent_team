@@ -126,3 +126,57 @@ def test_caption_used_when_text_missing():
     )
     inbound = _build_inbound_from_update(upd, bot_id="dev", registry=BotRegistry())
     assert "photo caption" in inbound.text
+
+
+def test_at_all_expansion_skipped_when_flag_off():
+    """A bot with respond_to_at_all=False ignores @all even in authorised group."""
+    from src.channels.base import InboundMessage
+    from src.channels.telegram_runner import _maybe_expand_at_all
+    from src.core.bots import BotConfig
+    from src.gateway.bot_registry import BotRegistry
+    reg = BotRegistry()
+    reg.register(channel="telegram", username="dev_bot", bot_id="dev")
+    reg.register(channel="telegram", username="codex_bot", bot_id="codex")
+    bot_cfg = BotConfig(id="dev", respond_to_at_all=False)
+    inbound = InboundMessage(
+        user_id=1, channel="telegram", text="@all please discuss",
+        message_id="1", bot_id="dev", chat_id=-100, chat_type="supergroup",
+        mentioned_bot_ids=[],
+    )
+    out = _maybe_expand_at_all(inbound, bot_cfg, reg)
+    assert out.mentioned_bot_ids == []   # untouched
+
+
+def test_at_all_expansion_applied_when_flag_on():
+    from src.channels.base import InboundMessage
+    from src.channels.telegram_runner import _maybe_expand_at_all
+    from src.core.bots import BotConfig
+    from src.gateway.bot_registry import BotRegistry
+    reg = BotRegistry()
+    reg.register(channel="telegram", username="dev_bot", bot_id="dev")
+    reg.register(channel="telegram", username="codex_bot", bot_id="codex")
+    bot_cfg = BotConfig(id="dev", respond_to_at_all=True)
+    inbound = InboundMessage(
+        user_id=1, channel="telegram", text="@all please discuss",
+        message_id="1", bot_id="dev", chat_id=-100, chat_type="supergroup",
+        mentioned_bot_ids=[],
+    )
+    out = _maybe_expand_at_all(inbound, bot_cfg, reg)
+    assert set(out.mentioned_bot_ids) == {"dev", "codex"}
+
+
+def test_at_all_no_change_when_text_lacks_pattern():
+    from src.channels.base import InboundMessage
+    from src.channels.telegram_runner import _maybe_expand_at_all
+    from src.core.bots import BotConfig
+    from src.gateway.bot_registry import BotRegistry
+    reg = BotRegistry()
+    reg.register(channel="telegram", username="dev_bot", bot_id="dev")
+    bot_cfg = BotConfig(id="dev", respond_to_at_all=True)
+    inbound = InboundMessage(
+        user_id=1, channel="telegram", text="just hi @dev_bot",
+        message_id="1", bot_id="dev", chat_id=-100, chat_type="supergroup",
+        mentioned_bot_ids=["dev"],
+    )
+    out = _maybe_expand_at_all(inbound, bot_cfg, reg)
+    assert out.mentioned_bot_ids == ["dev"]

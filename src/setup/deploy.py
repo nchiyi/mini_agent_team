@@ -167,6 +167,8 @@ def _render_bots_sections(bots: list[dict]) -> str:
         # ── boolean: only emit when True (False is the default) ───────
         if bot.get("allow_all_groups"):
             lines.append("allow_all_groups = true")
+        if bot.get("respond_to_at_all"):
+            lines.append("respond_to_at_all = true")
         # ── int arrays: emit non-empty lists only ─────────────────────
         for field in ("allowed_chat_ids", "trusted_bot_ids"):
             val = bot.get(field)

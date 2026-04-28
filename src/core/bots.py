@@ -22,6 +22,7 @@ class BotConfig:
     trusted_bot_ids: list[int] | None = None
     allowed_chat_ids: list[int] | None = None
     allow_all_groups: bool = False
+    respond_to_at_all: bool = False
 
     @property
     def token(self) -> str:
@@ -49,6 +50,7 @@ def load_bots(raw_toml: dict[str, Any], default_runner: str) -> list[BotConfig]:
                 trusted_bot_ids=raw.get("trusted_bot_ids"),
                 allowed_chat_ids=raw.get("allowed_chat_ids"),
                 allow_all_groups=raw.get("allow_all_groups", False),
+                respond_to_at_all=bool(raw.get("respond_to_at_all", False)),
             )
             if not cfg.token:
                 logger.warning(
