@@ -161,6 +161,7 @@ async def run_discord(ctx: AppContext) -> None:
         allow_user_messages=cfg.discord.allow_user_messages,
         trusted_bot_ids=cfg.discord.trusted_bot_ids,
         allow_all_users=dc_all,
+        bot_registry=ctx.bot_registry,
     )
     logger.info("Discord bot starting")
     await dc_adapter.start()
