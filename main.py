@@ -122,117 +122,23 @@ def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
 
 
 async def run_telegram(ctx: AppContext) -> None:
-    cfg = ctx.cfg
-    tg_app = Application.builder().token(cfg.telegram_token).build()
-    tg_ids, tg_all = _resolve_channel_auth(
-        cfg, cfg.telegram.allowed_user_ids, cfg.telegram.allow_all_users
+    """Legacy single-bot launcher.
+
+    Picks the first ``cfg.bots`` entry with ``channel == "telegram"`` and
+    delegates to ``run_telegram_for_bot``. Task 8 replaces ``main()`` so it
+    schedules one ``run_telegram_for_bot`` task per bot in parallel; this
+    shim keeps the file working between commits.
+    """
+    from src.channels.telegram_runner import run_telegram_for_bot
+
+    bot_cfg = next(
+        (b for b in ctx.cfg.bots if b.channel == "telegram"),
+        None,
     )
-    adapter = TelegramAdapter(bot=tg_app.bot, allowed_user_ids=tg_ids,
-                              allow_all_users=tg_all)
-    bridge = StreamingBridge(adapter, edit_interval=cfg.gateway.stream_edit_interval_seconds)
-    upload_dir = Path("data/uploads")
-
-    async def _handle_inbound(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
-                               text: str, attachments: list[str]) -> None:
-        user_id = update.effective_user.id
-        if not adapter.is_authorized(user_id):
-            await update.message.reply_text("Unauthorized.")
-            return
-
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-        inbound = InboundMessage(
-            user_id=user_id,
-            channel="telegram",
-            text=text or "(no text)",
-            message_id=str(update.message.message_id),
-            attachments=attachments,
-        )
-
-        voice_reply = ctx.session_mgr.is_voice_enabled(user_id, "telegram")
-
-        async def send_text_and_voice(t: str) -> str:
-            msg_id = await adapter.send(user_id, t)
-            if voice_reply and t.strip():
-                from src.voice.tts import synthesise
-                audio_path = await synthesise(t, voice=cfg.voice.tts_voice)
-                if audio_path:
-                    try:
-                        await context.bot.send_voice(chat_id=user_id, voice=open(audio_path, "rb"))
-                    except Exception:
-                        logger.warning("Failed to send voice reply", exc_info=True)
-                    finally:
-                        os.unlink(audio_path)
-            return msg_id
-
-        await dispatch(
-            inbound, bridge, ctx.session_mgr, ctx.router, ctx.runners,
-            ctx.tier1, ctx.tier3, ctx.assembler,
-            send_text_and_voice,
-            recent_turns=cfg.memory.tier3_context_turns,
-            module_registry=ctx.module_registry,
-            cfg=cfg,
-            nlu_detector=ctx.nlu_detector,
-            rate_limiter=ctx.rate_limiter,
-        )
-
-    async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not update.message:
-            return
-        msg = update.message
-        text = (msg.text or msg.caption or "").strip()
-        attachments: list[str] = []
-
-        if msg.photo:
-            largest = max(msg.photo, key=lambda p: p.file_size or 0)
-            tg_file = await context.bot.get_file(largest.file_id)
-            raw_ext = Path(tg_file.file_path or "photo.jpg").suffix
-            ext = safe_ext(raw_ext, ".jpg")
-            path = await download_telegram_file(tg_file, f"{msg.from_user.id}_{largest.file_unique_id}{ext}", upload_dir)
-            attachments.append(path)
-
-        if msg.document:
-            doc = msg.document
-            tg_file = await context.bot.get_file(doc.file_id)
-            raw_ext = Path(doc.file_name or "file").suffix
-            ext = safe_ext(raw_ext)
-            path = await download_telegram_file(tg_file, f"{msg.from_user.id}_{doc.file_unique_id}{ext}", upload_dir)
-            attachments.append(path)
-
-        if not text and not attachments:
-            return
-        await _handle_inbound(update, context, text=text, attachments=attachments)
-
-    async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not update.message or not update.message.voice:
-            return
-        user_id = update.effective_user.id
-        if not adapter.is_authorized(user_id):
-            await update.message.reply_text("Unauthorized.")
-            return
-        voice = update.message.voice
-        tg_file = await context.bot.get_file(voice.file_id)
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        dest = upload_dir / f"{user_id}_{voice.file_unique_id}.ogg"
-        await tg_file.download_to_drive(str(dest))
-        from src.voice.stt import transcribe
-        text = await transcribe(str(dest), provider=cfg.voice.stt_provider)
-        if not text:
-            await update.message.reply_text("(Could not transcribe voice message.)")
-            return
-        await update.message.reply_text(f"[Transcribed]: {text}")
-        await _handle_inbound(update, context, text=text, attachments=[])
-
-    tg_app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.Document.ALL, on_message))
-    tg_app.add_handler(MessageHandler(filters.VOICE, on_voice))
-    async with tg_app:
-        await tg_app.start()
-        await tg_app.updater.start_polling(drop_pending_updates=True)
-        logger.info("Telegram bot running")
-        try:
-            await asyncio.Event().wait()
-        finally:
-            await tg_app.updater.stop()
-            await tg_app.stop()
+    if bot_cfg is None:
+        logger.warning("No telegram bot configured; run_telegram is a no-op.")
+        return
+    await run_telegram_for_bot(ctx, bot_cfg)
 
 
 async def run_discord(ctx: AppContext) -> None:
