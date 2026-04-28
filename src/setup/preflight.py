@@ -91,6 +91,45 @@ def _check_docker() -> tuple[bool, str]:
         return False, "docker info timed out (daemon hung?)"
 
 
+def _check_package_manager() -> tuple[bool, str]:
+    """Detect a usable system package manager.
+
+    On macOS this is Homebrew; on Linux it's the distro's native pkg manager
+    (apt/dnf/pacman/apk/zypper/...). Reported as a soft check — install.sh
+    handles missing/auto-install interactively. Used to give a consistent
+    environment snapshot across platforms.
+    """
+    if sys.platform == "darwin":
+        # Homebrew may be installed but not yet on PATH (typical right after
+        # the official installer finishes); also check the canonical paths.
+        for cmd_or_path in ("brew", "/opt/homebrew/bin/brew", "/usr/local/bin/brew"):
+            if shutil.which(cmd_or_path) or os.path.isfile(cmd_or_path):
+                return True, f"Homebrew available ({cmd_or_path})"
+        return (
+            False,
+            "Homebrew not installed — required to install Python 3.11+ on macOS. "
+            "install.sh can auto-install it; or visit https://brew.sh.",
+        )
+    # Linux: probe distro-native managers in usual-suspect order.
+    for mgr, hint in (
+        ("apt", "Debian/Ubuntu family"),
+        ("dnf", "Fedora/RHEL family"),
+        ("yum", "older RHEL/CentOS"),
+        ("pacman", "Arch family"),
+        ("apk", "Alpine"),
+        ("zypper", "openSUSE/SLE"),
+        ("emerge", "Gentoo"),
+        ("xbps-install", "Void"),
+    ):
+        if shutil.which(mgr):
+            return True, f"{mgr} available ({hint})"
+    return (
+        False,
+        "No known package manager found (apt/dnf/pacman/apk/zypper/...). "
+        "You'll need to install Python 3.11+ manually.",
+    )
+
+
 def _check_python() -> tuple[bool, str]:
     """Return (ok, message) for Python version check."""
     v = sys.version_info
@@ -183,7 +222,8 @@ async def run_preflight(cwd: str) -> None:
     hard.extend(net_results)
     hard.append(_check_venv(cwd))
 
-    # Soft / informational
+    # Soft / informational — environment snapshot
+    soft.append(_check_package_manager())
     soft.append(_check_service_manager())
     soft.append(_check_docker())
 
