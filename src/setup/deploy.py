@@ -147,6 +147,24 @@ def _build_compose_yaml(oauth_mounts: list[str] | None = None) -> str:
 _DOCKER_COMPOSE = _build_compose_yaml()
 
 
+def _render_bots_sections(bots: list[dict]) -> str:
+    """Render each bot dict as a [bots.<id>] TOML block. Skip fields whose value
+    is empty/None so we don't emit ``default_runner = ""`` cruft."""
+    blocks: list[str] = []
+    for bot in bots:
+        bid = bot.get("id")
+        if not bid:
+            continue
+        lines: list[str] = [f"[bots.{bid}]"]
+        for field in ("channel", "token_env", "default_runner", "default_role", "label"):
+            val = bot.get(field)
+            if val:
+                lines.append(f'{field} = "{val}"')
+        # Future B-2 fields go here, all opt-in / skip-if-default.
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 def write_config_toml(path: str, config: dict) -> None:
     runners = config.get("runners", [])
     sections = "\n\n".join(
@@ -154,13 +172,18 @@ def write_config_toml(path: str, config: dict) -> None:
     )
     default_runner = config.get("default_runner", "claude")
     if default_runner not in _RUNNER_CONFIGS:
-        raise ValueError(f"Unknown runner: {default_runner!r}. Must be one of {list(_RUNNER_CONFIGS)}")
+        raise ValueError(
+            f"Unknown runner: {default_runner!r}. Must be one of {list(_RUNNER_CONFIGS)}"
+        )
     content = _TOML_TEMPLATE.format(
         default_runner=default_runner,
         runner_sections=sections,
         search_mode=config.get("search_mode", "fts5"),
         update_notifications="true" if config.get("update_notifications", True) else "false",
     )
+    bots = config.get("bots") or []
+    if bots:
+        content = content.rstrip() + "\n\n" + _render_bots_sections(bots) + "\n"
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content)

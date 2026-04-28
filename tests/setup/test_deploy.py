@@ -94,3 +94,70 @@ def test_create_data_dirs(tmp_path):
 def test_create_data_dirs_idempotent(tmp_path):
     create_data_dirs(str(tmp_path))
     create_data_dirs(str(tmp_path))  # must not raise
+
+
+def test_write_config_toml_emits_bots_sections(tmp_path):
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude", "codex", "gemini"],
+        "bots": [
+            {"id": "dev", "token_env": "BOT_DEV_TOKEN",
+             "default_runner": "claude", "default_role": "fullstack-dev",
+             "label": "Dev Assistant"},
+            {"id": "search", "token_env": "BOT_SEARCH_TOKEN",
+             "default_runner": "gemini", "default_role": "researcher",
+             "label": "Researcher"},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "[bots.dev]" in content
+    assert "[bots.search]" in content
+    assert 'token_env = "BOT_DEV_TOKEN"' in content
+    assert 'token_env = "BOT_SEARCH_TOKEN"' in content
+    assert 'default_runner = "claude"' in content   # bot-level
+    assert 'default_runner = "gemini"' in content   # bot-level
+    assert 'default_role = "fullstack-dev"' in content
+    assert 'default_role = "researcher"' in content
+
+
+def test_write_config_toml_no_bots_section_when_absent(tmp_path):
+    """Legacy single-bot install: no `bots` key → no [bots.*] blocks."""
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {"default_runner": "claude", "runners": ["claude"]})
+    content = Path(path).read_text()
+    assert "[bots." not in content
+
+
+def test_write_config_toml_emits_only_bot_level_runner_overrides(tmp_path):
+    """A bot can omit default_runner — that line should be skipped, not emitted as empty."""
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude"],
+        "bots": [
+            {"id": "minimal", "token_env": "BOT_MIN_TOKEN"},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "[bots.minimal]" in content
+    assert 'token_env = "BOT_MIN_TOKEN"' in content
+    # default_runner / default_role / label not provided → omitted from output:
+    assert content.count("default_runner =") == 1   # only the gateway-level one
+    assert "default_role" not in content
+    assert "label" not in content
+
+
+def test_write_env_file_emits_per_bot_token_env_vars(tmp_path):
+    """write_env_file is generic; verify caller-supplied BOT_<ID>_TOKEN entries
+    round-trip without any special handling."""
+    path = str(tmp_path / ".env")
+    write_env_file(path, {
+        "BOT_DEV_TOKEN": "11111:dev",
+        "BOT_SEARCH_TOKEN": "22222:search",
+        "ALLOWED_USER_IDS": "8359434933",
+    })
+    content = Path(path).read_text()
+    assert 'BOT_DEV_TOKEN="11111:dev"' in content
+    assert 'BOT_SEARCH_TOKEN="22222:search"' in content
+    assert 'ALLOWED_USER_IDS="8359434933"' in content
