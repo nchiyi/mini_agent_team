@@ -263,26 +263,34 @@ async def _capture_telegram_user_id(token: str, timeout: int = 30) -> int | None
         return None
 
     captured: list[int] = []
+    done = asyncio.Event()
 
     async def _handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_user:
             captured.append(update.effective_user.id)
+            done.set()
 
-    print(f"  Send any message to your bot now (waiting {timeout}s)...")
-    print("  (Press Ctrl-C to skip and enter your ID manually)")
+    print("  Send any message to your bot to capture your user ID.")
+    print("  (Press Enter to skip and configure later)")
     app = Application.builder().token(token).build()
     app.add_handler(MessageHandler(filters.ALL, _handler))
     await app.initialize()
     await app.start()
     await app.updater.start_polling(drop_pending_updates=True)
+
+    loop = asyncio.get_running_loop()
+
+    async def _wait_stdin() -> None:
+        await loop.run_in_executor(None, sys.stdin.readline)
+        done.set()
+
+    stdin_task = asyncio.create_task(_wait_stdin())
     try:
-        for _ in range(timeout):
-            await asyncio.sleep(1)
-            if captured:
-                break
+        await done.wait()
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
+        stdin_task.cancel()
         for _cleanup in (app.updater.stop, app.stop, app.shutdown):
             try:
                 await _cleanup()
@@ -405,16 +413,11 @@ async def step_3_allowlist(state: WizardState) -> None:
 
     # ── Handle empty allowlist gracefully — deferred config ──────────────
     if not state.allowed_user_ids:
-        print(f"\n{_Y}⚠ No user IDs set.{_X}")
-        print("  Bot will reject ALL requests unless you set allow_all_users=true.")
-        allow_all = _prompt(
-            "  Allow ALL users? This is dangerous in public servers. (y/n)", "n"
-        )
-        if allow_all.lower() == "y":
-            state.data["allow_all_users"] = True
-            _warn("All users allowed — make sure this is intentional.")
-        else:
-            _warn("No user IDs configured — edit secrets/.env to add ALLOWED_USER_IDS before starting the bot.")
+        print(f"\n{_Y}⚠ No user IDs set — bot will reject all requests until configured.{_X}")
+        print("  You can add your ID later:")
+        print("    mat config          ← interactive editor")
+        print("    ./agent config      ← same, without mat installed")
+        print("    edit secrets/.env   ← set ALLOWED_USER_IDS=<your_id>")
 
     mark_micro_step_done(state, "allowlist.done")
 
