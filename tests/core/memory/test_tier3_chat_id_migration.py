@@ -107,3 +107,56 @@ async def test_chat_id_isolation_on_fresh_db(tmp_path):
     assert all(r["content"] != "group fact" for r in dm_rows)
     assert any(r["content"] == "dm fact" for r in dm_rows)
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_orphan_settings_new_table_recovered(tmp_path):
+    """Simulate a crash mid-migration: settings_new exists but settings
+    has not been renamed yet. Next init should recover gracefully."""
+    db = tmp_path / "crashed.db"
+    # Manually set up a state that mimics post-crash inconsistency
+    import sqlite3
+    con = sqlite3.connect(db)
+    con.executescript("""
+        CREATE TABLE turns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL, channel TEXT NOT NULL,
+            bot_id TEXT NOT NULL DEFAULT 'default',
+            chat_id INTEGER NOT NULL DEFAULT 0,
+            role TEXT NOT NULL, content TEXT NOT NULL, ts TEXT NOT NULL);
+        CREATE TABLE settings (
+            user_id INTEGER NOT NULL, channel TEXT NOT NULL,
+            bot_id TEXT NOT NULL DEFAULT 'default',
+            chat_id INTEGER NOT NULL DEFAULT 0,
+            key TEXT NOT NULL, value TEXT NOT NULL,
+            PRIMARY KEY (user_id, channel, bot_id, chat_id, key));
+        -- orphan from a prior crashed migration
+        CREATE TABLE settings_new (
+            user_id INTEGER NOT NULL, channel TEXT NOT NULL,
+            bot_id TEXT NOT NULL DEFAULT 'default',
+            chat_id INTEGER NOT NULL DEFAULT 0,
+            key TEXT NOT NULL, value TEXT NOT NULL,
+            PRIMARY KEY (user_id, channel, bot_id, chat_id, key));
+        CREATE TABLE usage_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL, channel TEXT NOT NULL,
+            bot_id TEXT NOT NULL DEFAULT 'default',
+            chat_id INTEGER NOT NULL DEFAULT 0,
+            runner TEXT NOT NULL,
+            prompt_tokens INTEGER DEFAULT 0,
+            completion_tokens INTEGER DEFAULT 0,
+            total_tokens INTEGER DEFAULT 0,
+            ts TEXT NOT NULL);
+        INSERT INTO settings VALUES (1, 'telegram', 'default', 1, 'active_role', 'real');
+    """)
+    con.commit()
+    con.close()
+
+    from src.core.memory.tier3 import Tier3Store
+    store = Tier3Store(str(db))
+    await store.init()  # must not raise
+    val = await store.get_setting(
+        user_id=1, channel="telegram", bot_id="default", chat_id=1, key="active_role",
+    )
+    assert val == "real"
+    await store.close()

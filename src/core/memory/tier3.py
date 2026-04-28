@@ -106,79 +106,135 @@ class Tier3Store:
         """In-place migration: add bot_id to turns/usage_logs (cheap), rebuild
         settings table (PK change requires full table rewrite in SQLite).
 
+        Each step runs in its own BEGIN IMMEDIATE / COMMIT to avoid leaving
+        the DB inconsistent if the process crashes mid-rebuild. Any orphan
+        ``settings_new`` from a prior crashed run is dropped first.
+
         Note: index creation is deferred until after _maybe_add_chat_id runs
         (the chat_id-aware index references chat_id which doesn't exist yet)."""
+        # Always drop any orphan rebuild table from a prior crashed migration.
+        await self._db.execute("DROP TABLE IF EXISTS settings_new")
+        await self._db.commit()
+
         # turns: ALTER ADD COLUMN — primary key unchanged (just `id`).
         if not await self._column_exists("turns", "bot_id"):
-            await self._db.execute(
-                "ALTER TABLE turns ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'default'"
-            )
-            await self._db.execute("DROP INDEX IF EXISTS idx_turns_user_channel_ts")
+            await self._db.execute("BEGIN IMMEDIATE")
+            try:
+                await self._db.execute(
+                    "ALTER TABLE turns ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'default'"
+                )
+                await self._db.execute("DROP INDEX IF EXISTS idx_turns_user_channel_ts")
+                await self._db.commit()
+            except Exception:
+                await self._db.rollback()
+                raise
         # usage_logs: ALTER ADD COLUMN — primary key unchanged.
         if not await self._column_exists("usage_logs", "bot_id"):
-            await self._db.execute(
-                "ALTER TABLE usage_logs ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'default'"
-            )
+            await self._db.execute("BEGIN IMMEDIATE")
+            try:
+                await self._db.execute(
+                    "ALTER TABLE usage_logs ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'default'"
+                )
+                await self._db.commit()
+            except Exception:
+                await self._db.rollback()
+                raise
         # settings: rebuild table because PK changes.
         if not await self._column_exists("settings", "bot_id"):
-            await self._db.executescript("""
-                CREATE TABLE settings_new (
-                    user_id INTEGER NOT NULL,
-                    channel TEXT    NOT NULL,
-                    bot_id  TEXT    NOT NULL DEFAULT 'default',
-                    key     TEXT    NOT NULL,
-                    value   TEXT    NOT NULL,
-                    PRIMARY KEY (user_id, channel, bot_id, key)
-                );
-                INSERT INTO settings_new (user_id, channel, bot_id, key, value)
-                SELECT user_id, channel, 'default', key, value FROM settings;
-                DROP TABLE settings;
-                ALTER TABLE settings_new RENAME TO settings;
-            """)
-        await self._db.commit()
+            await self._db.execute("BEGIN IMMEDIATE")
+            try:
+                await self._db.execute("DROP TABLE IF EXISTS settings_new")
+                await self._db.execute("""
+                    CREATE TABLE settings_new (
+                        user_id INTEGER NOT NULL,
+                        channel TEXT    NOT NULL,
+                        bot_id  TEXT    NOT NULL DEFAULT 'default',
+                        key     TEXT    NOT NULL,
+                        value   TEXT    NOT NULL,
+                        PRIMARY KEY (user_id, channel, bot_id, key)
+                    )
+                """)
+                await self._db.execute("""
+                    INSERT INTO settings_new (user_id, channel, bot_id, key, value)
+                    SELECT user_id, channel, 'default', key, value FROM settings
+                """)
+                await self._db.execute("DROP TABLE settings")
+                await self._db.execute("ALTER TABLE settings_new RENAME TO settings")
+                await self._db.commit()
+            except Exception:
+                await self._db.rollback()
+                raise
 
     async def _maybe_add_chat_id(self) -> None:
         """In-place migration: add chat_id to turns/usage_logs (cheap), rebuild
-        settings table because chat_id joins the PRIMARY KEY."""
+        settings table because chat_id joins the PRIMARY KEY.
+
+        Each step runs in its own BEGIN IMMEDIATE / COMMIT so a crash never
+        leaves the DB with no ``settings`` table and an orphan
+        ``settings_new``; any such orphan from a prior crashed run is
+        dropped first.
+        """
+        await self._db.execute("DROP TABLE IF EXISTS settings_new")
+        await self._db.commit()
+
         # turns
         if not await self._column_exists("turns", "chat_id"):
-            await self._db.execute(
-                "ALTER TABLE turns ADD COLUMN chat_id INTEGER NOT NULL DEFAULT 0"
-            )
-            # Backfill: legacy DM rows had no chat_id; we treat user_id as chat_id.
-            await self._db.execute(
-                "UPDATE turns SET chat_id = user_id WHERE chat_id = 0"
-            )
-            await self._db.execute(
-                "DROP INDEX IF EXISTS idx_turns_user_channel_bot_ts"
-            )
-            await self._db.execute(self._CREATE_IDX)
+            await self._db.execute("BEGIN IMMEDIATE")
+            try:
+                await self._db.execute(
+                    "ALTER TABLE turns ADD COLUMN chat_id INTEGER NOT NULL DEFAULT 0"
+                )
+                # Backfill: legacy DM rows had no chat_id; we treat user_id as chat_id.
+                await self._db.execute(
+                    "UPDATE turns SET chat_id = user_id WHERE chat_id = 0"
+                )
+                await self._db.execute(
+                    "DROP INDEX IF EXISTS idx_turns_user_channel_bot_ts"
+                )
+                await self._db.commit()
+            except Exception:
+                await self._db.rollback()
+                raise
         # usage_logs
         if not await self._column_exists("usage_logs", "chat_id"):
-            await self._db.execute(
-                "ALTER TABLE usage_logs ADD COLUMN chat_id INTEGER NOT NULL DEFAULT 0"
-            )
-            await self._db.execute(
-                "UPDATE usage_logs SET chat_id = user_id WHERE chat_id = 0"
-            )
+            await self._db.execute("BEGIN IMMEDIATE")
+            try:
+                await self._db.execute(
+                    "ALTER TABLE usage_logs ADD COLUMN chat_id INTEGER NOT NULL DEFAULT 0"
+                )
+                await self._db.execute(
+                    "UPDATE usage_logs SET chat_id = user_id WHERE chat_id = 0"
+                )
+                await self._db.commit()
+            except Exception:
+                await self._db.rollback()
+                raise
         # settings: rebuild because PK changes.
         if not await self._column_exists("settings", "chat_id"):
-            await self._db.executescript("""
-                CREATE TABLE settings_new (
-                    user_id INTEGER NOT NULL,
-                    channel TEXT    NOT NULL,
-                    bot_id  TEXT    NOT NULL DEFAULT 'default',
-                    chat_id INTEGER NOT NULL DEFAULT 0,
-                    key     TEXT    NOT NULL,
-                    value   TEXT    NOT NULL,
-                    PRIMARY KEY (user_id, channel, bot_id, chat_id, key)
-                );
-                INSERT INTO settings_new (user_id, channel, bot_id, chat_id, key, value)
-                SELECT user_id, channel, bot_id, user_id, key, value FROM settings;
-                DROP TABLE settings;
-                ALTER TABLE settings_new RENAME TO settings;
-            """)
-        await self._db.commit()
+            await self._db.execute("BEGIN IMMEDIATE")
+            try:
+                await self._db.execute("DROP TABLE IF EXISTS settings_new")
+                await self._db.execute("""
+                    CREATE TABLE settings_new (
+                        user_id INTEGER NOT NULL,
+                        channel TEXT    NOT NULL,
+                        bot_id  TEXT    NOT NULL DEFAULT 'default',
+                        chat_id INTEGER NOT NULL DEFAULT 0,
+                        key     TEXT    NOT NULL,
+                        value   TEXT    NOT NULL,
+                        PRIMARY KEY (user_id, channel, bot_id, chat_id, key)
+                    )
+                """)
+                await self._db.execute("""
+                    INSERT INTO settings_new (user_id, channel, bot_id, chat_id, key, value)
+                    SELECT user_id, channel, bot_id, user_id, key, value FROM settings
+                """)
+                await self._db.execute("DROP TABLE settings")
+                await self._db.execute("ALTER TABLE settings_new RENAME TO settings")
+                await self._db.commit()
+            except Exception:
+                await self._db.rollback()
+                raise
 
     async def init(self) -> None:
         self._db = await aiosqlite.connect(str(self._path))
