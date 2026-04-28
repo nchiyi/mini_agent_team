@@ -30,6 +30,8 @@ _SELF="$(_resolve_self "$0")"
 MAT_DIR="$(cd "$(dirname "$_SELF")" && pwd -P)"
 AGENT="$MAT_DIR/agent"
 PYTHON="$MAT_DIR/venv/bin/python3"
+STATE="$MAT_DIR/data/setup-state.json"
+COMPOSE="$MAT_DIR/docker-compose.yml"
 
 _check_venv() {
     if [ ! -x "$PYTHON" ]; then
@@ -38,28 +40,95 @@ _check_venv() {
     fi
 }
 
+# Read deploy_mode from setup state — single source of truth for which
+# backend (launchd/systemd vs docker) the user picked in the wizard.
+# Fallback: docker if docker-compose.yml exists; else "agent" (launchd/systemd).
+_deploy_mode() {
+    if [ -f "$STATE" ] && command -v python3 >/dev/null 2>&1; then
+        python3 - "$STATE" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    print((json.load(open(sys.argv[1])).get("deploy_mode") or "").strip())
+except Exception:
+    pass
+PY
+    fi
+}
+
+# Resolve the dispatcher: "docker" | "agent" (covers foreground / launchd / systemd).
+_backend() {
+    local mode
+    mode="$(_deploy_mode)"
+    case "$mode" in
+        docker)             echo "docker" ;;
+        systemd|launchd)    echo "agent"  ;;
+        foreground)         echo "agent"  ;;  # `agent` script gracefully handles foreground/launchd on macOS
+        *)
+            # Fall back to filesystem hint if state file is missing/garbled.
+            if [ -f "$COMPOSE" ]; then
+                echo "docker"
+            else
+                echo "agent"
+            fi
+            ;;
+    esac
+}
+
+# `docker compose` is `docker compose` on modern Docker; the legacy
+# `docker-compose` binary is not used here. Keep the lookup explicit so
+# error messages stay clear when Docker isn't installed.
+_dc() {
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "❌  docker 沒安裝。請啟動 Docker Desktop 或改用 foreground/launchd 模式。" >&2
+        exit 1
+    fi
+    cd "$MAT_DIR" && docker compose "$@"
+}
+
 CMD="${1:-help}"
 
 case "$CMD" in
     start)
-        _check_venv
-        exec "$AGENT" start
+        case "$(_backend)" in
+            docker) exec bash -c "cd '$MAT_DIR' && docker compose up -d" ;;
+            *)      _check_venv; exec "$AGENT" start ;;
+        esac
         ;;
     stop)
-        exec "$AGENT" stop
+        case "$(_backend)" in
+            docker) _dc down ;;
+            *)      exec "$AGENT" stop ;;
+        esac
         ;;
     restart)
-        _check_venv
-        exec "$AGENT" restart
+        case "$(_backend)" in
+            docker) _dc restart ;;
+            *)      _check_venv; exec "$AGENT" restart ;;
+        esac
         ;;
     status)
-        exec "$AGENT" status
+        case "$(_backend)" in
+            docker) _dc ps ;;
+            *)      exec "$AGENT" status ;;
+        esac
         ;;
     logs)
         shift
-        exec "$AGENT" logs "${@:-tail}"
+        case "$(_backend)" in
+            docker)
+                # Optional first arg: number of tail lines (default: follow).
+                if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
+                    _dc logs --tail "$1" gateway
+                else
+                    _dc logs -f gateway
+                fi
+                ;;
+            *)  exec "$AGENT" logs "${@:-tail}" ;;
+        esac
         ;;
     run)
+        # Foreground bot via host venv — bypasses whichever backend is
+        # configured. Useful for local debugging regardless of deploy mode.
         _check_venv
         echo "▶  Foreground mode (Ctrl-C 停止)"
         cd "$MAT_DIR"
@@ -78,12 +147,25 @@ case "$CMD" in
                 pip install --quiet -r requirements.txt
             fi
         fi
-        exec "$PYTHON" setup.py
+        # Force /dev/tty for interactive prompts so questionary's arrow-key
+        # UI works even under `mat setup` invoked from non-tty pipelines.
+        exec "$PYTHON" setup.py "${@:2}" </dev/tty >/dev/tty 2>&1
         ;;
     update)
         echo "⬇  git pull..."
         git -C "$MAT_DIR" pull --ff-only
         echo "✅  已更新"
+        case "$(_backend)" in
+            docker)
+                echo "🔄  重 build container..."
+                _dc up -d --build
+                ;;
+            *)
+                if "$AGENT" status 2>/dev/null | grep -q running; then
+                    "$AGENT" restart
+                fi
+                ;;
+        esac
         ;;
     config)
         exec "$AGENT" config
@@ -99,19 +181,30 @@ case "$CMD" in
         sudo ln -sf "$TARGET" /usr/local/bin/mat
         echo "✅  已安裝：/usr/local/bin/mat → $TARGET"
         ;;
+    mode)
+        # Diagnostic: show current deploy mode + backend dispatch decision.
+        echo "deploy_mode (state): $(_deploy_mode)"
+        echo "backend (dispatch): $(_backend)"
+        ;;
     help|--help|-h|*)
-        echo "用法：mat <指令>"
+        BACKEND="$(_backend 2>/dev/null || echo unknown)"
+        echo "用法：mat <指令>      （目前部署模式：$BACKEND）"
         echo ""
-        echo "  start        背景啟動（launchd / systemd）"
-        echo "  stop         停止服務"
-        echo "  restart      重啟服務"
-        echo "  status       查看狀態"
+        echo "  start        啟動 bot"
+        echo "  stop         停止 bot"
+        echo "  restart      重啟 bot"
+        echo "  status       查看執行狀態"
         echo "  logs [N]     查看日誌（預設 tail -f，可傳行數）"
-        echo "  run          前景執行（開發 / 除錯用）"
+        echo "  run          前景執行（開發 / 除錯，繞過 backend）"
         echo "  setup        首次設定或重新配置 wizard"
-        echo "  update       git pull 最新版本"
+        echo "  update       git pull + 重啟 / 重 build"
         echo "  config       修改 Token / 白名單"
+        echo "  mode         顯示目前 deploy mode（除錯用）"
         echo ""
         echo "  install-cmd  安裝 mat 指令到 /usr/local/bin（執行一次即可）"
+        echo ""
+        echo "  指令會依 deploy mode 自動 dispatch："
+        echo "    docker → docker compose ..."
+        echo "    launchd / systemd / foreground → ./agent ..."
         ;;
 esac
