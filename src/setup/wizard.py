@@ -51,14 +51,21 @@ def _can_use_questionary() -> bool:
             _QUESTIONARY_REASON = "stdin/stdout is not a TTY (Windows)"
             return False
         return True
-    # POSIX: probe /dev/tty. questionary's prompt_toolkit backend can render
-    # via /dev/tty even when stdin/stdout are pipes — only fail if no
-    # controlling terminal exists at all (cron, CI, `docker exec` without -t).
+    # POSIX: probe /dev/tty for read access. (Don't use 'r+' here — on macOS
+    # /dev/tty raises io.UnsupportedOperation in r+ mode even when the device
+    # is fully usable; prompt_toolkit opens read and write separately, not
+    # in r+, so 'r' is what we actually need to mirror.)
     try:
-        with open("/dev/tty", "r+"):
+        with open("/dev/tty", "r"):
             return True
     except OSError as exc:
-        _QUESTIONARY_REASON = f"/dev/tty not accessible ({exc.errno}: {exc.strerror})"
+        # OSError subclasses without errno (e.g. io.UnsupportedOperation) report
+        # errno=None, so guard the formatting.
+        details = (
+            f"errno={exc.errno}: {exc.strerror}" if exc.errno is not None
+            else f"{type(exc).__name__}: {exc}"
+        )
+        _QUESTIONARY_REASON = f"/dev/tty not accessible ({details})"
         return False
 
 
