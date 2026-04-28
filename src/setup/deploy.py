@@ -148,19 +148,31 @@ _DOCKER_COMPOSE = _build_compose_yaml()
 
 
 def _render_bots_sections(bots: list[dict]) -> str:
-    """Render each bot dict as a [bots.<id>] TOML block. Skip fields whose value
-    is empty/None so we don't emit ``default_runner = ""`` cruft."""
+    """Render each bot dict as a [bots.<id>] TOML block. Skip fields whose
+    value is empty/None/default so we don't emit cruft like
+    ``allow_bot_messages = ""`` or ``allow_all_groups = false`` (the default).
+    """
     blocks: list[str] = []
     for bot in bots:
         bid = bot.get("id")
         if not bid:
             continue
         lines: list[str] = [f"[bots.{bid}]"]
-        for field in ("channel", "token_env", "default_runner", "default_role", "label"):
+        # ── string fields ─────────────────────────────────────────────
+        for field in ("channel", "token_env", "default_runner",
+                       "default_role", "label", "allow_bot_messages"):
             val = bot.get(field)
             if val:
                 lines.append(f'{field} = "{val}"')
-        # Future B-2 fields go here, all opt-in / skip-if-default.
+        # ── boolean: only emit when True (False is the default) ───────
+        if bot.get("allow_all_groups"):
+            lines.append("allow_all_groups = true")
+        # ── int arrays: emit non-empty lists only ─────────────────────
+        for field in ("allowed_chat_ids", "trusted_bot_ids"):
+            val = bot.get(field)
+            if val:                         # truthy: non-empty list
+                rendered = ", ".join(str(x) for x in val)
+                lines.append(f"{field} = [{rendered}]")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 

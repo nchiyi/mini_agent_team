@@ -161,3 +161,127 @@ def test_write_env_file_emits_per_bot_token_env_vars(tmp_path):
     assert 'BOT_DEV_TOKEN="11111:dev"' in content
     assert 'BOT_SEARCH_TOKEN="22222:search"' in content
     assert 'ALLOWED_USER_IDS="8359434933"' in content
+
+
+# ─── B-2 Task 10: group fields ──────────────────────────────────────
+
+def test_write_config_toml_emits_allow_bot_messages(tmp_path):
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude", "codex", "gemini"],
+        "bots": [
+            {"id": "dev", "token_env": "BOT_DEV_TOKEN",
+             "default_runner": "claude",
+             "allow_bot_messages": "mentions"},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "[bots.dev]" in content
+    assert 'allow_bot_messages = "mentions"' in content
+
+
+def test_write_config_toml_emits_allow_all_groups_true(tmp_path):
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude"],
+        "bots": [
+            {"id": "dev", "token_env": "BOT_DEV_TOKEN",
+             "allow_all_groups": True},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "allow_all_groups = true" in content
+
+
+def test_write_config_toml_omits_allow_all_groups_false(tmp_path):
+    """False is the default — no need to emit the line."""
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude"],
+        "bots": [
+            {"id": "dev", "token_env": "BOT_DEV_TOKEN",
+             "allow_all_groups": False},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "allow_all_groups" not in content
+
+
+def test_write_config_toml_emits_allowed_chat_ids_array(tmp_path):
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude"],
+        "bots": [
+            {"id": "dev", "token_env": "BOT_DEV_TOKEN",
+             "allowed_chat_ids": [-1001234567890, -1009876543210]},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "allowed_chat_ids = [-1001234567890, -1009876543210]" in content
+
+
+def test_write_config_toml_emits_trusted_bot_ids_array(tmp_path):
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude"],
+        "bots": [
+            {"id": "dev", "token_env": "BOT_DEV_TOKEN",
+             "trusted_bot_ids": [555, 666]},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "trusted_bot_ids = [555, 666]" in content
+
+
+def test_write_config_toml_omits_empty_arrays(tmp_path):
+    """Empty list and None should be skipped, not emitted as `= []`."""
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude"],
+        "bots": [
+            {"id": "dev", "token_env": "BOT_DEV_TOKEN",
+             "allowed_chat_ids": [],
+             "trusted_bot_ids": None},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "allowed_chat_ids" not in content
+    assert "trusted_bot_ids" not in content
+
+
+def test_write_config_toml_full_b2_bot_block(tmp_path):
+    """End-to-end: a fully-configured B-2 bot emits all expected fields."""
+    path = str(tmp_path / "config.toml")
+    write_config_toml(path, {
+        "default_runner": "claude",
+        "runners": ["claude", "gemini"],
+        "bots": [
+            {"id": "search",
+             "channel": "telegram",
+             "token_env": "BOT_SEARCH_TOKEN",
+             "default_runner": "gemini",
+             "default_role": "researcher",
+             "label": "Researcher",
+             "allow_bot_messages": "off",
+             "allow_all_groups": True,
+             "allowed_chat_ids": [-100],
+             "trusted_bot_ids": [9999]},
+        ],
+    })
+    content = Path(path).read_text()
+    assert "[bots.search]" in content
+    assert 'channel = "telegram"' in content
+    assert 'token_env = "BOT_SEARCH_TOKEN"' in content
+    assert 'default_runner = "gemini"' in content
+    assert 'default_role = "researcher"' in content
+    assert 'label = "Researcher"' in content
+    assert 'allow_bot_messages = "off"' in content
+    assert "allow_all_groups = true" in content
+    assert "allowed_chat_ids = [-100]" in content
+    assert "trusted_bot_ids = [9999]" in content
