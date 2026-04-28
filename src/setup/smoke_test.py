@@ -300,9 +300,12 @@ def _print_diagnostic(
         for ln in last_lines[-10:]:
             print(f"    {ln}")
     print(f"\n  {_B}Suggested fixes:{_X}")
-    print("  • Check token validity: python -m src.setup.validator")
-    print("  • Check logs: journalctl --user -u gateway-agent -n 50")
-    print("  • Re-run setup: python -m src.setup.wizard --reset")
+    print("  • Check token validity: ./venv/bin/python3 -m src.setup.validator")
+    if sys.platform == "darwin":
+        print("  • Check logs: docker compose logs -f gateway")
+    else:
+        print("  • Check logs: journalctl --user -u gateway-agent -n 50")
+    print("  • Re-run setup: ./venv/bin/python3 -m src.setup.wizard --reset")
     print()
 
 

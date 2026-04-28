@@ -908,7 +908,7 @@ def _print_completion_systemd(cwd: str) -> None:
     print("    systemctl --user stop    gateway-agent   # stop")
     print("    systemctl --user restart gateway-agent   # restart")
     print("    journalctl --user -u gateway-agent -f    # live logs")
-    print(f"    python -m src.setup.wizard --reset       # reconfigure")
+    print(f"    ./venv/bin/python3 -m src.setup.wizard --reset       # reconfigure")
     print(f"    bash {cwd}/uninstall.sh                  # uninstall")
     print(f"{_B}{'='*W}{_X}\n")
 
@@ -926,7 +926,7 @@ def _print_completion_docker(cwd: str, *, running: bool = True) -> None:
     print(f"    docker compose -f {cwd}/docker-compose.yml ps       # status")
     print(f"    docker compose -f {cwd}/docker-compose.yml logs -f  # live logs")
     print(f"    docker compose -f {cwd}/docker-compose.yml down     # stop")
-    print(f"    python -m src.setup.wizard --reset                   # reconfigure")
+    print(f"    ./venv/bin/python3 -m src.setup.wizard --reset                   # reconfigure")
     print(f"    bash {cwd}/uninstall.sh                              # uninstall")
     print(f"{_B}{'='*W}{_X}\n")
 
@@ -937,9 +937,9 @@ def _print_completion_foreground(cwd: str) -> None:
     print(f"{_G}{_B}  ✅  Setup complete — bot is running!{_X}")
     print(f"{_B}{'='*W}{_X}")
     print(f"  {_B}Daily operations:{_X}")
-    print("    python main.py                           # start (foreground)")
+    print("    ./venv/bin/python3 main.py               # start (foreground)")
     print("    Ctrl-C                                   # stop")
-    print("    python -m src.setup.wizard --reset       # reconfigure")
+    print("    ./venv/bin/python3 -m src.setup.wizard --reset       # reconfigure")
     print(f"    bash {cwd}/uninstall.sh                  # uninstall")
     print(f"{_B}{'='*W}{_X}\n")
 
