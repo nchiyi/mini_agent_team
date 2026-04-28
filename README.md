@@ -293,6 +293,58 @@ trusted_bot_ids     = []
 
 B-1 階段保留 wizard 為單 bot UX。多 bot 用戶手動編 toml + .env 即可，雜訊較少。互動式 multi-bot 收集（B-1 計畫的完整 task 9）會放在後續 iteration（風險 / 測試成本對應收益不夠）。
 
+### 群組多 bot 協作（B-2）
+
+把多個 bot 拉進同一個 Telegram 群組，**互相 @-mention 或一句 `@all` 同時叫醒所有 bot 一起辯論**。常見用法：
+
+- 直接 @ 對應的 bot：`@dev_bot 寫個 Python 爬蟲` → 只有 dev_bot 回。
+- 群組裡 @all：`@all 比較 Postgres 跟 SQLite` → registry 裡所有 bot 各自回一輪。
+- 互相 @：`@codex_bot review @dev_bot 的方案` → codex_bot 收到 dev_bot 的回覆後可以接著回（受 `allow_bot_messages` 政策節制）。
+
+#### Telegram BotFather 必做：關 Privacy Mode
+
+預設 BotFather 開了 Privacy Mode，bot 在群組裡只能看到「@-mention 它的訊息、對它的回覆、slash command」。要支援自然語言定址（`@all 比較…`、`大家覺得呢`）必須關掉：
+
+1. 跟 [@BotFather](https://t.me/BotFather) 對話：`/setprivacy`
+2. 選要關閉 Privacy Mode 的 bot
+3. 選 **Disable**
+
+只用 `@username` 定址不關也行，但 `@all` / `@大家` / `@everyone` 風扇出需要關閉。
+
+#### 設定步驟（v1：手動編 config）
+
+承 B-1 設定，每個要進群組的 bot 在 `[bots.<id>]` 加：
+
+```toml
+[bots.dev]
+# … B-1 既有欄位 …
+allow_all_groups   = false                # 白名單模式（推薦）
+allowed_chat_ids   = [-1001234567890]     # 你的群組 chat_id（負數）
+allow_bot_messages = "mentions"           # 其他 bot @ 我才回
+```
+
+群組 `chat_id` 取得方式：先把 bot 加進群組，發任意一句話，看 `mat logs` 找 `chat_id=` 即可。
+
+`allow_bot_messages` 三檔：
+
+| 模式 | 行為 |
+|------|------|
+| `off`（預設） | 完全忽略其他 bot 訊息（個人助理場景安全選擇） |
+| `mentions` | 其他 bot 訊息中明確 @ 我才回（推薦給辯論場景） |
+| `all` | 看到任何 bot 訊息都會評估是否回應（風險高，要靠輪數上限） |
+
+#### 防迴圈：連續 bot 輪數上限
+
+兩個 bot 都 `allow_bot_messages = "all"` 互相回個沒完？MAT 內建 cap：每個 `(channel, chat_id)` 連續 bot 訊息超過 10 次會自動沉默；任何人類訊息把計數歸零。實作見 `src/gateway/bot_turns.py`。
+
+#### 記憶隔離
+
+`(user_id, channel, bot_id, chat_id)` 四元組分桶。同一個 user 在 DM 跟在群組裡的對話歷史完全獨立 — 你在 dev_bot DM 提到「我的專案叫 FooApp」，群組裡的 dev_bot 不會知道；反過來也不會。
+
+#### 端到端手動驗證步驟
+
+完整的群組驗證 checklist 請見 `/home/kiwi/.claude/plans/async-crunching-popcorn.md` 的 **Phase B-2 §"End-to-end manual"** 章節。
+
 ## 認證 CLI agents（docker 模式必跑一次）
 
 Docker 模式下 bot 跑在隔離的容器內，不能直接讀宿主的 OAuth 憑證（特別是 macOS 把 Claude Code 憑證存在 Keychain，**不是檔案**，無論怎麼 mount 都拿不到）。
