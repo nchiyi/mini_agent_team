@@ -1079,7 +1079,7 @@ async def step_9_launch(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        result = await run_smoke_test(state, journal_proc)
+        result = await run_smoke_test(state, journal_proc, verify_reply=False)
         journal_proc.terminate()
         if result == RESULT_OK:
             _print_completion_systemd(cwd)
@@ -1111,7 +1111,7 @@ async def step_9_launch(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        result = await run_smoke_test(state, docker_proc)
+        result = await run_smoke_test(state, docker_proc, verify_reply=False)
         docker_proc.terminate()
         if result == RESULT_OK:
             _print_completion_docker(cwd, running=True)

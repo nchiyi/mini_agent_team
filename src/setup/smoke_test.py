@@ -310,6 +310,8 @@ def _print_diagnostic(
 async def run_smoke_test(
     state: "WizardState",
     proc: asyncio.subprocess.Process,
+    *,
+    verify_reply: bool = True,
 ) -> str:
     """
     Orchestrate the full smoke test.
@@ -319,7 +321,11 @@ async def run_smoke_test(
     1. wait_for_bot_ready (reads stdout from *proc*)
     2. For each channel in state.channels:
        - send_verification_{channel}
-       - wait_for_ok_reply_{channel}
+       - wait_for_ok_reply_{channel}   (skipped when verify_reply=False)
+
+    Pass verify_reply=False for Docker/systemd modes where the bot owns
+    the getUpdates stream — calling getUpdates from here would cause a
+    Telegram 409 Conflict.
 
     If state.data.get("allow_all_users") is True and state.allowed_user_ids
     is empty, the verification DM step is skipped.
@@ -381,6 +387,13 @@ async def run_smoke_test(
         if not sent:
             print(f"{_Y}⚠ Could not send verification message via {channel} — skipping.{_X}")
             print(f"  (Discord DMs require the bot to share a server with the user){_X}" if channel == "discord" else "")
+            continue
+
+        # When verify_reply=False (Docker/systemd), skip getUpdates polling —
+        # the running bot already owns that stream and a second caller causes 409.
+        if not verify_reply:
+            print(f"{_G}✓ Verification DM sent via {channel} — reply check skipped (bot owns the stream).{_X}")
+            any_verified = True
             continue
 
         print(f"  Waiting for 'ok' reply via {channel} (up to 120 s)…")
