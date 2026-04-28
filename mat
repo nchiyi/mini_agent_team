@@ -1,9 +1,33 @@
 #!/usr/bin/env bash
 # mat — mini_agent_team 快捷指令
-# 安裝後可在任何目錄執行：sudo ln -sf "$(pwd)/mat" /usr/local/bin/mat
+# 安裝後可在任何目錄執行：mat install-cmd
 set -euo pipefail
 
-MAT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+# Resolve the real path of this script — works on macOS (no GNU readlink),
+# any Linux distro, and through symlinks. Prefer realpath/greadlink/readlink -f
+# in that order; fall back to a Python one-liner which is universally available
+# on systems that have python3 (which the project requires anyway).
+_resolve_self() {
+    local target="$1"
+    if command -v realpath >/dev/null 2>&1; then
+        realpath "$target"
+    elif command -v greadlink >/dev/null 2>&1; then
+        greadlink -f "$target"
+    elif readlink -f "$target" >/dev/null 2>&1; then
+        readlink -f "$target"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$target"
+    else
+        # Last resort: relative path resolution; works only if not symlinked.
+        local _d _b
+        _d="$(cd "$(dirname "$target")" && pwd -P)"
+        _b="$(basename "$target")"
+        printf '%s/%s\n' "$_d" "$_b"
+    fi
+}
+
+_SELF="$(_resolve_self "$0")"
+MAT_DIR="$(cd "$(dirname "$_SELF")" && pwd -P)"
 AGENT="$MAT_DIR/agent"
 PYTHON="$MAT_DIR/venv/bin/python3"
 
@@ -65,9 +89,15 @@ case "$CMD" in
         exec "$AGENT" config
         ;;
     install-cmd)
-        SCRIPT="$(readlink -f "$0" 2>/dev/null || echo "$MAT_DIR/mat")"
-        sudo ln -sf "$SCRIPT" /usr/local/bin/mat
-        echo "✅  已安裝：/usr/local/bin/mat"
+        # Symlink target must be the resolved real file, not the symlink itself.
+        TARGET="$_SELF"
+        # /usr/local/bin may not exist on minimal Linux (e.g. some Debian
+        # containers) — create it so `ln -s` does not fail with ENOENT.
+        if [ ! -d /usr/local/bin ]; then
+            sudo mkdir -p /usr/local/bin
+        fi
+        sudo ln -sf "$TARGET" /usr/local/bin/mat
+        echo "✅  已安裝：/usr/local/bin/mat → $TARGET"
         ;;
     help|--help|-h|*)
         echo "用法：mat <指令>"

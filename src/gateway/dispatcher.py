@@ -45,14 +45,21 @@ _COT_REASONING_PREFIX = (
 
 
 def apply_role_prompt(prompt: str, role_slug: str, base_dir: str) -> str:
-    role_file = Path(base_dir) / "roster" / f"{role_slug}.md"
+    # Roster files (`roster/*.md`) ship with the repo, so resolve them against
+    # the repo root — NOT against `base_dir` (which is the runner's session
+    # cwd, typically $HOME). Passing $HOME here used to silently produce no
+    # role prompt because $HOME/roster/<slug>.md does not exist.
+    from src.roles import repo_root
+    role_file = repo_root() / "roster" / f"{role_slug}.md"
     try:
         mtime = role_file.stat().st_mtime
     except OSError:
         mtime = 0.0
     cached = _role_prompt_cache.get(role_slug)
     if cached is None or cached[0] != mtime:
-        prefix = build_role_prompt_prefix(role_slug, base_dir)
+        # build_role_prompt_prefix(role_slug) with no base_dir uses repo root
+        # via roles.repo_root(); intentionally ignore base_dir here.
+        prefix = build_role_prompt_prefix(role_slug)
         _role_prompt_cache[role_slug] = (mtime, prefix)
     else:
         prefix = cached[1]

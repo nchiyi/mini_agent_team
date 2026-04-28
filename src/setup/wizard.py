@@ -255,6 +255,43 @@ async def step_2_token(state: WizardState) -> None:
     mark_micro_step_done(state, "token_validation.done")
 
 
+def _arm_stdin_skip(loop: asyncio.AbstractEventLoop, done: asyncio.Event):
+    """Register an Enter-to-skip stdin watcher without spawning a thread.
+
+    Returns a cleanup callable. We use loop.add_reader (POSIX selector) instead
+    of run_in_executor — the latter spawns a thread that asyncio cannot cancel,
+    leaving an orphan stdin reader that consumes the next interactive prompt.
+    Falls back gracefully on platforms without add_reader (Windows Proactor).
+    """
+    if not sys.stdin.isatty():
+        return lambda: None
+    try:
+        fd = sys.stdin.fileno()
+    except (AttributeError, OSError):
+        return lambda: None
+
+    def _on_readable() -> None:
+        # Drain the line so it does not leak into the next prompt.
+        try:
+            sys.stdin.readline()
+        except Exception:
+            pass
+        done.set()
+
+    try:
+        loop.add_reader(fd, _on_readable)
+    except (NotImplementedError, OSError):
+        return lambda: None
+
+    def _cleanup() -> None:
+        try:
+            loop.remove_reader(fd)
+        except Exception:
+            pass
+
+    return _cleanup
+
+
 async def _capture_telegram_user_id(token: str, timeout: int = 30) -> int | None:
     try:
         from telegram import Update
@@ -279,18 +316,13 @@ async def _capture_telegram_user_id(token: str, timeout: int = 30) -> int | None
     await app.updater.start_polling(drop_pending_updates=True)
 
     loop = asyncio.get_running_loop()
-
-    async def _wait_stdin() -> None:
-        await loop.run_in_executor(None, sys.stdin.readline)
-        done.set()
-
-    stdin_task = asyncio.create_task(_wait_stdin())
+    _stop_stdin_watch = _arm_stdin_skip(loop, done)
     try:
         await done.wait()
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
-        stdin_task.cancel()
+        _stop_stdin_watch()
         for _cleanup in (app.updater.stop, app.stop, app.shutdown):
             try:
                 await _cleanup()
@@ -302,8 +334,9 @@ async def _capture_telegram_user_id(token: str, timeout: int = 30) -> int | None
 async def _capture_discord_user_id(token: str, timeout: int = 30) -> int | None:
     """Listen for the first Discord message to auto-capture the sender's user ID.
 
-    Mirrors the logic of `_capture_telegram_user_id`.  Returns the integer
-    user ID on success, or None on timeout / import error.
+    Returns the integer user ID on success, or None if the user skips / on
+    import error.  No countdown: waits indefinitely for either a message OR
+    Enter on stdin (mirrors `_capture_telegram_user_id`).
     """
     try:
         import discord
@@ -311,6 +344,7 @@ async def _capture_discord_user_id(token: str, timeout: int = 30) -> int | None:
         return None
 
     captured: list[int] = []
+    done = asyncio.Event()
     intents = discord.Intents.default()
     intents.message_content = True
     client = discord.Client(intents=intents)
@@ -319,19 +353,20 @@ async def _capture_discord_user_id(token: str, timeout: int = 30) -> int | None:
     async def on_message(message: discord.Message) -> None:  # type: ignore[override]
         if not message.author.bot:
             captured.append(message.author.id)
+            done.set()
 
-    print(f"  Send any message to your Discord bot now (waiting {timeout}s)...")
-    print("  (Press Ctrl-C to skip and enter your ID manually)")
+    print("  Send any message to your Discord bot to capture your user ID.")
+    print("  (Press Enter to skip and configure later)")
 
+    loop = asyncio.get_running_loop()
+    _stop_stdin_watch = _arm_stdin_skip(loop, done)
     runner_task = asyncio.create_task(client.start(token))
     try:
-        for _ in range(timeout):
-            await asyncio.sleep(1)
-            if captured:
-                break
+        await done.wait()
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
+        _stop_stdin_watch()
         runner_task.cancel()
         try:
             await client.close()
@@ -1100,7 +1135,10 @@ async def step_9_launch(
         _env_content,
         label=".env",
     )
-    mark_micro_step_done(state, "launch.done")
+    # NOTE: launch.done is marked ONLY after smoke test succeeds (per deploy
+    # branch below). Marking it here would lock the wizard out of retrying on
+    # smoke-test failure, forcing a destructive --reset.
+    state_path = os.path.join(cwd, "data", "setup-state.json")
     if state.deploy_mode == "systemd":
         write_systemd_unit(cwd)
         r1 = subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
@@ -1120,6 +1158,9 @@ async def step_9_launch(
         result = await run_smoke_test(state, journal_proc, verify_reply=False)
         journal_proc.terminate()
         if result == RESULT_OK:
+            mark_micro_step_done(state, "launch.done")
+            state.mode = "launch"
+            save_state(state, state_path)
             _print_completion_systemd(cwd)
         elif result == RESULT_CONFLICT:
             _err("Telegram 409 Conflict — another bot instance is already polling with this token.")
@@ -1169,6 +1210,9 @@ async def step_9_launch(
         result = await run_smoke_test(state, docker_proc, verify_reply=False)
         docker_proc.terminate()
         if result == RESULT_OK:
+            mark_micro_step_done(state, "launch.done")
+            state.mode = "launch"
+            save_state(state, state_path)
             _print_completion_docker(cwd, running=True)
         elif result == RESULT_CONFLICT:
             _warn("Telegram 409 Conflict — another bot instance is already running with this token.")
@@ -1176,6 +1220,7 @@ async def step_9_launch(
             print(f"     docker compose -f {cwd}/docker-compose.yml down")
             print("     # also stop any other process using the same Telegram token")
             _print_completion_docker(cwd, running=True)
+            # Do NOT mark launch.done — user must resolve the conflict first.
         else:
             _err("Smoke test timed out — container may still be building or starting.")
             _print_completion_docker(cwd, running=False)
@@ -1184,7 +1229,7 @@ async def step_9_launch(
         if not os.path.exists(python):
             _warn("venv python not found, falling back to system python3")
             python = "python3"
-        save_state(state, os.path.join(cwd, "data", "setup-state.json"))
+        save_state(state, state_path)
         print("  Starting bot…")
         proc = await asyncio.create_subprocess_exec(
             python, os.path.join(cwd, "main.py"),
@@ -1194,6 +1239,9 @@ async def step_9_launch(
         )
         result = await run_smoke_test(state, proc)
         if result == RESULT_OK:
+            mark_micro_step_done(state, "launch.done")
+            state.mode = "launch"
+            save_state(state, state_path)
             _print_completion_foreground(cwd)
             print("  Bot is running. Press Ctrl-C to stop.")
             try:

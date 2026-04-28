@@ -2,9 +2,11 @@
 import asyncio
 import os
 import shutil
+import subprocess
 import sys
 
 _G = "\033[32m"
+_Y = "\033[33m"
 _R = "\033[31m"
 _B = "\033[1m"
 _X = "\033[0m"
@@ -20,6 +22,73 @@ _NETWORK_HOSTS = [
     ("registry.npmjs.org", "npm registry"),
     ("pypi.org", "PyPI"),
 ]
+
+
+def _detect_distro() -> str:
+    """Return short distro id (ubuntu, debian, fedora, arch, alpine, darwin, ...)."""
+    if sys.platform == "darwin":
+        return "darwin"
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("ID="):
+                    return line.partition("=")[2].strip().strip('"').lower()
+    except OSError:
+        pass
+    return "unknown"
+
+
+def _check_service_manager() -> tuple[bool, str]:
+    """Detect available service manager (informational, not a hard requirement).
+
+    macOS → launchd, most Linux → systemd-user, otherwise warn the user that
+    only foreground / docker deploy modes will be available.
+    """
+    if sys.platform == "darwin":
+        return True, "launchd available (macOS)"
+    # Probe systemd-user session (PID 1 of `--user`).
+    try:
+        r = subprocess.run(
+            ["systemctl", "--user", "is-system-running"],
+            capture_output=True, timeout=5,
+        )
+        # Returncodes: 0=running, 1=degraded, 4=no-such-unit etc.
+        if r.returncode in (0, 1):
+            return True, "systemd --user session active"
+        return (
+            False,
+            "systemd --user session not running — systemd deploy mode "
+            "will be unavailable; foreground/docker still OK. "
+            "Fix: loginctl enable-linger $USER && systemctl --user start dbus.service",
+        )
+    except FileNotFoundError:
+        return (
+            False,
+            "systemctl not found — non-systemd Linux. "
+            "Use foreground or docker deploy mode.",
+        )
+    except subprocess.TimeoutExpired:
+        return False, "systemctl --user timed out (rare)"
+
+
+def _check_docker() -> tuple[bool, str]:
+    """Probe `docker info` — informational, only required if user picks Docker mode."""
+    if not shutil.which("docker"):
+        return False, "docker not installed (only required for Docker deploy mode)"
+    try:
+        r = subprocess.run(
+            ["docker", "info"], capture_output=True, timeout=10,
+        )
+        if r.returncode == 0:
+            return True, "docker daemon reachable"
+        return (
+            False,
+            "docker installed but daemon not running. "
+            "On macOS: open -a Docker. "
+            "On Linux: sudo systemctl start docker (or use Colima).",
+        )
+    except subprocess.TimeoutExpired:
+        return False, "docker info timed out (daemon hung?)"
 
 
 def _check_python() -> tuple[bool, str]:
@@ -96,30 +165,42 @@ def _check_venv(cwd: str) -> tuple[bool, str]:
 
 
 async def run_preflight(cwd: str) -> None:
-    """Run all pre-flight checks; sys.exit(1) if any fail."""
+    """Run all pre-flight checks. Hard failures exit 1; soft warnings print only.
+
+    Hard requirements (must pass): Python ≥3.11, disk space, network, venv.
+    Soft warnings (informational): service manager, Docker, distro detection.
+    """
     print(f"\n{_B}[0/9] Pre-flight Checks{_X}")
+    print(f"  Platform: {sys.platform} ({_detect_distro()})")
 
-    results: list[tuple[bool, str]] = []
+    hard: list[tuple[bool, str]] = []
+    soft: list[tuple[bool, str]] = []
 
-    # Synchronous checks
-    results.append(_check_python())
-    results.append(_check_disk(cwd))
-
-    # Parallel network probes
+    # Hard requirements
+    hard.append(_check_python())
+    hard.append(_check_disk(cwd))
     net_results = await _check_network()
-    results.extend(net_results)
+    hard.extend(net_results)
+    hard.append(_check_venv(cwd))
 
-    # venv check
-    results.append(_check_venv(cwd))
+    # Soft / informational
+    soft.append(_check_service_manager())
+    soft.append(_check_docker())
 
-    # Print all results before deciding to exit
     any_failed = False
-    for ok, msg in results:
+    for ok, msg in hard:
         if ok:
             print(f"  {_G}✓ {msg}{_X}")
         else:
             print(f"  {_R}✗ {msg}{_X}")
             any_failed = True
+    for ok, msg in soft:
+        if ok:
+            print(f"  {_G}✓ {msg}{_X}")
+        else:
+            # Soft checks print as warnings (yellow), not errors — wizard
+            # continues and the user simply won't see those deploy options.
+            print(f"  {_Y}⚠ {msg}{_X}")
 
     if any_failed:
         sys.exit(1)

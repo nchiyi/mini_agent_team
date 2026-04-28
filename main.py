@@ -282,7 +282,9 @@ async def main(cfg_path: str = "config/config.toml", env_path: str = "secrets/.e
     asyncio.create_task(_session_cleanup_loop(ctx.session_mgr, interval_seconds=300))
     ctx.router._role_router.warm_up()
 
-    for _slug in _load_roles(cfg.default_cwd):
+    # Roster files live in the repo (roster/*.md), not in the runner's cwd.
+    # Pass no base_dir → defaults to repo root via Path(__file__).parents[1].
+    for _slug in _load_roles():
         apply_role_prompt("", _slug, cfg.default_cwd)
 
     if not cfg.allowed_user_ids and not cfg.allow_all_users:
