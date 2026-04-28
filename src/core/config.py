@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 
+from src.core.bots import BotConfig, load_bots
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_RUNNER_ARGS: dict[str, list[str]] = {
@@ -139,6 +141,7 @@ class Config:
     default_cwd: str = ""
     skills_dir: str = "skills"
     modules_dir: str = "skills"  # backward-compat alias
+    bots: list[BotConfig] = field(default_factory=list)
 
 
 def _normalise_runner_args(name: str, raw_args: list[str] | None) -> list[str]:
@@ -292,6 +295,8 @@ def load_config(
         skills_dir=skills_dir,
         modules_dir=skills_dir,
     )
+
+    cfg.bots = load_bots(raw, default_runner=cfg.gateway.default_runner)
 
     # ── startup auth log ────────────────────────────────────────────────────
     _log_channel_auth(cfg, "telegram", cfg.telegram.allowed_user_ids, cfg.telegram.allow_all_users)
