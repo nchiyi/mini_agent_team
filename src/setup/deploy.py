@@ -2,19 +2,26 @@ from pathlib import Path
 
 
 _RUNNER_CONFIGS: dict[str, str] = {
+    # `path` MUST point at the ACP-speaking binary, not the bare CLI:
+    # - claude / codex have wrapper packages (claude-agent-acp / codex-acp)
+    #   that translate stdio JSON-RPC for the host CLI.
+    # - gemini speaks ACP natively when invoked with --acp --yolo.
+    # Spawning the bare `claude` or `codex` here would hang the bot at
+    # JSON-RPC handshake (the typing indicator shows but no reply ever).
     "claude": (
-        '[runners.claude]\npath = "claude"\n'
+        '[runners.claude]\ntype = "acp"\npath = "claude-agent-acp"\n'
         'args = []\n'
-        "timeout_seconds = 300\ncontext_token_budget = 4000"
+        'timeout_seconds = 300\ncontext_token_budget = 4000'
     ),
     "codex": (
-        '[runners.codex]\npath = "codex"\n'
+        '[runners.codex]\ntype = "acp"\npath = "codex-acp"\n'
         'args = []\n'
-        "timeout_seconds = 300\ncontext_token_budget = 4000"
+        'timeout_seconds = 300\ncontext_token_budget = 4000'
     ),
     "gemini": (
-        '[runners.gemini]\npath = "gemini"\nargs = []\n'
-        "timeout_seconds = 300\ncontext_token_budget = 4000"
+        '[runners.gemini]\ntype = "acp"\npath = "gemini"\n'
+        'args = ["--acp", "--yolo"]\n'
+        'timeout_seconds = 300\ncontext_token_budget = 4000'
     ),
 }
 
