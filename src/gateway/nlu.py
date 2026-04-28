@@ -15,7 +15,6 @@ _RUNNER_ALIASES: dict[str, list[str]] = {
     "claude": ["claude", "claude-code", "claude code"],
     "codex": ["codex", "openai"],
     "gemini": ["gemini", "google"],
-    "kiro": ["kiro", "aws"],
 }
 
 

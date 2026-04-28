@@ -19,10 +19,6 @@ _AUTH_PATTERNS: list[tuple[str, str, str]] = [
     ("gemini", "please set an auth method","gemini auth login"),
     ("gemini", "gemini_api_key",          "gemini auth login  (or set GEMINI_API_KEY)"),
     ("gemini", "not authenticated",       "gemini auth login"),
-    ("kiro",   "not signed in",           "kiro login"),
-    ("kiro",   "not logged in",           "kiro login"),
-    ("kiro",   "please run /login",       "kiro login"),
-    ("kiro",   "sign in to continue",     "kiro login"),
 ]
 
 

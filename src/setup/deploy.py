@@ -16,10 +16,6 @@ _RUNNER_CONFIGS: dict[str, str] = {
         '[runners.gemini]\npath = "gemini"\nargs = []\n'
         "timeout_seconds = 300\ncontext_token_budget = 4000"
     ),
-    "kiro": (
-        '[runners.kiro]\npath = "kiro"\nargs = []\n'
-        "timeout_seconds = 300\ncontext_token_budget = 4000"
-    ),
 }
 
 _TOML_TEMPLATE = """\
@@ -59,7 +55,7 @@ _DOCKERFILE = (
     "WORKDIR /app\n"
     "\n"
     "# Install Node.js 20 (NodeSource) + curl + ca-certificates so we can\n"
-    "# `npm install -g` the user-selected agent CLIs (claude/codex/gemini/kiro)\n"
+    "# `npm install -g` the user-selected agent CLIs (claude/codex/gemini)\n"
     "# inside the container — without this, the bot calls subprocess('claude')\n"
     "# and gets FileNotFoundError because the host's CLIs aren't visible here.\n"
     "RUN apt-get update && apt-get install -y --no-install-recommends \\\n"

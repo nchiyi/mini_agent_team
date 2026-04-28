@@ -13,7 +13,6 @@ _DEFAULT_RUNNER_ARGS: dict[str, list[str]] = {
     "claude": [],
     "codex": [],
     "gemini": [],
-    "kiro": [],
 }
 
 _DANGEROUS_SKIP_PERMISSIONS = "--dangerously-skip-permissions"

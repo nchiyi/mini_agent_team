@@ -20,7 +20,6 @@ _CLI_INSTALL: dict[str, list[str]] = {
     "claude": ["npm", "install", "-g", "@anthropic-ai/claude-code"],
     "codex": ["npm", "install", "-g", "@openai/codex"],
     "gemini": ["npm", "install", "-g", "@google/gemini-cli"],
-    "kiro": ["npm", "install", "-g", "@aws/kiro"],
 }
 
 _OLLAMA_INSTALL = ["bash", "-c", "curl -fsSL https://ollama.ai/install.sh | sh"]
@@ -31,12 +30,11 @@ _CLI_SIZES: dict[str, str] = {
     "claude": "~50MB",
     "codex": "~30MB",
     "gemini": "~40MB",
-    "kiro": "~35MB",
 }
 
 # ACP npm package mapping: cli name -> (npm package name, binary name)
 # Only CLIs that require a separate ACP wrapper are listed here.
-# gemini and kiro support ACP natively and are intentionally omitted.
+# gemini supports ACP natively and is intentionally omitted.
 ACP_PACKAGES: dict[str, tuple[str, str]] = {
     "claude": ("@agentclientprotocol/claude-agent-acp", "claude-agent-acp"),
     "codex": ("@zed-industries/codex-acp", "codex-acp"),

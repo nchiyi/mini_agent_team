@@ -479,7 +479,7 @@ async def step_3_allowlist(state: WizardState) -> None:
     mark_micro_step_done(state, "allowlist.done")
 
 
-_ALL_CLIS = ["claude", "codex", "gemini", "kiro"]
+_ALL_CLIS = ["claude", "codex", "gemini"]
 
 
 async def step_4_clis(state: WizardState) -> None:
@@ -517,7 +517,7 @@ async def step_4_clis(state: WizardState) -> None:
     else:
         for _, label in labels:
             print(f"  {label}")
-        raw = _prompt("Select CLIs (comma-separated: claude,codex,gemini,kiro)", "claude")
+        raw = _prompt("Select CLIs (comma-separated: claude,codex,gemini)", "claude")
         tokens = [c.strip() for c in raw.split(",") if c.strip()]
         selected = [c for c in tokens if c in _ALL_CLIS]
         invalid = [c for c in tokens if c not in _ALL_CLIS]
@@ -1254,11 +1254,14 @@ async def step_9_launch(
         # Each selected CLI's typical credential path; only mount if it
         # actually exists on the host (docker bind-mounting a missing source
         # would auto-create it as an empty dir owned by root).
+        # Verified credential paths on the host (Mac/Linux):
+        # - claude → ~/.claude (auth tokens, config)
+        # - codex  → ~/.codex (auth.json, config.toml)
+        # - gemini → ~/.gemini (oauth_creds.json, settings.json)
         _CLI_OAUTH_DIRS = {
             "claude": [".claude"],
-            "codex":  [".codex", ".openai"],
-            "gemini": [".gemini", ".config/gcloud"],
-            "kiro":   [".aws"],
+            "codex":  [".codex"],
+            "gemini": [".gemini"],
         }
         oauth_mounts: list[str] = []
         host_home = os.path.expanduser("~")
