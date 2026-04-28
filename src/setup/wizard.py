@@ -30,26 +30,57 @@ except ImportError:
     _has_questionary = False
 
 
+_QUESTIONARY_REASON: str = ""  # Populated by _can_use_questionary() on first False
+_QUESTIONARY_WARNED: bool = False
+
+
 def _can_use_questionary() -> bool:
     """Decide whether to render arrow-key UI vs plain-text fallback.
 
-    The previous gate used sys.stdin.isatty() and sys.stdout.isatty(), which
-    return False under `curl ... | bash` even though /dev/tty is reachable.
-    questionary's prompt_toolkit backend can open /dev/tty directly on POSIX,
-    so the only real requirement is that a controlling terminal exists.
+    Records the reason for any fallback in _QUESTIONARY_REASON so the wizard
+    can surface it once at startup — silent fallback was causing repeated
+    user complaints ("why is this text-mode AGAIN?").
     """
+    global _QUESTIONARY_REASON, _QUESTIONARY_WARNED
     if not _has_questionary:
+        _QUESTIONARY_REASON = "the 'questionary' package is not installed"
         return False
     if sys.platform == "win32":
         # Windows has no /dev/tty; require actual TTY on stdin/stdout.
-        return sys.stdin.isatty() and sys.stdout.isatty()
-    # Detached environments (some CI runners, cron, container without -t)
-    # don't have /dev/tty; fall back to plain text there.
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            _QUESTIONARY_REASON = "stdin/stdout is not a TTY (Windows)"
+            return False
+        return True
+    # POSIX: probe /dev/tty. questionary's prompt_toolkit backend can render
+    # via /dev/tty even when stdin/stdout are pipes — only fail if no
+    # controlling terminal exists at all (cron, CI, `docker exec` without -t).
     try:
         with open("/dev/tty", "r+"):
             return True
-    except OSError:
+    except OSError as exc:
+        _QUESTIONARY_REASON = f"/dev/tty not accessible ({exc.errno}: {exc.strerror})"
         return False
+
+
+def _maybe_warn_text_fallback() -> None:
+    """Print one-time warning explaining why text-mode is being used.
+
+    Called from each step's else-branch right before showing the text fallback,
+    so the user sees a clear reason instead of silently being downgraded.
+    """
+    global _QUESTIONARY_WARNED
+    if _QUESTIONARY_WARNED:
+        return
+    _QUESTIONARY_WARNED = True
+    if _QUESTIONARY_REASON:
+        print(
+            f"\n{_Y}⚠ Falling back to text-mode prompts: {_QUESTIONARY_REASON}.{_X}",
+            file=sys.stderr,
+        )
+        print(
+            f"  Arrow-key checkbox UI requires `questionary` and a usable /dev/tty.",
+            file=sys.stderr,
+        )
 
 
 async def _q_ask(question) -> object:
@@ -1464,6 +1495,11 @@ async def run_wizard(
     _stop_running_bot_instances(cwd)
     if not skip_preflight:
         await run_preflight(cwd)
+    # Probe questionary usability up front so we can surface a clear reason
+    # to the user if we have to fall back to text-mode prompts. Saves a lot
+    # of "why is this text-mode AGAIN?" debugging.
+    _can_use_questionary()
+    _maybe_warn_text_fallback()
     await step_1_channel(state)
     save_state(state, state_path)
     await step_2_token(state)
