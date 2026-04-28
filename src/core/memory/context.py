@@ -65,8 +65,8 @@ class ContextAssembler:
         self._t1_budget = min(tier1_budget, max_tokens)
         self._t3_budget = min(tier3_budget, max_tokens - self._t1_budget)
 
-    def _build_tier1_text(self, user_id: int, channel: str) -> str:
-        entries = self._t1.list_entries(user_id, channel)
+    def _build_tier1_text(self, user_id: int, channel: str, bot_id: str = "default") -> str:
+        entries = self._t1.list_entries(user_id, channel, bot_id)
         if not entries:
             return ""
         # Build text entry-by-entry from most recent, stop before exceeding budget.
@@ -85,9 +85,9 @@ class ContextAssembler:
         return "## Permanent Memory\n" + "\n".join(selected)
 
     async def _select_recent_turns(
-        self, *, user_id: int, channel: str, recent_turns: int
+        self, *, user_id: int, channel: str, recent_turns: int, bot_id: str = "default"
     ) -> list[dict]:
-        turns = await self._t3.get_recent(user_id=user_id, channel=channel, n=recent_turns)
+        turns = await self._t3.get_recent(user_id=user_id, channel=channel, n=recent_turns, bot_id=bot_id)
         if not turns:
             return []
 
@@ -103,16 +103,16 @@ class ContextAssembler:
         return selected
 
     async def build(
-        self, *, user_id: int, channel: str, recent_turns: int = 20
+        self, *, user_id: int, channel: str, recent_turns: int = 20, bot_id: str = "default"
     ) -> str:
         sections: list[str] = []
 
-        t1_text = self._build_tier1_text(user_id, channel)
+        t1_text = self._build_tier1_text(user_id, channel, bot_id)
         if t1_text:
             sections.append(t1_text)
 
         turns = await self._select_recent_turns(
-            user_id=user_id, channel=channel, recent_turns=recent_turns
+            user_id=user_id, channel=channel, recent_turns=recent_turns, bot_id=bot_id
         )
         if turns:
             sections.append("## Conversation History\n" + render_turns_as_text(turns))
@@ -120,16 +120,16 @@ class ContextAssembler:
         return "\n\n".join(sections)
 
     async def build_messages(
-        self, *, user_id: int, channel: str, recent_turns: int = 20
+        self, *, user_id: int, channel: str, recent_turns: int = 20, bot_id: str = "default"
     ) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
 
-        t1_text = self._build_tier1_text(user_id, channel)
+        t1_text = self._build_tier1_text(user_id, channel, bot_id)
         if t1_text:
             messages.append({"role": "system", "content": t1_text})
 
         turns = await self._select_recent_turns(
-            user_id=user_id, channel=channel, recent_turns=recent_turns
+            user_id=user_id, channel=channel, recent_turns=recent_turns, bot_id=bot_id
         )
         messages.extend(format_turns_as_messages(turns))
         return messages

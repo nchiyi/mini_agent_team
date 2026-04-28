@@ -148,3 +148,64 @@ async def test_tier1_truncation_no_slicing(tmp_path):
         assert line.endswith(".")  # each line is a complete entry
 
     await t3.close()
+
+
+async def test_context_isolated_by_bot_id(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    from src.core.memory.tier1 import Tier1Store
+    from src.core.memory.context import ContextAssembler
+
+    t3 = Tier3Store(db_path=str(tmp_path / "db/history.db"))
+    await t3.init()
+    t1 = Tier1Store(permanent_dir=str(tmp_path / "tier1"))
+
+    # Write to two different bots for the same (user, channel).
+    t1.remember(user_id=1, channel="telegram", bot_id="dev", content="dev fact")
+    t1.remember(user_id=1, channel="telegram", bot_id="search", content="search fact")
+    await t3.save_turn(user_id=1, channel="telegram", bot_id="dev",
+                       role="user", content="dev question")
+    await t3.save_turn(user_id=1, channel="telegram", bot_id="search",
+                       role="user", content="search question")
+
+    assembler = ContextAssembler(tier1=t1, tier3=t3, max_tokens=4000)
+    dev_ctx = await assembler.build(user_id=1, channel="telegram",
+                                    bot_id="dev", recent_turns=10)
+    search_ctx = await assembler.build(user_id=1, channel="telegram",
+                                       bot_id="search", recent_turns=10)
+    assert "dev fact" in dev_ctx
+    assert "dev question" in dev_ctx
+    assert "search fact" not in dev_ctx
+    assert "search question" not in dev_ctx
+    assert "search fact" in search_ctx
+    assert "search question" in search_ctx
+    assert "dev fact" not in search_ctx
+
+    await t3.close()
+
+
+async def test_build_messages_isolated_by_bot_id(tmp_path):
+    from src.core.memory.tier3 import Tier3Store
+    from src.core.memory.tier1 import Tier1Store
+    from src.core.memory.context import ContextAssembler
+
+    t3 = Tier3Store(db_path=str(tmp_path / "db/history.db"))
+    await t3.init()
+    t1 = Tier1Store(permanent_dir=str(tmp_path / "tier1"))
+    await t3.save_turn(user_id=1, channel="telegram", bot_id="dev",
+                       role="user", content="from dev")
+    await t3.save_turn(user_id=1, channel="telegram", bot_id="search",
+                       role="user", content="from search")
+
+    assembler = ContextAssembler(tier1=t1, tier3=t3, max_tokens=4000)
+    dev_msgs = await assembler.build_messages(user_id=1, channel="telegram",
+                                              bot_id="dev", recent_turns=10)
+    search_msgs = await assembler.build_messages(user_id=1, channel="telegram",
+                                                 bot_id="search", recent_turns=10)
+    dev_contents = [m["content"] for m in dev_msgs]
+    search_contents = [m["content"] for m in search_msgs]
+    assert any("from dev" in c for c in dev_contents)
+    assert all("from search" not in c for c in dev_contents)
+    assert any("from search" in c for c in search_contents)
+    assert all("from dev" not in c for c in search_contents)
+
+    await t3.close()
