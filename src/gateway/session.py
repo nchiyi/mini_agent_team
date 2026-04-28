@@ -19,6 +19,7 @@ class Session:
     channel: str
     current_runner: str
     cwd: str
+    bot_id: str = "default"
     active_role: str = ""
     pending_reasoning: str = ""
     last_active: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -62,11 +63,11 @@ class SessionManager:
         self._idle_minutes = idle_minutes
         self._default_runner = default_runner
         self._default_cwd = default_cwd
-        self._sessions: dict[tuple[int, str], Session] = {}
-        self._active_roles: dict[tuple[int, str], str] = {}
-        self._voice_enabled: dict[tuple[int, str], bool] = {}
+        self._sessions: dict[tuple[int, str, str], Session] = {}
+        self._active_roles: dict[tuple[int, str, str], str] = {}
+        self._voice_enabled: dict[tuple[int, str, str], bool] = {}
         self._tier3: "Tier3Store | None" = None
-        self._settings_loaded: set[tuple[int, str]] = set()
+        self._settings_loaded: set[tuple[int, str, str]] = set()
 
     def attach_tier3(self, tier3: "Tier3Store") -> None:
         """Attach a Tier3Store so settings are persisted to SQLite."""
@@ -74,11 +75,11 @@ class SessionManager:
 
     # ── role state ────────────────────────────────────────────────────────
 
-    def get_active_role(self, user_id: int, channel: str) -> str:
-        return self._active_roles.get((user_id, channel), "")
+    def get_active_role(self, user_id: int, channel: str, bot_id: str = "default") -> str:
+        return self._active_roles.get((user_id, channel, bot_id), "")
 
-    def set_active_role(self, user_id: int, channel: str, role: str) -> None:
-        key = (user_id, channel)
+    def set_active_role(self, user_id: int, channel: str, role: str, bot_id: str = "default") -> None:
+        key = (user_id, channel, bot_id)
         if role:
             self._active_roles[key] = role
         else:
@@ -94,16 +95,16 @@ class SessionManager:
             except RuntimeError:
                 pass
 
-    def clear_active_role(self, user_id: int, channel: str) -> None:
-        self.set_active_role(user_id, channel, "")
+    def clear_active_role(self, user_id: int, channel: str, bot_id: str = "default") -> None:
+        self.set_active_role(user_id, channel, "", bot_id)
 
     # ── voice state ───────────────────────────────────────────────────────
 
-    def is_voice_enabled(self, user_id: int, channel: str) -> bool:
-        return self._voice_enabled.get((user_id, channel), False)
+    def is_voice_enabled(self, user_id: int, channel: str, bot_id: str = "default") -> bool:
+        return self._voice_enabled.get((user_id, channel, bot_id), False)
 
-    def set_voice_enabled(self, user_id: int, channel: str, enabled: bool) -> None:
-        self._voice_enabled[(user_id, channel)] = enabled
+    def set_voice_enabled(self, user_id: int, channel: str, enabled: bool, bot_id: str = "default") -> None:
+        self._voice_enabled[(user_id, channel, bot_id)] = enabled
         if self._tier3 is not None:
             try:
                 asyncio.get_event_loop().create_task(
@@ -114,9 +115,9 @@ class SessionManager:
 
     # ── settings restore ──────────────────────────────────────────────────
 
-    async def restore_settings_if_needed(self, user_id: int, channel: str) -> None:
-        """Load persisted settings from DB once per (user_id, channel) per process."""
-        key = (user_id, channel)
+    async def restore_settings_if_needed(self, user_id: int, channel: str, bot_id: str = "default") -> None:
+        """Load persisted settings from DB once per (user_id, channel, bot_id) per process."""
+        key = (user_id, channel, bot_id)
         if key in self._settings_loaded or self._tier3 is None:
             return
         self._settings_loaded.add(key)
@@ -135,18 +136,30 @@ class SessionManager:
 
     # ── session lifecycle ─────────────────────────────────────────────────
 
-    def get_or_create(self, user_id: int, channel: str) -> Session:
-        key = (user_id, channel)
+    def get_or_create(
+        self,
+        user_id: int,
+        channel: str,
+        bot_id: str = "default",
+        default_runner_override: str | None = None,
+        default_role_override: str | None = None,
+    ) -> Session:
+        key = (user_id, channel, bot_id)
         if key not in self._sessions:
             self._sessions[key] = Session(
                 user_id=user_id,
                 channel=channel,
-                current_runner=self._default_runner,
+                bot_id=bot_id,
+                current_runner=default_runner_override or self._default_runner,
                 cwd=self._default_cwd,
-                active_role=self.get_active_role(user_id, channel),
+                active_role=(
+                    default_role_override
+                    if default_role_override is not None
+                    else self.get_active_role(user_id, channel, bot_id)
+                ),
             )
         else:
-            self._sessions[key].active_role = self.get_active_role(user_id, channel)
+            self._sessions[key].active_role = self.get_active_role(user_id, channel, bot_id)
         self._sessions[key].touch()
         return self._sessions[key]
 

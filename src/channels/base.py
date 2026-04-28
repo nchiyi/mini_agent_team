@@ -10,6 +10,7 @@ class InboundMessage:
     text: str
     message_id: str
     attachments: list[str] = field(default_factory=list)  # local file paths
+    bot_id: str = "default"
 
 
 class BaseAdapter(ABC):
