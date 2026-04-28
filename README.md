@@ -268,11 +268,19 @@ mat auth        # 互動選單，依序登入 claude / codex / gemini
 ```bash
 mat auth claude     # → docker compose exec -it gateway claude setup-token
 mat auth codex      # → docker compose exec -it gateway codex login --device-auth
-mat auth gemini     # → docker compose exec -it gateway gemini auth login
+mat auth gemini     # → docker compose exec -it gateway gemini  (互動模式)
 mat auth all        # 依序跑全部
 ```
 
-每個指令會在 terminal 印出 OAuth URL + device code。在瀏覽器（手機也行）開那個 URL、貼 code、授權，CLI 自動把 token 寫進 `/root/.<cli>/`。
+各 CLI 認證機制不太一樣（依實際 CLI 行為驗證過）：
+
+| CLI | 認證流程 |
+|-----|---------|
+| claude | `claude setup-token` 印一個 URL，瀏覽器登入後 paste 一段 token 回 terminal |
+| codex | `codex login --device-auth` 印 URL + 短 code，手機開 URL 輸入 code 即可（**不能用裸 `codex login`** — 那會啟動 localhost browser flow，container 網路名空間不通）|
+| gemini | gemini-cli 沒獨立 `login` 子指令，認證內建在主程式啟動時。`mat auth gemini` 會在容器內互動跑 `gemini`，第一次啟動會跳 Google OAuth；完成後輸入 `/quit` 或 Ctrl-D 結束|
+
+完成後 token 寫進 `/root/.<cli>/`，docker named volume `mat-agent-home` 持久化。
 
 ### 確認哪些已認證
 

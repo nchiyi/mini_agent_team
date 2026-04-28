@@ -1042,7 +1042,7 @@ def _print_unified_completion(cwd: str, mode: str, *, running: bool = True) -> N
         print(f"    {_B}mat auth{_X}                    互動選單，依序登入 claude / codex / gemini")
         print(f"    mat auth claude         只跑 Claude (claude setup-token)")
         print(f"    mat auth codex          只跑 Codex (codex login --device-auth)")
-        print(f"    mat auth gemini         只跑 Gemini (gemini auth login)")
+        print(f"    mat auth gemini         只跑 Gemini (互動式 gemini，OAuth 後 /quit)")
         print(f"    mat auth status         確認哪些已認證")
         print(f"    {_Y}沒做這一步 bot 收到訊息時會回 'Authentication required' 錯誤。{_X}")
         print()

@@ -188,27 +188,43 @@ case "$CMD" in
             # shellcheck disable=SC2086
             docker compose exec -it gateway $cmd
         }
+        # Per-CLI login command (verified against actual CLI inside container):
+        #   - claude: setup-token (subcommand exists in `claude --help`)
+        #   - codex:  login --device-auth (CLI hint says "headless? use this")
+        #   - gemini: NO `auth`/`login` subcommand — login is bootstrapped on
+        #     first interactive run. We exec plain `gemini` in TTY mode and
+        #     instruct user to complete OAuth then Ctrl-D / /quit out.
+        _do_gemini_auth() {
+            echo "🔐  Authenticating gemini inside container..."
+            echo "    gemini-cli has no standalone login subcommand — we'll"
+            echo "    open it interactively. On first run it asks you to"
+            echo "    pick an auth method and complete Google OAuth. After"
+            echo "    auth succeeds, type Ctrl-D or '/quit' to exit."
+            echo "    （或: 設定 GEMINI_API_KEY 環境變數略過 OAuth — 在 secrets/.env 加 GEMINI_API_KEY=...）"
+            echo
+            docker compose exec -it gateway gemini
+        }
         case "$SUB" in
             claude) _do_auth claude "claude setup-token" ;;
             codex)  _do_auth codex  "codex login --device-auth" ;;
-            gemini) _do_auth gemini "gemini auth login" ;;
+            gemini) _do_gemini_auth ;;
             all)
                 _do_auth claude "claude setup-token"
                 _do_auth codex  "codex login --device-auth"
-                _do_auth gemini "gemini auth login"
+                _do_gemini_auth
                 ;;
             menu|"")
                 echo "選擇要認證的 CLI："
                 echo "  1) claude  (claude setup-token)"
                 echo "  2) codex   (codex login --device-auth)"
-                echo "  3) gemini  (gemini auth login)"
+                echo "  3) gemini  (互動式啟動 gemini, OAuth 完成後 /quit)"
                 echo "  4) all     (依序跑全部)"
                 printf "Choice [1]: "
                 read -r ans
                 case "${ans:-1}" in
                     1) _do_auth claude "claude setup-token" ;;
                     2) _do_auth codex  "codex login --device-auth" ;;
-                    3) _do_auth gemini "gemini auth login" ;;
+                    3) _do_gemini_auth ;;
                     4) "$0" auth all ;;
                     *) echo "無效選項"; exit 1 ;;
                 esac
@@ -341,7 +357,7 @@ case "$CMD" in
         echo "    auth                  互動選單選 claude / codex / gemini"
         echo "    auth claude           只認證 claude（claude setup-token）"
         echo "    auth codex            只認證 codex （codex login --device-auth）"
-        echo "    auth gemini           只認證 gemini（gemini auth login）"
+        echo "    auth gemini           只認證 gemini（互動式 gemini，OAuth 後 /quit）"
         echo "    auth all              依序認證全部"
         echo "    auth status           查看哪些 CLI 已認證"
         echo ""
