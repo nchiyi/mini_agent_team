@@ -1131,14 +1131,31 @@ async def step_9_launch(
             sys.exit(1)
     elif state.deploy_mode == "docker":
         write_docker_compose(cwd)
+        # Write requirements.extra.txt for any optional packages selected in step 6.
+        # The Dockerfile copies and installs from this file (must exist even if empty).
+        extra_pkgs: list[str] = []
+        for _key, _label, _size, _pkgs in _OPTIONAL_GROUPS:
+            if _key in (state.optional_packages or []):
+                extra_pkgs.extend(_pkgs)
+        extra_path = os.path.join(cwd, "requirements.extra.txt")
+        with open(extra_path, "w") as _f:
+            _f.write("\n".join(extra_pkgs))
+            if extra_pkgs:
+                _f.write("\n")
+        if extra_pkgs:
+            _ok(f"Optional packages for container: {', '.join(extra_pkgs)}")
+        # Force --build so the new requirements.extra.txt takes effect even if
+        # an older image is cached.
         try:
-            r = subprocess.run(["docker", "compose", "up", "-d"], cwd=cwd, check=False)
+            r = subprocess.run(
+                ["docker", "compose", "up", "-d", "--build"], cwd=cwd, check=False
+            )
         except FileNotFoundError:
             _err("docker not found — cannot launch container.")
             _print_completion_docker(cwd, running=False)
             return
         if r.returncode != 0:
-            _err("docker compose up -d failed — see error above.")
+            _err("docker compose up -d --build failed — see error above.")
             _print_completion_docker(cwd, running=False)
             return
         _ok("Docker container started")

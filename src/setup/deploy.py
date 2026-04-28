@@ -57,8 +57,9 @@ allow_user_messages = "all"
 _DOCKERFILE = (
     "FROM python:3.11-slim\n"
     "WORKDIR /app\n"
-    "COPY requirements.txt .\n"
-    "RUN pip install -r requirements.txt\n"
+    "COPY requirements.txt requirements.extra.txt ./\n"
+    "RUN pip install --no-cache-dir -r requirements.txt && \\\n"
+    "    if [ -s requirements.extra.txt ]; then pip install --no-cache-dir -r requirements.extra.txt; fi\n"
     "COPY . .\n"
     'CMD ["python", "main.py"]\n'
 )
