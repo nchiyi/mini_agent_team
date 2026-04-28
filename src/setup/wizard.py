@@ -10,7 +10,7 @@ from src.setup.validator import validate_telegram_token, validate_discord_token
 from src.setup.installer import (
     is_cli_installed, install_cli_foreground,
     install_ollama_foreground, install_docker_foreground, install_colima_foreground,
-    _CLI_SIZES,
+    _CLI_SIZES, _CLI_INSTALL,
     ACP_PACKAGES, is_acp_installed, install_acp_foreground, is_npm_available,
 )
 from src.setup.deploy import (
@@ -1214,8 +1214,7 @@ async def step_9_launch(
             _err("Smoke test failed — bot did not respond. Check logs above.")
             sys.exit(1)
     elif state.deploy_mode == "docker":
-        write_docker_compose(cwd)
-        # Write requirements.extra.txt for any optional packages selected in step 6.
+        # ── Optional Python extras (step 6) ────────────────────────────────
         # The Dockerfile copies and installs from this file (must exist even if empty).
         extra_pkgs: list[str] = []
         for _key, _label, _size, _pkgs in _OPTIONAL_GROUPS:
@@ -1227,9 +1226,59 @@ async def step_9_launch(
             if extra_pkgs:
                 _f.write("\n")
         if extra_pkgs:
-            _ok(f"Optional packages for container: {', '.join(extra_pkgs)}")
-        # Force --build so the new requirements.extra.txt takes effect even if
-        # an older image is cached.
+            _ok(f"Optional Python packages: {', '.join(extra_pkgs)}")
+
+        # ── Node CLIs the user selected (step 4) ───────────────────────────
+        # The Dockerfile xargs's `npm install -g` over this file. Container
+        # is python:3.11-slim with Node 20 added — the host's claude/codex/
+        # gemini binaries are NOT visible inside, so they must be installed
+        # in the container or bot dispatch fails with FileNotFoundError.
+        npm_pkgs: list[str] = []
+        for _cli in (state.selected_clis or []):
+            pkg = _CLI_INSTALL.get(_cli)
+            if pkg and len(pkg) >= 4 and pkg[0] == "npm":
+                npm_pkgs.append(pkg[3])
+            # ACP wrapper packages (claude-agent-acp, codex-acp) for CLIs
+            # that don't speak ACP natively.
+            if _cli in ACP_PACKAGES:
+                npm_pkgs.append(ACP_PACKAGES[_cli][0])
+        npm_path = os.path.join(cwd, "requirements.npm.txt")
+        with open(npm_path, "w") as _f:
+            _f.write("\n".join(npm_pkgs))
+            if npm_pkgs:
+                _f.write("\n")
+        if npm_pkgs:
+            _ok(f"Node CLIs for container: {', '.join(npm_pkgs)}")
+
+        # ── Mount host OAuth/credential dirs into container ────────────────
+        # Each selected CLI's typical credential path; only mount if it
+        # actually exists on the host (docker bind-mounting a missing source
+        # would auto-create it as an empty dir owned by root).
+        _CLI_OAUTH_DIRS = {
+            "claude": [".claude"],
+            "codex":  [".codex", ".openai"],
+            "gemini": [".gemini", ".config/gcloud"],
+            "kiro":   [".aws"],
+        }
+        oauth_mounts: list[str] = []
+        host_home = os.path.expanduser("~")
+        seen: set[str] = set()
+        for _cli in (state.selected_clis or []):
+            for rel in _CLI_OAUTH_DIRS.get(_cli, []):
+                src = os.path.join(host_home, rel)
+                if rel in seen or not os.path.isdir(src):
+                    continue
+                seen.add(rel)
+                # Mount read-only at /root/<rel> — container's HOME=/root
+                # (set in compose env) so CLIs find their creds normally.
+                oauth_mounts.append(f"{src}:/root/{rel}:ro")
+        if oauth_mounts:
+            _ok(f"OAuth mounts ({len(oauth_mounts)}): " +
+                ", ".join(m.split(":")[0].replace(host_home, "~") for m in oauth_mounts))
+
+        write_docker_compose(cwd, oauth_mounts=oauth_mounts)
+        # Force --build so the new requirements.* and Dockerfile changes
+        # take effect even if an older image is cached.
         try:
             r = subprocess.run(
                 ["docker", "compose", "up", "-d", "--build"], cwd=cwd, check=False

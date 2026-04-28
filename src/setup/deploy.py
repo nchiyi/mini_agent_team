@@ -57,25 +57,68 @@ allow_user_messages = "all"
 _DOCKERFILE = (
     "FROM python:3.11-slim\n"
     "WORKDIR /app\n"
+    "\n"
+    "# Install Node.js 20 (NodeSource) + curl + ca-certificates so we can\n"
+    "# `npm install -g` the user-selected agent CLIs (claude/codex/gemini/kiro)\n"
+    "# inside the container — without this, the bot calls subprocess('claude')\n"
+    "# and gets FileNotFoundError because the host's CLIs aren't visible here.\n"
+    "RUN apt-get update && apt-get install -y --no-install-recommends \\\n"
+    "        curl ca-certificates gnupg \\\n"
+    "    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\\n"
+    "    && apt-get install -y --no-install-recommends nodejs \\\n"
+    "    && apt-get clean \\\n"
+    "    && rm -rf /var/lib/apt/lists/*\n"
+    "\n"
+    "# Python deps (with optional extras for voice/browser/etc).\n"
     "COPY requirements.txt requirements.extra.txt ./\n"
     "RUN pip install --no-cache-dir -r requirements.txt && \\\n"
     "    if [ -s requirements.extra.txt ]; then pip install --no-cache-dir -r requirements.extra.txt; fi\n"
+    "\n"
+    "# Node CLIs — one package per line in requirements.npm.txt (written by\n"
+    "# the wizard from state.selected_clis + ACP wrapper packages).\n"
+    "COPY requirements.npm.txt ./\n"
+    "RUN if [ -s requirements.npm.txt ]; then \\\n"
+    "        xargs -a requirements.npm.txt -r npm install -g; \\\n"
+    "    fi\n"
+    "\n"
     "COPY . .\n"
     'CMD ["python", "main.py"]\n'
 )
 
-_DOCKER_COMPOSE = (
-    "services:\n"
-    "  gateway:\n"
-    "    build: .\n"
-    "    restart: unless-stopped\n"
-    "    volumes:\n"
-    "      - ./config:/app/config:ro\n"
-    "      - ./secrets:/app/secrets:ro\n"
-    "      - ./data:/app/data\n"
-    "    environment:\n"
-    "      - PYTHONUNBUFFERED=1\n"
-)
+
+def _build_compose_yaml(oauth_mounts: list[str] | None = None) -> str:
+    """Build docker-compose.yml with optional host-credential mounts.
+
+    oauth_mounts is a list of strings of the form 'HOST_PATH:CONTAINER_PATH:ro'
+    that gets injected into the volumes section so user-selected CLIs (claude,
+    codex, gemini, ...) can use the host's already-authenticated credentials.
+    """
+    lines = [
+        "services:",
+        "  gateway:",
+        "    build: .",
+        "    restart: unless-stopped",
+        "    volumes:",
+        "      - ./config:/app/config:ro",
+        "      - ./secrets:/app/secrets:ro",
+        "      - ./data:/app/data",
+    ]
+    for m in (oauth_mounts or []):
+        lines.append(f"      - {m}")
+    lines.extend([
+        "    environment:",
+        "      - PYTHONUNBUFFERED=1",
+        # Containerised CLIs read creds from $HOME — ensure it points at /root
+        # where the OAuth mounts above land.
+        "      - HOME=/root",
+        "",
+    ])
+    return "\n".join(lines)
+
+
+# Backwards-compat: callers that import _DOCKER_COMPOSE still work (defaults
+# to no OAuth mounts).
+_DOCKER_COMPOSE = _build_compose_yaml()
 
 
 def write_config_toml(path: str, config: dict) -> None:
@@ -135,12 +178,14 @@ def write_systemd_unit(cwd: str) -> None:
     (unit_dir / "gateway-agent.service").write_text(content)
 
 
-def write_docker_compose(cwd: str) -> None:
+def write_docker_compose(cwd: str, oauth_mounts: list[str] | None = None) -> None:
     base = Path(cwd)
     dockerfile = base / "Dockerfile"
-    if not dockerfile.exists():
-        dockerfile.write_text(_DOCKERFILE)
-    (base / "docker-compose.yml").write_text(_DOCKER_COMPOSE)
+    # Always overwrite Dockerfile so changes to the template (Node install,
+    # extra requirements files, etc.) propagate to existing installs after
+    # `git pull` + re-run wizard.
+    dockerfile.write_text(_DOCKERFILE)
+    (base / "docker-compose.yml").write_text(_build_compose_yaml(oauth_mounts))
 
 
 def create_data_dirs(base: str) -> None:
