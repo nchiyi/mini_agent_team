@@ -164,6 +164,71 @@ case "$CMD" in
                 ;;
         esac
         ;;
+    auth)
+        # Container-internal device-flow OAuth for selected CLIs.
+        # Each login command needs an interactive TTY (-it) — the CLI prints
+        # a URL + device code, user authorizes in browser/mobile, pastes the
+        # code back. Token persists in /root/.<cli>/ inside the named volume,
+        # so it survives container restarts and image rebuilds.
+        if [ "$(_backend)" != "docker" ]; then
+            echo "ℹ️   非 docker 模式下，CLIs 直接使用 host 的 OAuth credential。"
+            echo "    - claude   → 跑 'claude /login' 或先在 host 用 Claude Code 登入"
+            echo "    - codex    → 跑 'codex login --device-auth'"
+            echo "    - gemini   → 跑 'gemini auth login'（或設 GEMINI_API_KEY）"
+            exit 0
+        fi
+        SUB="${2:-menu}"
+        cd "$MAT_DIR"
+        _do_auth() {
+            local cli="$1" cmd="$2"
+            echo "🔐  Authenticating $cli inside container..."
+            echo "    Cmd: $cmd"
+            echo "    （依提示在瀏覽器完成 OAuth；token 寫入 /root/.$cli/，會持久化）"
+            echo
+            # shellcheck disable=SC2086
+            docker compose exec -it gateway $cmd
+        }
+        case "$SUB" in
+            claude) _do_auth claude "claude setup-token" ;;
+            codex)  _do_auth codex  "codex login --device-auth" ;;
+            gemini) _do_auth gemini "gemini auth login" ;;
+            all)
+                _do_auth claude "claude setup-token"
+                _do_auth codex  "codex login --device-auth"
+                _do_auth gemini "gemini auth login"
+                ;;
+            menu|"")
+                echo "選擇要認證的 CLI："
+                echo "  1) claude  (claude setup-token)"
+                echo "  2) codex   (codex login --device-auth)"
+                echo "  3) gemini  (gemini auth login)"
+                echo "  4) all     (依序跑全部)"
+                printf "Choice [1]: "
+                read -r ans
+                case "${ans:-1}" in
+                    1) _do_auth claude "claude setup-token" ;;
+                    2) _do_auth codex  "codex login --device-auth" ;;
+                    3) _do_auth gemini "gemini auth login" ;;
+                    4) "$0" auth all ;;
+                    *) echo "無效選項"; exit 1 ;;
+                esac
+                ;;
+            status)
+                # Quick check: does each CLI have credential file in volume?
+                echo "📋  Auth status (/root inside container):"
+                docker compose exec -T gateway sh -c '
+                    for d in .claude .codex .gemini; do
+                        if [ -d "/root/$d" ] && [ -n "$(ls -A /root/$d 2>/dev/null)" ]; then
+                            echo "  ✓ $d ($(ls /root/$d | wc -l | tr -d " ") files)"
+                        else
+                            echo "  ✗ $d (empty / not authenticated)"
+                        fi
+                    done
+                ' 2>&1
+                ;;
+            *)  echo "用法: mat auth [claude|codex|gemini|all|status|menu]"; exit 1 ;;
+        esac
+        ;;
     service-install)
         # Install service unit (launchd plist on macOS, systemd unit on Linux).
         # Docker mode has no equivalent — the container itself IS the daemon
@@ -268,9 +333,17 @@ case "$CMD" in
         echo ""
         echo "  設定 / 維護"
         echo "    setup                 首次設定或重新配置 wizard"
-        echo "    config                修改 Token / 白名單"
+        echo "    config                修改 Telegram / Discord token、白名單"
         echo "    update                git pull + 重啟 / 重 build"
         echo "    mode                  顯示目前 deploy mode（除錯用）"
+        echo ""
+        echo "  CLI agent OAuth（docker 模式必跑一次）"
+        echo "    auth                  互動選單選 claude / codex / gemini"
+        echo "    auth claude           只認證 claude（claude setup-token）"
+        echo "    auth codex            只認證 codex （codex login --device-auth）"
+        echo "    auth gemini           只認證 gemini（gemini auth login）"
+        echo "    auth all              依序認證全部"
+        echo "    auth status           查看哪些 CLI 已認證"
         echo ""
         echo "  service unit（launchd / systemd 模式）"
         echo "    service-install       建立並載入 service"

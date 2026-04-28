@@ -251,17 +251,62 @@ allow_bot_messages  = "off"            # off / mentions / all
 trusted_bot_ids     = []
 ```
 
-### Docker OAuth 路徑
+## 認證 CLI agents（docker 模式必跑一次）
 
-容器內 `HOME=/root`，setup wizard 自動掛載：
+Docker 模式下 bot 跑在隔離的容器內，不能直接讀宿主的 OAuth 憑證（特別是 macOS 把 Claude Code 憑證存在 Keychain，**不是檔案**，無論怎麼 mount 都拿不到）。
 
-| CLI | 宿主路徑 | 容器路徑 |
-|-----|---------|----------|
-| claude | `~/.claude` | `/root/.claude:ro` |
-| codex | `~/.codex` | `/root/.codex:ro` |
-| gemini | `~/.gemini` | `/root/.gemini:ro` |
+解法跟 [OpenAB](https://github.com/openabdev/openab) 採用的模式一樣：**容器內走一次 device-flow OAuth**，token 寫進 docker named volume `mat-agent-home` 持久化，跨重啟跟 image 重 build 都不會丟。
 
-只有實際存在的路徑才會被掛上去；不存在的會自動跳過。
+### 一行完成
+
+```bash
+mat auth        # 互動選單，依序登入 claude / codex / gemini
+```
+
+### 個別登入
+
+```bash
+mat auth claude     # → docker compose exec -it gateway claude setup-token
+mat auth codex      # → docker compose exec -it gateway codex login --device-auth
+mat auth gemini     # → docker compose exec -it gateway gemini auth login
+mat auth all        # 依序跑全部
+```
+
+每個指令會在 terminal 印出 OAuth URL + device code。在瀏覽器（手機也行）開那個 URL、貼 code、授權，CLI 自動把 token 寫進 `/root/.<cli>/`。
+
+### 確認哪些已認證
+
+```bash
+mat auth status
+
+# 範例輸出：
+# 📋  Auth status (/root inside container):
+#   ✓ .claude (4 files)
+#   ✓ .codex (10 files)
+#   ✗ .gemini (empty / not authenticated)
+```
+
+### 為什麼不能直接用宿主的憑證？
+
+| OS | Claude Code 憑證儲存位置 | Container 能否讀取？ |
+|----|--------------------------|---------------------|
+| macOS | macOS Keychain（系統級加密儲存）| ❌ Keychain 不能 mount 進 container |
+| Linux | `~/.claude/.credentials.json`（檔案）| 技術上可以 bind-mount 但易遇權限問題 |
+| codex / gemini | `~/.codex/auth.json`、`~/.gemini/oauth_creds.json` | Linux 可，macOS 同樣需獨立認證 |
+
+統一在容器內認證最乾淨，跨 OS 行為一致。
+
+### 切換 token / 重新認證
+
+直接重跑 `mat auth <cli>`，新 token 覆蓋舊的。
+
+### 完全清掉容器內 OAuth
+
+```bash
+docker compose down -v   # -v 連 named volume 一起刪
+mat start                # 啟動新 container（空白 home）
+mat auth                 # 重新認證
+```
 
 ---
 
@@ -324,11 +369,14 @@ rules:
 - 同台機器有 launchd / Docker / `python main.py` 同時跑（setup wizard 開頭會自動偵測並請你停舊的）
 - **不同機器共用同一個 token**（例如 Mac 跟 Linux 都跑同一個 bot）— 換 token 是唯一解
 
-### Bot 回 "An error occurred. Please try again."
+### Bot 回 "An error occurred. Please try again." 或卡在 typing
 
-容器內找不到 CLI 二進位檔。在 Docker 模式下發生，通常是：
-- 沒重 build 容器（改 `state.selected_clis` 後要 `docker compose up -d --build`）
-- 宿主 OAuth 沒掛載到容器（檢查 `~/.claude` 等路徑是否存在）
+Bot 收到訊息（你會看到 typing indicator），但 dispatch 後 ACP runner 失敗。常見原因（按可能性）：
+
+1. **沒跑 `mat auth`**（最常見）— 容器內 CLI 無 OAuth credential。`mat logs error` 會看到 `'code': -32000, 'message': 'Authentication required'`。修法：`mat auth`。
+2. **runner 路徑錯誤** — `config/config.toml` 的 `[runners.X].path` 應該指 ACP wrapper（`claude-agent-acp`、`codex-acp`、`gemini`），不是裸 CLI。重跑 `mat setup` 會用正確 template 重寫。
+3. **沒重 build 容器** — 改 wizard 設定後要 `mat update` 或 `docker compose up -d --build`。
+4. **CLAUDE_CODE_EXECUTABLE 沒設**（已修）— 沒設此 env，claude-agent-acp 會用 bundled SDK cli.js 而忽略我們安裝的 claude binary。新版 Dockerfile 自動設好，舊 image 重 build 即可。
 
 ### Setup 精靈跳成文字輸入而非 arrow-key UI
 

@@ -61,12 +61,13 @@ _DOCKERFILE = (
     "FROM python:3.11-slim\n"
     "WORKDIR /app\n"
     "\n"
-    "# Install Node.js 20 (NodeSource) + curl + ca-certificates so we can\n"
+    "# Install Node.js 20 (NodeSource) + curl + ca-certificates + tini so we can\n"
     "# `npm install -g` the user-selected agent CLIs (claude/codex/gemini)\n"
     "# inside the container — without this, the bot calls subprocess('claude')\n"
     "# and gets FileNotFoundError because the host's CLIs aren't visible here.\n"
+    "# tini is for proper PID 1 signal handling (graceful Ctrl-C).\n"
     "RUN apt-get update && apt-get install -y --no-install-recommends \\\n"
-    "        curl ca-certificates gnupg \\\n"
+    "        curl ca-certificates gnupg tini \\\n"
     "    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\\n"
     "    && apt-get install -y --no-install-recommends nodejs \\\n"
     "    && apt-get clean \\\n"
@@ -84,17 +85,31 @@ _DOCKERFILE = (
     "        xargs -a requirements.npm.txt -r npm install -g; \\\n"
     "    fi\n"
     "\n"
+    "# Without CLAUDE_CODE_EXECUTABLE, claude-agent-acp uses its own bundled\n"
+    "# SDK cli.js (a separate Anthropic upstream issue, openab #418) and\n"
+    "# silently ignores the globally-installed `claude` binary — leading to\n"
+    "# 'Authentication required' even when /root/.claude is fully populated.\n"
+    "# Force the adapter to use our installed claude binary.\n"
+    "ENV CLAUDE_CODE_EXECUTABLE=/usr/local/bin/claude\n"
+    "\n"
     "COPY . .\n"
+    'ENTRYPOINT ["/usr/bin/tini", "--"]\n'
     'CMD ["python", "main.py"]\n'
 )
 
 
 def _build_compose_yaml(oauth_mounts: list[str] | None = None) -> str:
-    """Build docker-compose.yml with optional host-credential mounts.
+    """Build docker-compose.yml.
 
-    oauth_mounts is a list of strings of the form 'HOST_PATH:CONTAINER_PATH:ro'
-    that gets injected into the volumes section so user-selected CLIs (claude,
-    codex, gemini, ...) can use the host's already-authenticated credentials.
+    `oauth_mounts` is kept for backwards-compat but no longer used in the
+    primary path: bind-mounting the host's `~/.claude` etc. doesn't work on
+    macOS (Claude Code stores credentials in the macOS Keychain, not as a
+    file). See docs/openab-research.md.
+
+    Replacement: a Docker named volume `mat-agent-home` is mounted at /root
+    inside the container. The user runs `mat auth <cli>` once after install
+    to do device-flow OAuth inside the container; tokens persist in the
+    volume across container restarts and image rebuilds.
     """
     lines = [
         "services:",
@@ -105,15 +120,23 @@ def _build_compose_yaml(oauth_mounts: list[str] | None = None) -> str:
         "      - ./config:/app/config:ro",
         "      - ./secrets:/app/secrets:ro",
         "      - ./data:/app/data",
+        # Persistent agent home — holds .claude/.codex/.gemini OAuth state.
+        # Named volume (not bind mount) so credentials live in Docker-managed
+        # storage, separate from host's ~/.claude (which on macOS is just
+        # Keychain pointers and doesn't help the container anyway).
+        "      - mat-agent-home:/root",
     ]
+    # Legacy path: if explicit oauth_mounts are passed (e.g. user-edited
+    # docker-compose.yml on Linux where files are usable), still honour them.
     for m in (oauth_mounts or []):
         lines.append(f"      - {m}")
     lines.extend([
         "    environment:",
         "      - PYTHONUNBUFFERED=1",
-        # Containerised CLIs read creds from $HOME — ensure it points at /root
-        # where the OAuth mounts above land.
         "      - HOME=/root",
+        "",
+        "volumes:",
+        "  mat-agent-home:",
         "",
     ])
     return "\n".join(lines)

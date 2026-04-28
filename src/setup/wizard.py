@@ -1033,6 +1033,19 @@ def _print_unified_completion(cwd: str, mode: str, *, running: bool = True) -> N
     print(f"{_B}{'='*W}{_X}")
     print(f"  Deploy mode: {_B}{mode}{_X}    Project dir: {cwd}")
     print()
+    # Docker mode needs an explicit one-time CLI auth step. The host's OAuth
+    # state can't be carried into the container (macOS Keychain incompatible
+    # with bind mounts), so each CLI agent must device-flow login from inside
+    # the container. Token persists in the named volume `mat-agent-home`.
+    if mode == "docker":
+        print(f"  {_R}{_B}⚠  Action required — authenticate CLI agents:{_X}")
+        print(f"    {_B}mat auth{_X}                    互動選單，依序登入 claude / codex / gemini")
+        print(f"    mat auth claude         只跑 Claude (claude setup-token)")
+        print(f"    mat auth codex          只跑 Codex (codex login --device-auth)")
+        print(f"    mat auth gemini         只跑 Gemini (gemini auth login)")
+        print(f"    mat auth status         確認哪些已認證")
+        print(f"    {_Y}沒做這一步 bot 收到訊息時會回 'Authentication required' 錯誤。{_X}")
+        print()
     print(f"  {_B}Daily operations (use `mat`):{_X}")
     print(f"    mat status              查看執行狀態")
     print(f"    mat logs                即時 tail -f 日誌")
@@ -1301,32 +1314,13 @@ async def step_9_launch(
         # Each selected CLI's typical credential path; only mount if it
         # actually exists on the host (docker bind-mounting a missing source
         # would auto-create it as an empty dir owned by root).
-        # Verified credential paths on the host (Mac/Linux):
-        # - claude → ~/.claude (auth tokens, config)
-        # - codex  → ~/.codex (auth.json, config.toml)
-        # - gemini → ~/.gemini (oauth_creds.json, settings.json)
-        _CLI_OAUTH_DIRS = {
-            "claude": [".claude"],
-            "codex":  [".codex"],
-            "gemini": [".gemini"],
-        }
-        oauth_mounts: list[str] = []
-        host_home = os.path.expanduser("~")
-        seen: set[str] = set()
-        for _cli in (state.selected_clis or []):
-            for rel in _CLI_OAUTH_DIRS.get(_cli, []):
-                src = os.path.join(host_home, rel)
-                if rel in seen or not os.path.isdir(src):
-                    continue
-                seen.add(rel)
-                # Mount read-only at /root/<rel> — container's HOME=/root
-                # (set in compose env) so CLIs find their creds normally.
-                oauth_mounts.append(f"{src}:/root/{rel}:ro")
-        if oauth_mounts:
-            _ok(f"OAuth mounts ({len(oauth_mounts)}): " +
-                ", ".join(m.split(":")[0].replace(host_home, "~") for m in oauth_mounts))
-
-        write_docker_compose(cwd, oauth_mounts=oauth_mounts)
+        # OAuth credentials — bind-mounting the host's ~/.claude etc. doesn't
+        # work on macOS (Claude Code stores tokens in Keychain, not files), so
+        # we no longer pre-populate oauth_mounts. The container instead uses
+        # a persistent named volume at /root, and the user runs `mat auth <cli>`
+        # once after install to do device-flow OAuth inside the container.
+        # See docs/openab-research.md for the rationale.
+        write_docker_compose(cwd)
         # Force --build so the new requirements.* and Dockerfile changes
         # take effect even if an older image is cached.
         try:
