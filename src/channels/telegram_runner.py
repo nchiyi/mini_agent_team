@@ -181,6 +181,11 @@ async def run_telegram_for_bot(ctx: AppContext, bot_cfg: BotConfig) -> None:
             attachments=attachments,
         )
 
+        from src.gateway.dispatcher import _expand_at_all
+        expanded = _expand_at_all(inbound, ctx.bot_registry)
+        if expanded != inbound.mentioned_bot_ids:
+            inbound = replace(inbound, mentioned_bot_ids=expanded)
+
         if not _should_handle(inbound, bot_cfg, ctx.bot_turns):
             return
 
