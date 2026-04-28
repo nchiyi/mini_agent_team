@@ -973,12 +973,22 @@ def _stop_running_bot_instances(cwd: str) -> None:
         pass
 
     # 3. launchd service (macOS)
+    # Must use `unload` (not `stop`) — KeepAlive=true causes launchd to restart
+    # the job ~30 seconds after a plain `stop`, causing 409 in the new container.
     if sys.platform == "darwin":
-        _plist = "com.kiwi.gateway-agent"
-        lc = subprocess.run(["launchctl", "list", _plist], capture_output=True)
+        _plist_label = "com.kiwi.gateway-agent"
+        _plist_file = os.path.expanduser(
+            f"~/Library/LaunchAgents/{_plist_label}.plist"
+        )
+        lc = subprocess.run(["launchctl", "list", _plist_label], capture_output=True)
         if lc.returncode == 0:
-            found.append(("launchd service", [_plist]))
-            actions.append(lambda: subprocess.run(["launchctl", "stop", _plist], check=False))
+            found.append(("launchd service", [_plist_label]))
+            _pf = _plist_file
+            actions.append(lambda: (
+                subprocess.run(["launchctl", "unload", _pf], check=False)
+                if os.path.exists(_pf) else
+                subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", _plist_label], check=False)
+            ))
 
     # 4. systemd service (Linux)
     if sys.platform != "darwin":
@@ -1008,7 +1018,7 @@ def _stop_running_bot_instances(cwd: str) -> None:
     for (kind, _), action in zip(found, actions):
         action()
         _ok(f"Stopped {kind}")
-    _time.sleep(2)
+    _time.sleep(5)  # allow Telegram server to release the polling connection
 
 
 async def step_9_launch(
