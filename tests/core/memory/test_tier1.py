@@ -1,5 +1,6 @@
 import pytest
 from pathlib import Path
+import logging
 
 
 def test_tier1_remember_creates_entry(tmp_path):
@@ -89,6 +90,26 @@ def test_tier1_legacy_jsonl_renamed_on_first_read(tmp_path):
     assert not legacy.exists()
     # After B-2 the migrated file uses the new {uid}_{ch}_{bid}_{uid} shape.
     assert (tmp_path / "1_telegram_default_1.jsonl").exists()
+
+
+def test_tier1_warns_when_legacy_file_ignored(tmp_path, caplog):
+    """If old and new file shapes coexist, keep the new file and warn about the skipped legacy file."""
+    import json
+    from src.core.memory.tier1 import Tier1Store
+
+    legacy = tmp_path / "1_telegram.jsonl"
+    current = tmp_path / "1_telegram_default_1.jsonl"
+    legacy.write_text(json.dumps({"ts": "2026-01-01T00:00:00Z", "content": "old"}) + "\n")
+    current.write_text(json.dumps({"ts": "2026-01-02T00:00:00Z", "content": "new"}) + "\n")
+
+    store = Tier1Store(permanent_dir=str(tmp_path))
+    with caplog.at_level(logging.WARNING, logger="src.core.memory.tier1"):
+        items = store.list_entries(user_id=1, channel="telegram")
+
+    assert [item["content"] for item in items] == ["new"]
+    assert legacy.exists()
+    assert "Ignoring legacy Tier1 memory file 1_telegram.jsonl" in caplog.text
+    assert "because new-format file 1_telegram_default_1.jsonl already exists" in caplog.text
 
 
 def test_tier1_render_for_context_per_bot(tmp_path):

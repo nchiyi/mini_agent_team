@@ -14,14 +14,40 @@ section tiny.
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 
 @dataclass
 class BotTurnTracker:
     cap: int = 10
+    max_seen_message_ids: int = 4096
     _counts: dict[tuple[str, int], int] = field(default_factory=dict)
+    _seen_message_ids: OrderedDict[tuple[str, int | None, str], None] = field(
+        default_factory=OrderedDict,
+    )
     _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def claim_message(
+        self, *, channel: str, chat_id: int | None, message_id: str | None,
+    ) -> bool:
+        """Return True only for the first bot that sees a non-empty message_id.
+
+        Empty IDs are not deduplicated so callers keep the legacy per-bot
+        policy path when a channel cannot provide a stable message id.
+        """
+        if not message_id:
+            return True
+
+        key = (channel, chat_id, message_id)
+        with self._lock:
+            if key in self._seen_message_ids:
+                return False
+            self._seen_message_ids[key] = None
+            self._seen_message_ids.move_to_end(key)
+            while len(self._seen_message_ids) > self.max_seen_message_ids:
+                self._seen_message_ids.popitem(last=False)
+            return True
 
     def note_bot_turn(self, *, channel: str, chat_id: int) -> None:
         """Record one bot-sourced turn in (channel, chat_id)."""

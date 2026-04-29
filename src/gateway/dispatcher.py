@@ -39,7 +39,7 @@ _DEFAULT_ROLE = "department-head"
 _role_prompt_cache: dict[str, tuple[float, str]] = {}
 _CONFIRM_YES = re.compile(r"^(y|是|確認|好|yes)$", re.IGNORECASE)
 _CONFIRM_NO = re.compile(r"^(n|否|不用|取消|no)$", re.IGNORECASE)
-_AT_ALL_RE = re.compile(r"(?:^|\s|[^\w@])@(all|大家|everyone)\b", re.IGNORECASE)
+_AT_ALL_RE = re.compile(r"(?<!\S)@(all|大家|everyone)\b", re.IGNORECASE)
 _COT_REASONING_PREFIX = (
     "請一步一步仔細分析問題，推理後只輸出最終結論，不要顯示思考過程。\n\n"
 )

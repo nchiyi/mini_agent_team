@@ -6,6 +6,7 @@ from the new gateway location.
 """
 from src.channels.base import InboundMessage
 from src.core.bots import BotConfig
+from src.gateway.bot_turns import BotTurnTracker
 from src.gateway.policy import should_handle
 
 
@@ -38,6 +39,34 @@ def test_group_authorised_human_must_mention():
     cfg = _cfg(allow_all_groups=True)
     assert should_handle(_msg(mentioned_bot_ids=["dev"]), cfg, turns=None) is True
     assert should_handle(_msg(mentioned_bot_ids=[]), cfg, turns=None) is False
+
+
+def test_group_message_id_processed_once_across_multiple_bots():
+    turns = BotTurnTracker()
+    dev = _cfg(id="dev", allow_all_groups=True)
+    codex = _cfg(id="codex", allow_all_groups=True)
+    msg = _msg(message_id="42", mentioned_bot_ids=["dev", "codex"])
+
+    assert should_handle(msg, dev, turns=turns) is True
+    assert should_handle(msg, codex, turns=turns) is False
+
+
+def test_group_different_message_ids_each_process():
+    turns = BotTurnTracker()
+    cfg = _cfg(id="dev", allow_all_groups=True)
+
+    assert should_handle(_msg(message_id="42", mentioned_bot_ids=["dev"]), cfg, turns=turns) is True
+    assert should_handle(_msg(message_id="43", mentioned_bot_ids=["dev"]), cfg, turns=turns) is True
+
+
+def test_group_empty_message_id_keeps_per_bot_policy():
+    turns = BotTurnTracker()
+    dev = _cfg(id="dev", allow_all_groups=True)
+    codex = _cfg(id="codex", allow_all_groups=True)
+    msg = _msg(message_id="", mentioned_bot_ids=["dev", "codex"])
+
+    assert should_handle(msg, dev, turns=turns) is True
+    assert should_handle(msg, codex, turns=turns) is True
 
 
 def test_re_export_from_telegram_runner_still_works():

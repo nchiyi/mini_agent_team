@@ -34,6 +34,12 @@ def should_handle(
     Pure function: no IO, no awaits. Safe to call from any sync code path.
     """
     if inbound.chat_type == "private":
+        if turns is not None and not turns.claim_message(
+            channel=inbound.channel,
+            chat_id=inbound.chat_id,
+            message_id=inbound.message_id,
+        ):
+            return False
         return True
 
     # ── Group authorisation ──
@@ -53,7 +59,21 @@ def should_handle(
             channel="telegram", chat_id=inbound.chat_id,
         ):
             return False
+        if turns is not None and not turns.claim_message(
+            channel=inbound.channel,
+            chat_id=inbound.chat_id,
+            message_id=inbound.message_id,
+        ):
+            return False
         return True
 
     # ── Human in group ──
-    return bot_cfg.id in inbound.mentioned_bot_ids
+    if bot_cfg.id not in inbound.mentioned_bot_ids:
+        return False
+    if turns is not None and not turns.claim_message(
+        channel=inbound.channel,
+        chat_id=inbound.chat_id,
+        message_id=inbound.message_id,
+    ):
+        return False
+    return True
