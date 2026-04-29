@@ -77,11 +77,11 @@ def test_write_docker_compose_creates_dockerfile_if_missing(tmp_path):
     assert (tmp_path / "Dockerfile").exists()
 
 
-def test_write_docker_compose_does_not_overwrite_existing_dockerfile(tmp_path):
+def test_write_docker_compose_overwrites_existing_dockerfile(tmp_path):
     existing = "FROM custom-base\n"
     (tmp_path / "Dockerfile").write_text(existing)
     write_docker_compose(str(tmp_path))
-    assert (tmp_path / "Dockerfile").read_text() == existing
+    assert "FROM python:3.11-slim" in (tmp_path / "Dockerfile").read_text()
 
 
 def test_create_data_dirs(tmp_path):
