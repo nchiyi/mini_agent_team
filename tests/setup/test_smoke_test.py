@@ -51,28 +51,28 @@ def _make_proc(*lines: str, returncode: int = 0) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# 1. wait_for_bot_ready — stdout contains "bot started" → True
+# 1. wait_for_bot_ready — stdout contains "bot started" → (ready, conflict)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_wait_for_bot_ready_found():
     proc = _make_proc("Initialising…", "Bot started", "Listening…")
     result = await wait_for_bot_ready(proc, timeout=5)
-    assert result is True
+    assert result == (True, False)
 
 
 # ---------------------------------------------------------------------------
-# 2. wait_for_bot_ready — no ready line, timeout → False
+# 2. wait_for_bot_ready — no ready line, timeout → no ready/no conflict
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_wait_for_bot_ready_timeout():
     # Stream never yields a ready signal — simulate via empty stdout.
-    # We need it to exhaust the stream so the function returns False
+    # We need it to exhaust the stream so the function returns no ready/no conflict
     # (no timeout needed because the stream ends).
     proc = _make_proc("Some random log line", "Another line without signal")
     result = await wait_for_bot_ready(proc, timeout=5)
-    assert result is False
+    assert result == (False, False)
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ async def test_wait_for_ok_reply_telegram_timeout():
 
 
 # ---------------------------------------------------------------------------
-# 6. run_smoke_test — all success → True
+# 6. run_smoke_test — all success → RESULT_OK
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -202,11 +202,11 @@ async def test_run_smoke_test_all_success():
          patch("src.setup.smoke_test.wait_for_ok_reply_telegram", new_callable=AsyncMock, return_value=True):
         result = await run_smoke_test(state, proc)
 
-    assert result is True
+    assert result == "ok"
 
 
 # ---------------------------------------------------------------------------
-# 7. run_smoke_test — ready timeout → False + diagnostic printed
+# 7. run_smoke_test — ready timeout → RESULT_FAILED + diagnostic printed
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -217,12 +217,12 @@ async def test_run_smoke_test_ready_timeout(capsys):
         allowed_user_ids=[42],
     )
     # Empty stdout: bot never emits a ready signal
-    proc = _make_proc()  # no lines → stream ends → wait_for_bot_ready returns False
+    proc = _make_proc()  # no lines → stream ends → wait_for_bot_ready returns failed
     proc.returncode = 1
 
     result = await run_smoke_test(state, proc)
 
-    assert result is False
+    assert result == "failed"
     captured = capsys.readouterr()
     assert "Smoke test failed" in captured.out
     assert "Suggested fixes" in captured.out

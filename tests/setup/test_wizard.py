@@ -652,7 +652,7 @@ async def test_step8_systemd_calls_systemctl(tmp_path):
          patch("src.setup.wizard.write_systemd_unit") as mock_unit, \
          patch("subprocess.run") as mock_run, \
          patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
-         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=True):
+         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value="ok"):
         await wizard.step_9_launch(state, str(tmp_path))
     mock_unit.assert_called_once()
     assert mock_run.call_count >= 1
