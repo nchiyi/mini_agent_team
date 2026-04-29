@@ -49,3 +49,65 @@ async def test_run_discord_for_bot_registers_username_on_ready(monkeypatch):
         await run_discord_for_bot(ctx, bot_cfg)
 
     assert registry.resolve(channel="discord", username="dev_bot") == "dev_dc"
+
+
+@pytest.mark.asyncio
+async def test_gateway_handler_drops_inbound_when_should_handle_false(monkeypatch):
+    """Inbound for a group not in allowlist is filtered before dispatch()."""
+    from src.channels.discord_runner import _make_gateway_handler
+    from src.channels.base import InboundMessage
+    from src.core.bots import BotConfig
+    from src.gateway.bot_turns import BotTurnTracker
+
+    bot_cfg = BotConfig(
+        id="dev_dc", channel="discord",
+        allow_all_groups=False, allowed_chat_ids=[123],  # -100 not allowed
+    )
+    ctx = MagicMock()
+    ctx.bot_turns = BotTurnTracker()
+
+    dispatch_calls = []
+    async def fake_dispatch(*args, **kwargs):
+        dispatch_calls.append(args)
+
+    handler = _make_gateway_handler(
+        ctx=ctx, bot_cfg=bot_cfg, adapter=MagicMock(),
+        bridges={}, dispatch_fn=fake_dispatch,
+    )
+    inbound = InboundMessage(
+        user_id=1, channel="discord", text="hi", message_id="42",
+        attachments=[], bot_id="dev_dc", chat_id=-100, chat_type="text",
+        mentioned_bot_ids=["dev_dc"], from_bot=False,
+        reply_to_message_id=None, reply_to_user_id=None,
+    )
+    await handler(inbound)
+    assert dispatch_calls == []
+
+
+@pytest.mark.asyncio
+async def test_gateway_handler_calls_dispatch_when_should_handle_true(monkeypatch):
+    from src.channels.discord_runner import _make_gateway_handler
+    from src.channels.base import InboundMessage
+    from src.core.bots import BotConfig
+    from src.gateway.bot_turns import BotTurnTracker
+
+    bot_cfg = BotConfig(id="dev_dc", channel="discord", allow_all_groups=True)
+    ctx = MagicMock()
+    ctx.bot_turns = BotTurnTracker()
+
+    dispatch_calls = []
+    async def fake_dispatch(*args, **kwargs):
+        dispatch_calls.append(args)
+
+    handler = _make_gateway_handler(
+        ctx=ctx, bot_cfg=bot_cfg, adapter=MagicMock(),
+        bridges={}, dispatch_fn=fake_dispatch,
+    )
+    inbound = InboundMessage(
+        user_id=1, channel="discord", text="hi", message_id="42",
+        attachments=[], bot_id="dev_dc", chat_id=-100, chat_type="text",
+        mentioned_bot_ids=["dev_dc"], from_bot=False,
+        reply_to_message_id=None, reply_to_user_id=None,
+    )
+    await handler(inbound)
+    assert len(dispatch_calls) == 1

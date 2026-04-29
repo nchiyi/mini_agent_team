@@ -11,12 +11,57 @@ from typing import TYPE_CHECKING
 
 from src.channels.discord_adapter import DiscordAdapter
 from src.core.config import _resolve_channel_auth
+from src.gateway.dispatcher import dispatch as _default_dispatch
+from src.gateway.policy import should_handle
+from src.gateway.streaming import StreamingBridge
 
 if TYPE_CHECKING:
     from src.core.bots import BotConfig
     from src.gateway.app_context import AppContext
 
 logger = logging.getLogger(__name__)
+
+
+def _make_gateway_handler(
+    *, ctx, bot_cfg, adapter, bridges: dict, dispatch_fn=_default_dispatch,
+):
+    """Build the per-bot gateway_handler closure.
+
+    Pulled out so it's directly testable without spinning a Discord client.
+    """
+    cfg = ctx.cfg
+
+    async def gateway_handler(inbound):
+        if not should_handle(inbound, bot_cfg, ctx.bot_turns):
+            return
+
+        if inbound.chat_type != "private" and inbound.chat_id is not None:
+            if inbound.from_bot:
+                ctx.bot_turns.note_bot_turn(
+                    channel=inbound.channel, chat_id=inbound.chat_id,
+                )
+            else:
+                ctx.bot_turns.reset_on_human(
+                    channel=inbound.channel, chat_id=inbound.chat_id,
+                )
+
+        if inbound.user_id not in bridges:
+            bridges[inbound.user_id] = StreamingBridge(
+                adapter, edit_interval=cfg.gateway.stream_edit_interval_seconds,
+            )
+        bridge = bridges[inbound.user_id]
+        await dispatch_fn(
+            inbound, bridge, ctx.session_mgr, ctx.router, ctx.runners,
+            ctx.tier1, ctx.tier3, ctx.assembler,
+            lambda t: adapter.send(inbound.user_id, t),
+            recent_turns=cfg.memory.tier3_context_turns,
+            module_registry=ctx.module_registry,
+            cfg=cfg,
+            nlu_detector=ctx.nlu_detector,
+            rate_limiter=ctx.rate_limiter,
+        )
+
+    return gateway_handler
 
 
 async def run_discord_for_bot(ctx: "AppContext", bot_cfg: "BotConfig") -> None:
@@ -39,9 +84,21 @@ async def run_discord_for_bot(ctx: "AppContext", bot_cfg: "BotConfig") -> None:
     )
     dc_ids, dc_all = _resolve_channel_auth(cfg, allowed, allow_all)
 
-    async def gateway_handler(inbound):
-        # Task 3 接 should_handle + dispatch；這裡先 stub
-        return
+    # Closure ordering: DiscordAdapter requires gateway_handler at construction
+    # time, but the handler must reference the adapter (for .send and
+    # StreamingBridge). Resolve via a thin proxy + late binding — same trick
+    # the legacy main.run_discord used. The proxy forwards attribute access
+    # to the real adapter once it's been built and stored in adapter_ref.
+    bridges: dict = {}
+    adapter_ref: list = [None]
+
+    class _AdapterProxy:
+        def __getattr__(self, name):
+            return getattr(adapter_ref[0], name)
+
+    gateway_handler = _make_gateway_handler(
+        ctx=ctx, bot_cfg=bot_cfg, adapter=_AdapterProxy(), bridges=bridges,
+    )
 
     adapter = DiscordAdapter(
         token=bot_cfg.token,
@@ -55,5 +112,6 @@ async def run_discord_for_bot(ctx: "AppContext", bot_cfg: "BotConfig") -> None:
         allow_all_users=dc_all,
         bot_registry=ctx.bot_registry,
     )
+    adapter_ref[0] = adapter
     logger.info("Discord bot %s starting", bot_cfg.id)
     await adapter.start()
