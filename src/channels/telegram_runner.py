@@ -169,11 +169,11 @@ async def run_telegram_for_bot(ctx: AppContext, bot_cfg: BotConfig) -> None:
         if inbound.chat_type != "private" and inbound.chat_id is not None:
             if inbound.from_bot:
                 ctx.bot_turns.note_bot_turn(
-                    channel="telegram", chat_id=inbound.chat_id,
+                    channel=inbound.channel, chat_id=inbound.chat_id,
                 )
             else:
                 ctx.bot_turns.reset_on_human(
-                    channel="telegram", chat_id=inbound.chat_id,
+                    channel=inbound.channel, chat_id=inbound.chat_id,
                 )
 
         voice_reply = ctx.session_mgr.is_voice_enabled(
