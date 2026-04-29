@@ -5,7 +5,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Schema version
 # ---------------------------------------------------------------------------
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 # ---------------------------------------------------------------------------
 # v1 ↔ v2 step-ID mappings  (defined here so WizardState can reference them)
@@ -39,7 +39,7 @@ class WizardState:
         "channels", "telegram_token", "discord_token",
         "allowed_user_ids", "selected_clis", "search_mode",
         "update_notifications", "deploy_mode", "optional_packages", "data",
-        "acp_mode", "installed_acp",
+        "acp_mode", "installed_acp", "bots",
     )
 
     def __init__(
@@ -61,6 +61,7 @@ class WizardState:
         data: dict | None = None,
         acp_mode: str = "",
         installed_acp: list | None = None,
+        bots: list | None = None,
         # ── backward-compat: v1 integer step list ──────────────────────────
         completed_steps: list | None = None,
     ) -> None:
@@ -81,6 +82,7 @@ class WizardState:
         self.data: dict = dict(data) if data is not None else {}
         self.acp_mode = acp_mode
         self.installed_acp: list[str] = list(installed_acp) if installed_acp is not None else []
+        self.bots: list[dict] = list(bots) if bots is not None else []
 
         # Translate v1 integer steps into micro-step IDs on construction
         if completed_steps is not None:
@@ -115,7 +117,7 @@ _FIELDS = {
     "channels", "telegram_token", "discord_token",
     "allowed_user_ids", "selected_clis", "search_mode",
     "update_notifications", "deploy_mode", "optional_packages", "data",
-    "acp_mode", "installed_acp",
+    "acp_mode", "installed_acp", "bots",
     "completed_steps",   # v1 key — WizardState.__init__ converts it
 }
 
@@ -172,6 +174,39 @@ def _migrate_v1_to_v2(data: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# v2 → v3 migration
+# ---------------------------------------------------------------------------
+
+def _migrate_v2_to_v3(data: dict) -> dict:
+    """Synthesise state.bots from legacy telegram_token / discord_token.
+
+    Mirrors the legacy fallback in src/core/bots.py:load_bots so that v2
+    state files (single-token-per-channel) come up with a default bot per
+    channel under the v3 schema. If the file already has a populated
+    ``bots`` list we leave it alone.
+    """
+    if data.get("version", 1) >= 3:
+        return data
+    bots = list(data.get("bots") or [])
+    if not bots:
+        if data.get("telegram_token"):
+            bots.append({
+                "id": "default",
+                "channel": "telegram",
+                "token_env": "TELEGRAM_BOT_TOKEN",
+            })
+        if data.get("discord_token"):
+            bots.append({
+                "id": "default",
+                "channel": "discord",
+                "token_env": "DISCORD_BOT_TOKEN",
+            })
+    data["bots"] = bots
+    data["version"] = 3
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -183,9 +218,11 @@ def load_state(path: str) -> WizardState:
         with open(p) as f:
             data = json.load(f)
 
-        # Version gate: migrate v1 → v2 transparently
+        # Version gate: migrate v1 → v2 → v3 transparently
         if data.get("version", 1) < 2:
             data = _migrate_v1_to_v2(data)
+        if data.get("version", 1) < 3:
+            data = _migrate_v2_to_v3(data)
 
         return WizardState(**{k: v for k, v in data.items() if k in _FIELDS})
     except (json.JSONDecodeError, ValueError, OSError):
@@ -215,6 +252,7 @@ def save_state(state: WizardState, path: str) -> None:
                 "optional_packages": state.optional_packages,
                 "acp_mode": state.acp_mode,
                 "installed_acp": state.installed_acp,
+                "bots": state.bots,
             }, f, indent=2)
         p.chmod(0o600)  # state file contains bot tokens — restrict to owner only
     except OSError as e:

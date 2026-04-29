@@ -28,7 +28,7 @@ from src.setup.state import (
 
 def test_fresh_state_defaults():
     s = WizardState()
-    assert s.version == 2
+    assert s.version == 3
     assert s.mode == "fresh"
     assert s.current_step == ""
     assert s.completed == []
@@ -50,7 +50,7 @@ def test_save_load_v2_round_trip(tmp_path):
     )
     save_state(s, path)
     loaded = load_state(path)
-    assert loaded.version == 2
+    assert loaded.version == 3
     assert loaded.mode == "resume"
     assert loaded.current_step == "token_validation.done"
     assert "channel_select.done" in loaded.completed
@@ -74,7 +74,7 @@ def test_v1_migration_fresh(tmp_path):
         "telegram_token": "",
     }))
     state = load_state(path)
-    assert state.version == 2
+    assert state.version == 3
     assert state.mode == "fresh"
     assert state.completed == []
 
@@ -89,7 +89,7 @@ def test_v1_migration_resume(tmp_path):
         "allowed_user_ids": [42],
     }))
     state = load_state(path)
-    assert state.version == 2
+    assert state.version == 3
     assert state.mode == "resume"
     assert "channel_select.done" in state.completed
     assert "token_validation.done" in state.completed

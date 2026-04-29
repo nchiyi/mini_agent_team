@@ -7,6 +7,7 @@ from src.setup.state import WizardState
 from src.setup.state import load_state, save_state, reset_state, detect_mode
 from src.setup.state import is_micro_step_done, mark_micro_step_done, set_current_step
 from src.setup.validator import validate_telegram_token, validate_discord_token
+from src.setup.bot_prompts import collect_bot
 from src.setup.installer import (
     is_cli_installed, install_cli_foreground,
     install_ollama_foreground, install_docker_foreground, install_colima_foreground,
@@ -16,7 +17,7 @@ from src.setup.installer import (
 from src.setup.deploy import (
     write_config_toml, write_env_file, write_systemd_unit,
     write_docker_compose, create_data_dirs,
-    _TOML_TEMPLATE, _RUNNER_CONFIGS,
+    _TOML_TEMPLATE, _RUNNER_CONFIGS, _render_bots_sections,
 )
 from src.setup.config_writer import write_config_with_diff, write_env_with_diff
 from src.setup.preflight import run_preflight
@@ -240,78 +241,50 @@ def _error_message_discord(result) -> str:
 
 async def step_2_token(state: WizardState) -> None:
     if is_micro_step_done(state, "token_validation.done"):
-        _ok("Step 2 done (tokens validated)")
+        _ok(f"Step 2 done ({len(state.bots)} bot(s) configured)")
         return
     set_current_step(state, "token_validation.started")
-    _hdr(2, "Bot Token")
-    if "telegram" in state.channels:
-        _attempts = 0
+    _hdr(2, "Bot Configuration")
+
+    default_runner = (state.selected_clis or ["claude"])[0]
+    used_ids: set[str] = {b["id"] for b in state.bots}
+
+    for channel in state.channels:
         while True:
-            hint = "  (type 's' to skip validation)" if _attempts >= 1 else ""
-            token = _prompt(f"Telegram bot token{hint}")
-            if not token:
-                _err("Token required")
-                continue
-            if token.lower() == "s":
-                token = _prompt("Telegram bot token (saved without validation)")
-                if token:
-                    state.telegram_token = token
-                    _warn("Validation skipped — token saved as-is")
+            raw = _prompt(
+                f"How many {channel} bots to set up? (0 to skip, can add later)",
+                "1",
+            )
+            try:
+                n = max(0, int(raw))
                 break
-            print("  Validating...")
-            result = validate_telegram_token(token)
-            if result.skipped:
-                state.telegram_token = token
-                _warn(f"Validation skipped ({result.reason}) — token saved as-is")
-                break
-            if result.valid:
-                state.telegram_token = token
-                name_part = f"@{result.bot_username}" if result.bot_username else "(username unknown)"
-                id_part = f" (id: {result.bot_id})" if result.bot_id else ""
-                _ok(f"Telegram token valid — {name_part}{id_part}")
-                confirm = _prompt("Is this your bot? (y/n)", "y")
-                if confirm.lower() == "n":
-                    state.telegram_token = ""
-                    _err("Token rejected. Please enter a different token.")
-                    _attempts += 1
+            except ValueError:
+                _err("Please enter a non-negative integer")
+
+        if n == 0:
+            _ok(f"Skipped {channel} bots")
+            continue
+
+        for i in range(n):
+            print(f"\n  --- {channel} bot {i + 1} of {n} ---")
+            while True:
+                bot = await collect_bot(
+                    channel=channel, default_runner=default_runner,
+                )
+                if bot["id"] in used_ids:
+                    _err(f"Bot id {bot['id']!r} already used; pick another")
                     continue
                 break
-            _attempts += 1
-            _err(_error_message_telegram(result))
-    if "discord" in state.channels:
-        _attempts = 0
-        while True:
-            hint = "  (type 's' to skip validation)" if _attempts >= 1 else ""
-            token = _prompt(f"Discord bot token{hint}")
-            if not token:
-                _err("Token required")
-                continue
-            if token.lower() == "s":
-                token = _prompt("Discord bot token (saved without validation)")
-                if token:
-                    state.discord_token = token
-                    _warn("Validation skipped — token saved as-is")
-                break
-            print("  Validating...")
-            result = validate_discord_token(token)
-            if result.skipped:
-                state.discord_token = token
-                _warn(f"Validation skipped ({result.reason}) — token saved as-is")
-                break
-            if result.valid:
-                state.discord_token = token
-                name_part = f"@{result.bot_username}" if result.bot_username else "(username unknown)"
-                id_part = f" (id: {result.bot_id})" if result.bot_id else ""
-                _ok(f"Discord token valid — {name_part}{id_part}")
-                confirm = _prompt("Is this your bot? (y/n)", "y")
-                if confirm.lower() == "n":
-                    state.discord_token = ""
-                    _err("Token rejected. Please enter a different token.")
-                    _attempts += 1
-                    continue
-                break
-            _attempts += 1
-            _err(_error_message_discord(result))
+            used_ids.add(bot["id"])
+            state.bots.append(bot)
+            _ok(f"  Added {channel} bot: {bot['id']}")
+
+    if not state.bots:
+        _warn(
+            "No bots configured. You can add them later with: "
+            "python3 -m src.setup.add_bot"
+        )
+
     mark_micro_step_done(state, "token_validation.done")
 
 
@@ -1209,15 +1182,41 @@ async def step_9_launch(
         search_mode=state.search_mode or "fts5",
         update_notifications="true" if state.update_notifications else "false",
     )
+    # Append [bots.X] sections for each configured bot. Strip transient
+    # private keys (anything starting with `_`, e.g. _token_value) so secrets
+    # never leak into config.toml — they go into secrets/.env only.
+    _bot_blocks = [
+        {k: v for k, v in b.items() if not k.startswith("_")}
+        for b in (state.bots or [])
+    ]
+    if _bot_blocks:
+        _bots_rendered = _render_bots_sections(_bot_blocks)
+        if _bots_rendered:
+            _config_content = _config_content.rstrip() + "\n\n" + _bots_rendered + "\n"
     write_config_with_diff(
         os.path.join(cwd, "config", "config.toml"),
         _config_content,
         label="config.toml",
     )
     env: dict[str, str] = {}
-    if state.telegram_token:
+    # Per-bot tokens from state.bots (BOT_<ID>_TOKEN). Track which channels
+    # already have explicit [bots.X] entries so we don't double-emit a legacy
+    # TELEGRAM_BOT_TOKEN / DISCORD_BOT_TOKEN that would conflict.
+    _channels_with_bots: set[str] = set()
+    for _bot in (state.bots or []):
+        _tok_env = _bot.get("token_env")
+        _tok_val = _bot.get("_token_value")
+        if _tok_env and _tok_val:
+            env[_tok_env] = _tok_val
+        _ch = _bot.get("channel")
+        if _ch:
+            _channels_with_bots.add(_ch)
+    # Legacy fallback: only emit TELEGRAM_BOT_TOKEN / DISCORD_BOT_TOKEN if
+    # NO bot in state.bots has that channel — preserves load_bots() fallback
+    # path for v2 state files without breaking multi-bot configs.
+    if state.telegram_token and "telegram" not in _channels_with_bots:
         env["TELEGRAM_BOT_TOKEN"] = state.telegram_token
-    if state.discord_token:
+    if state.discord_token and "discord" not in _channels_with_bots:
         env["DISCORD_BOT_TOKEN"] = state.discord_token
     if state.allowed_user_ids:
         env["ALLOWED_USER_IDS"] = ",".join(str(i) for i in state.allowed_user_ids)

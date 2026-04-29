@@ -979,7 +979,15 @@ mat start && mat logs
 
 完全相容、零改動。原本的 `TELEGRAM_BOT_TOKEN` 會被 `load_bots()` fallback 邏輯包成 `[bots.default]`。
 
-如果要切到顯式多 bot：
+> 安裝後加 bot 不需手編 toml — 直接跑：
+>
+> ```bash
+> python3 -m src.setup.add_bot --channel telegram   # 或 discord
+> ```
+>
+> 會互動式問完 token / id / 群組設定，append 進既有 `config/config.toml` 與 `secrets/.env`（同 id 會被拒）。重啟 mat 後新 bot 上線。
+
+如果要手動切到顯式多 bot：
 
 ```toml
 # 把原本的 TELEGRAM_BOT_TOKEN 改名

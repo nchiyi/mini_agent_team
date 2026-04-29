@@ -54,6 +54,7 @@ async def test_step1_retries_on_invalid_choice(monkeypatch):
 
 # ── Step 2: token ────────────────────────────────────────────────
 
+@pytest.mark.skip(reason="superseded by Task 2 multi-bot rewrite — token validation coverage now in tests/setup/test_bot_prompts.py")
 @pytest.mark.asyncio
 async def test_step2_telegram_valid_token(monkeypatch):
     state = WizardState(channels=["telegram"], completed_steps=[1])
@@ -65,6 +66,7 @@ async def test_step2_telegram_valid_token(monkeypatch):
     assert 2 in state.completed_steps
 
 
+@pytest.mark.skip(reason="superseded by Task 2 multi-bot rewrite — token retry coverage now in tests/setup/test_bot_prompts.py")
 @pytest.mark.asyncio
 async def test_step2_retries_invalid_token(monkeypatch):
     state = WizardState(channels=["telegram"], completed_steps=[1])
@@ -81,6 +83,7 @@ async def test_step2_retries_invalid_token(monkeypatch):
     assert state.telegram_token == "good"
 
 
+@pytest.mark.skip(reason="superseded by Task 2 multi-bot rewrite — token validation coverage now in tests/setup/test_bot_prompts.py")
 @pytest.mark.asyncio
 async def test_step2_discord_valid_token(monkeypatch):
     state = WizardState(channels=["discord"], completed_steps=[1])
@@ -96,6 +99,93 @@ async def test_step2_skipped_if_done():
     state = WizardState(channels=["telegram"], completed_steps=[1, 2], telegram_token="existing")
     await wizard.step_2_token(state)
     assert state.telegram_token == "existing"
+
+
+# ── Step 2 (multi-bot rewrite, Task 2): per-channel bot count loop ────────────
+
+@pytest.mark.asyncio
+async def test_step_2_zero_bots_skips(monkeypatch):
+    """User can finish wizard with 0 bots and add them later via add_bot."""
+    from src.setup.state import WizardState as _WS
+    from src.setup.wizard import step_2_token
+
+    state = _WS(channels=["telegram"])
+    prompts = iter(["0"])  # 0 telegram bots
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: next(prompts))
+
+    await step_2_token(state)
+    assert state.bots == []
+    # Step still marked done so wizard advances
+    from src.setup.state import is_micro_step_done
+    assert is_micro_step_done(state, "token_validation.done")
+
+
+@pytest.mark.asyncio
+async def test_step_2_two_telegram_bots(monkeypatch):
+    from src.setup.state import WizardState as _WS
+    from src.setup.wizard import step_2_token
+
+    state = _WS(channels=["telegram"])
+    bots_returned = [
+        {"id": "dev", "channel": "telegram", "token_env": "BOT_DEV_TOKEN", "_token_value": "t1"},
+        {"id": "ops", "channel": "telegram", "token_env": "BOT_OPS_TOKEN", "_token_value": "t2"},
+    ]
+    call_idx = iter(bots_returned)
+    async def fake_collect(**kwargs):
+        return next(call_idx)
+    monkeypatch.setattr("src.setup.wizard.collect_bot", fake_collect)
+
+    prompts = iter(["2"])
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: next(prompts))
+
+    await step_2_token(state)
+    assert [b["id"] for b in state.bots] == ["dev", "ops"]
+
+
+@pytest.mark.asyncio
+async def test_step_2_mixed_telegram_and_discord(monkeypatch):
+    from src.setup.state import WizardState as _WS
+    from src.setup.wizard import step_2_token
+
+    state = _WS(channels=["telegram", "discord"])
+    bots_returned = iter([
+        {"id": "tg1", "channel": "telegram", "token_env": "BOT_TG1_TOKEN", "_token_value": "a"},
+        {"id": "dc1", "channel": "discord", "token_env": "BOT_DC1_TOKEN", "_token_value": "b"},
+    ])
+    async def fake_collect(**kwargs):
+        return next(bots_returned)
+    monkeypatch.setattr("src.setup.wizard.collect_bot", fake_collect)
+
+    prompts = iter(["1", "1"])  # 1 telegram + 1 discord
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: next(prompts))
+
+    await step_2_token(state)
+    assert {(b["id"], b["channel"]) for b in state.bots} == {
+        ("tg1", "telegram"), ("dc1", "discord"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_step_2_unique_id_required(monkeypatch):
+    """If user enters a duplicate bot id, prompt again."""
+    from src.setup.state import WizardState as _WS
+    from src.setup.wizard import step_2_token
+
+    state = _WS(channels=["telegram"])
+    # collect_bot returns two bots with same id — wizard must reject second
+    bots_returned = iter([
+        {"id": "x", "channel": "telegram", "token_env": "BOT_X_TOKEN", "_token_value": "a"},
+        {"id": "x", "channel": "telegram", "token_env": "BOT_X_TOKEN", "_token_value": "b"},
+        {"id": "y", "channel": "telegram", "token_env": "BOT_Y_TOKEN", "_token_value": "c"},
+    ])
+    async def fake_collect(**kwargs):
+        return next(bots_returned)
+    monkeypatch.setattr("src.setup.wizard.collect_bot", fake_collect)
+
+    prompts = iter(["2"])
+    monkeypatch.setattr("src.setup.wizard._prompt", lambda *a, **kw: next(prompts))
+    await step_2_token(state)
+    assert [b["id"] for b in state.bots] == ["x", "y"]
 
 
 # ── Step 3: allowlist ────────────────────────────────────────────
@@ -594,3 +684,86 @@ async def test_step8_docker_calls_compose(tmp_path):
         await wizard.step_9_launch(state, str(tmp_path))
     mock_dc.assert_called_once()
     mock_run.assert_called_once()
+
+
+# ── Task 3: state.bots → [bots.X] sections + per-bot env vars ─────
+# NOTE: The plan refers to this as "step_8_deploy"; the actual config-writing
+# logic lives in step_9_launch (where write_config_with_diff and
+# write_env_with_diff are invoked). Tests target step_9_launch accordingly.
+
+@pytest.mark.asyncio
+async def test_step_8_writes_bots_sections(tmp_path, monkeypatch):
+    state = WizardState(
+        completed_steps=[1, 2, 3, 4, 5, 6, 7, 8],
+        channels=["telegram"],
+        selected_clis=["claude"],
+        deploy_mode="foreground",
+        allowed_user_ids=[1],
+        search_mode="fts5",
+        update_notifications=True,
+        bots=[
+            {
+                "id": "dev", "channel": "telegram",
+                "token_env": "BOT_DEV_TOKEN", "_token_value": "tok_dev",
+                "default_runner": "claude", "allow_all_groups": True,
+            },
+            {
+                "id": "ops", "channel": "telegram",
+                "token_env": "BOT_OPS_TOKEN", "_token_value": "tok_ops",
+                "default_runner": "claude",
+            },
+        ],
+    )
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stdout.__aiter__ = lambda self: iter([])
+    mock_proc.returncode = 0
+
+    with patch("src.setup.wizard.write_systemd_unit", lambda cwd: None), \
+         patch("src.setup.wizard.run_preflight", lambda cwd: type("R", (), {"ok": True, "issues": []})()), \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=False), \
+         patch("sys.exit"):
+        await wizard.step_9_launch(state, cwd=str(tmp_path))
+
+    toml_text = (tmp_path / "config" / "config.toml").read_text()
+    assert "[bots.dev]" in toml_text
+    assert 'token_env = "BOT_DEV_TOKEN"' in toml_text
+    assert "allow_all_groups = true" in toml_text
+    assert "[bots.ops]" in toml_text
+
+    env_text = (tmp_path / "secrets" / ".env").read_text()
+    assert 'BOT_DEV_TOKEN="tok_dev"' in env_text
+    assert 'BOT_OPS_TOKEN="tok_ops"' in env_text
+    # _token_value should NOT leak into config.toml
+    assert "_token_value" not in toml_text
+    assert "tok_dev" not in toml_text
+
+
+@pytest.mark.asyncio
+async def test_step_8_zero_bots_writes_minimal_config(tmp_path, monkeypatch):
+    state = WizardState(
+        completed_steps=[1, 2, 3, 4, 5, 6, 7, 8],
+        channels=[],
+        selected_clis=["claude"],
+        deploy_mode="foreground",
+        search_mode="fts5",
+        update_notifications=True,
+        bots=[],
+    )
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stdout.__aiter__ = lambda self: iter([])
+    mock_proc.returncode = 0
+
+    with patch("src.setup.wizard.write_systemd_unit", lambda cwd: None), \
+         patch("src.setup.wizard.run_preflight", lambda cwd: type("R", (), {"ok": True, "issues": []})()), \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=False), \
+         patch("sys.exit"):
+        await wizard.step_9_launch(state, cwd=str(tmp_path))
+
+    toml_text = (tmp_path / "config" / "config.toml").read_text()
+    assert "[bots." not in toml_text  # no bot sections
