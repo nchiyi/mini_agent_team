@@ -72,3 +72,114 @@ def test_session_pending_reasoning_can_be_set():
     assert s.pending_reasoning == "solve P=NP 深入分析"
     s.pending_reasoning = ""
     assert s.pending_reasoning == ""
+
+
+def test_session_keyed_by_bot_id_when_provided():
+    from src.gateway.session import SessionManager
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    s1 = mgr.get_or_create(
+        user_id=1, channel="telegram", bot_id="dev",
+        default_runner_override="claude",
+        default_role_override="fullstack-dev",
+    )
+    s2 = mgr.get_or_create(
+        user_id=1, channel="telegram", bot_id="search",
+        default_runner_override="gemini",
+        default_role_override="researcher",
+    )
+    assert s1 is not s2
+    assert s1.bot_id == "dev"
+    assert s2.bot_id == "search"
+    assert s1.current_runner == "claude"
+    assert s2.current_runner == "gemini"
+    assert s1.active_role == "fullstack-dev"
+    assert s2.active_role == "researcher"
+
+
+def test_legacy_session_default_bot_id():
+    from src.gateway.session import SessionManager
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    s = mgr.get_or_create(user_id=1, channel="telegram")
+    assert s.bot_id == "default"
+
+
+def test_inbound_message_default_bot_id():
+    from src.channels.base import InboundMessage
+    m = InboundMessage(user_id=1, channel="telegram", text="hi", message_id="m1")
+    assert m.bot_id == "default"
+
+
+def test_inbound_message_bot_id_settable():
+    from src.channels.base import InboundMessage
+    m = InboundMessage(user_id=1, channel="telegram", text="hi", message_id="m1", bot_id="dev")
+    assert m.bot_id == "dev"
+
+
+def test_session_keyed_by_chat_id_when_provided():
+    from src.gateway.session import SessionManager
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    s_dm = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev")
+    s_g1 = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev", chat_id=-100)
+    s_g2 = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev", chat_id=-200)
+    assert s_dm is not s_g1
+    assert s_g1 is not s_g2
+    assert s_g1.chat_id == -100
+    assert s_g2.chat_id == -200
+
+
+def test_session_chat_id_defaults_to_user_id_in_dm():
+    from src.gateway.session import SessionManager
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    s = mgr.get_or_create(user_id=42, channel="telegram", bot_id="dev")
+    # DM convention: chat_id = user_id when omitted.
+    assert s.chat_id == 42
+
+
+def test_session_b1_caller_without_chat_id_still_works():
+    """A caller that omits chat_id should hit the same session it created last time."""
+    from src.gateway.session import SessionManager
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    a = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev")
+    b = mgr.get_or_create(user_id=1, channel="telegram", bot_id="dev")
+    assert a is b
+
+
+@pytest.mark.asyncio
+async def test_session_set_active_role_persists_per_bot_per_chat(tmp_path):
+    """Verify set_active_role threads bot_id/chat_id into Tier3."""
+    from src.gateway.session import SessionManager
+    from src.core.memory.tier3 import Tier3Store
+    t3 = Tier3Store(db_path=str(tmp_path / "history.db"))
+    await t3.init()
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    mgr.attach_tier3(t3)
+
+    mgr.set_active_role(user_id=1, channel="telegram", role="dev-role", bot_id="dev")
+    mgr.set_active_role(user_id=1, channel="telegram", role="search-role", bot_id="search")
+    # let scheduled tasks complete
+    await asyncio.sleep(0.1)
+
+    dev_role = await t3.get_active_role(user_id=1, channel="telegram", bot_id="dev")
+    search_role = await t3.get_active_role(user_id=1, channel="telegram", bot_id="search")
+    default_role = await t3.get_active_role(user_id=1, channel="telegram", bot_id="default")
+    assert dev_role == "dev-role"
+    assert search_role == "search-role"
+    assert default_role == ""  # nothing was written under default bot
+    await t3.close()
+
+
+@pytest.mark.asyncio
+async def test_session_restore_uses_bot_and_chat_scoping(tmp_path):
+    from src.gateway.session import SessionManager
+    from src.core.memory.tier3 import Tier3Store
+    t3 = Tier3Store(db_path=str(tmp_path / "history.db"))
+    await t3.init()
+    # Pre-seed Tier3 directly with per-bot settings
+    await t3.set_active_role(user_id=1, channel="telegram", bot_id="dev", role="seeded-dev")
+    mgr = SessionManager(idle_minutes=60, default_runner="claude", default_cwd="/tmp")
+    mgr.attach_tier3(t3)
+    await mgr.restore_settings_if_needed(user_id=1, channel="telegram", bot_id="dev")
+    assert mgr.get_active_role(user_id=1, channel="telegram", bot_id="dev") == "seeded-dev"
+    # Other bot's role should NOT be polluted
+    assert mgr.get_active_role(user_id=1, channel="telegram", bot_id="other") == ""
+    await t3.close()

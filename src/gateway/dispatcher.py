@@ -39,6 +39,7 @@ _DEFAULT_ROLE = "department-head"
 _role_prompt_cache: dict[str, tuple[float, str]] = {}
 _CONFIRM_YES = re.compile(r"^(y|是|確認|好|yes)$", re.IGNORECASE)
 _CONFIRM_NO = re.compile(r"^(n|否|不用|取消|no)$", re.IGNORECASE)
+_AT_ALL_RE = re.compile(r"(?:^|\s|[^\w@])@(all|大家|everyone)\b", re.IGNORECASE)
 _COT_REASONING_PREFIX = (
     "請一步一步仔細分析問題，推理後只輸出最終結論，不要顯示思考過程。\n\n"
 )
@@ -65,6 +66,14 @@ turns from the SQLite history.
 [end MAT system context]
 
 """
+
+
+def _expand_at_all(inbound: InboundMessage, registry) -> list[str]:
+    """Expand @all/@大家/@everyone to the registry's full bot_id list for the
+    inbound's channel; otherwise return mentioned_bot_ids unchanged."""
+    if _AT_ALL_RE.search(inbound.text or ""):
+        return registry.all(channel=inbound.channel)
+    return list(inbound.mentioned_bot_ids)
 
 
 def apply_role_prompt(prompt: str, role_slug: str, base_dir: str) -> str:
@@ -98,19 +107,21 @@ async def maybe_distill(
     tier3: Tier3Store,
     runners: dict,
     cfg: "Config",
+    bot_id: str = "default",
+    chat_id: int | None = None,
 ) -> None:
     trigger = cfg.memory.distill_trigger_turns
-    count = await tier3.count_turns(user_id=user_id, channel=channel)
+    count = await tier3.count_turns(user_id=user_id, channel=channel, bot_id=bot_id, chat_id=chat_id)
     if count <= trigger:
         return
 
-    last_ts = await tier3.get_last_distill_ts(user_id=user_id, channel=channel)
+    last_ts = await tier3.get_last_distill_ts(user_id=user_id, channel=channel, bot_id=bot_id, chat_id=chat_id)
     now = datetime.now(timezone.utc)
     if last_ts is not None and (now - last_ts) < timedelta(minutes=30):
         return
 
     to_summarise = count - trigger
-    oldest = await tier3.get_oldest_turns(user_id=user_id, channel=channel, n=to_summarise)
+    oldest = await tier3.get_oldest_turns(user_id=user_id, channel=channel, n=to_summarise, bot_id=bot_id, chat_id=chat_id)
     if not oldest:
         return
 
@@ -138,12 +149,12 @@ async def maybe_distill(
         return
 
     if summary:
-        tier1.remember(user_id=user_id, channel=channel,
+        tier1.remember(user_id=user_id, channel=channel, bot_id=bot_id, chat_id=chat_id,
                        content=f"[session_summary] {summary}")
 
     last_id = oldest[-1]["id"]
-    pruned = await tier3.prune_before_id(user_id=user_id, channel=channel, before_id=last_id)
-    await tier3.set_last_distill_ts(user_id=user_id, channel=channel, ts=now)
+    pruned = await tier3.prune_before_id(user_id=user_id, channel=channel, before_id=last_id, bot_id=bot_id, chat_id=chat_id)
+    await tier3.set_last_distill_ts(user_id=user_id, channel=channel, ts=now, bot_id=bot_id, chat_id=chat_id)
     logger.info("Distilled %d turns into Tier1 for user=%s channel=%s", pruned, user_id, channel)
 
 
@@ -162,11 +173,13 @@ async def _dispatch_pipeline(
     token_budget: int = 0,
 ) -> None:
     await tier3.save_turn(
-        user_id=inbound.user_id, channel=inbound.channel,
+        user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id,
+        chat_id=inbound.chat_id,
         role="user", content=inbound.text,
     )
     context = await assembler.build(
-        user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
+        user_id=inbound.user_id, channel=inbound.channel,
+        bot_id=inbound.bot_id, chat_id=inbound.chat_id, recent_turns=recent_turns
     )
     role_prompt = apply_role_prompt(prompt, session.active_role, session.cwd)
     current_input = (context + "\n\n" + role_prompt) if context else role_prompt
@@ -211,7 +224,9 @@ async def _dispatch_pipeline(
             output = "".join(chunks).strip()
             _ct_out = _ct(output)
             await tier3.log_usage(
-                user_id=inbound.user_id, channel=inbound.channel, runner=runner_name,
+                user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id,
+                chat_id=inbound.chat_id,
+                runner=runner_name,
                 prompt_tokens=_pt, completion_tokens=_ct_out,
             )
             consumed_tokens += _pt + _ct_out
@@ -230,7 +245,8 @@ async def _dispatch_pipeline(
     if full_log:
         combined = " | ".join(pipeline_runners) + " pipeline:\n" + "\n\n---\n".join(full_log)
         await tier3.save_turn(
-            user_id=inbound.user_id, channel=inbound.channel,
+            user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id,
+            chat_id=inbound.chat_id,
             role="assistant", content=combined,
         )
 
@@ -250,9 +266,11 @@ async def _dispatch_discussion(
     token_budget: int = 0,
 ) -> None:
     await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
+                          bot_id=inbound.bot_id, chat_id=inbound.chat_id,
                           role="user", content=inbound.text)
     context = await assembler.build(
-        user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
+        user_id=inbound.user_id, channel=inbound.channel,
+        bot_id=inbound.bot_id, chat_id=inbound.chat_id, recent_turns=recent_turns
     )
     role_prompt = apply_role_prompt(prompt, session.active_role, session.cwd)
     prompt = (context + "\n\n" + role_prompt) if context else role_prompt
@@ -298,7 +316,9 @@ async def _dispatch_discussion(
             output = "".join(chunks).strip()
             _ct_out = _ct(output)
             await tier3.log_usage(
-                user_id=inbound.user_id, channel=inbound.channel, runner=runner_name,
+                user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id,
+                chat_id=inbound.chat_id,
+                runner=runner_name,
                 prompt_tokens=_pt, completion_tokens=_ct_out,
             )
             consumed_tokens += _pt + _ct_out
@@ -334,6 +354,7 @@ async def _dispatch_discussion(
     if history:
         transcript = "\n\n---\n".join(f"{n}: {r}" for n, r in history)
         await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
+                              bot_id=inbound.bot_id, chat_id=inbound.chat_id,
                               role="assistant", content=f"[discussion] {transcript}")
 
 
@@ -368,9 +389,11 @@ async def _dispatch_debate(
     max_voters: int = 5,
 ) -> None:
     await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
+                          bot_id=inbound.bot_id, chat_id=inbound.chat_id,
                           role="user", content=inbound.text)
     context = await assembler.build(
-        user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
+        user_id=inbound.user_id, channel=inbound.channel,
+        bot_id=inbound.bot_id, chat_id=inbound.chat_id, recent_turns=recent_turns
     )
     role_prompt = apply_role_prompt(prompt, session.active_role, session.cwd)
     prompt = (context + "\n\n" + role_prompt) if context else role_prompt
@@ -390,7 +413,9 @@ async def _dispatch_debate(
         label = labels[runner_name]
         await send_reply(f"[{label}] {runner_name.upper()}\n{answers[runner_name]}")
         await tier3.log_usage(
-            user_id=inbound.user_id, channel=inbound.channel, runner=runner_name,
+            user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id,
+            chat_id=inbound.chat_id,
+            runner=runner_name,
             prompt_tokens=_debate_pt, completion_tokens=_ct(answers[runner_name]),
         )
 
@@ -429,6 +454,7 @@ async def _dispatch_debate(
         + f"\n\nWinner: {winner} ({tally[winner]} votes)"
     )
     await tier3.save_turn(user_id=inbound.user_id, channel=inbound.channel,
+                          bot_id=inbound.bot_id, chat_id=inbound.chat_id,
                           role="assistant", content=f"[debate] {transcript}")
 
 
@@ -458,11 +484,13 @@ async def _dispatch_single_runner(
         return
 
     await tier3.save_turn(
-        user_id=inbound.user_id, channel=inbound.channel,
+        user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id,
+        chat_id=inbound.chat_id,
         role="user", content=inbound.text,
     )
     context = await assembler.build(
         user_id=inbound.user_id, channel=inbound.channel,
+        bot_id=inbound.bot_id, chat_id=inbound.chat_id,
         recent_turns=recent_turns,
     )
     resolved_prompt = await resolve_file_refs(cmd.prompt, session.cwd)
@@ -520,17 +548,20 @@ async def _dispatch_single_runner(
         response = "".join(response_chunks).strip()
         if response:
             await tier3.save_turn(
-                user_id=inbound.user_id, channel=inbound.channel,
+                user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id,
+                chat_id=inbound.chat_id,
                 role="assistant", content=response,
             )
             completion_tokens = count_tokens(response)
             await tier3.log_usage(
-                user_id=inbound.user_id, channel=inbound.channel,
+                user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id,
+                chat_id=inbound.chat_id,
                 runner=session.current_runner,
                 prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             )
             if cfg and tier1:
                 await maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                    bot_id=inbound.bot_id, chat_id=inbound.chat_id,
                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
     except TimeoutError:
         await send_reply("Runner timed out.")
@@ -559,14 +590,26 @@ async def dispatch(
     if rate_limiter is not None and not rate_limiter.check(inbound.user_id):
         await send_reply("⏱ 訊息頻率過高，請稍後再試。")
         return
-    await session_mgr.restore_settings_if_needed(inbound.user_id, inbound.channel)
-    session = session_mgr.get_or_create(user_id=inbound.user_id, channel=inbound.channel)
+    bot_cfg = next(
+        (b for b in (cfg.bots if cfg is not None else []) if b.id == inbound.bot_id),
+        None,
+    )
+    await session_mgr.restore_settings_if_needed(
+        inbound.user_id, inbound.channel, bot_id=inbound.bot_id,
+        chat_id=inbound.chat_id,
+    )
+    session = session_mgr.get_or_create(
+        user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id,
+        chat_id=inbound.chat_id,
+        default_runner_override=(bot_cfg.default_runner if bot_cfg else None),
+        default_role_override=(bot_cfg.default_role if bot_cfg else None),
+    )
 
     # ── Pending reasoning confirmation ───────────────────────────────────────
     if session.pending_reasoning:
         pending = session.pending_reasoning
         session.pending_reasoning = ""
-        _active = session_mgr.get_active_role(inbound.user_id, inbound.channel)
+        _active = session_mgr.get_active_role(inbound.user_id, inbound.channel, bot_id=inbound.bot_id, chat_id=inbound.chat_id)
         if _active:
             session.active_role = _active
         _pending_role_slug = session.active_role or _DEFAULT_ROLE
@@ -601,7 +644,7 @@ async def dispatch(
     # ────────────────────────────────────────────────────────────────────────
 
     cmd = await router.parse(inbound.text)
-    active_role = session_mgr.get_active_role(inbound.user_id, inbound.channel)
+    active_role = session_mgr.get_active_role(inbound.user_id, inbound.channel, bot_id=inbound.bot_id, chat_id=inbound.chat_id)
     if active_role:
         session.active_role = active_role
     role_slug = session.active_role or cmd.role or _DEFAULT_ROLE
@@ -623,15 +666,15 @@ async def dispatch(
         return
 
     if cmd.is_remember:
-        tier1.remember(user_id=inbound.user_id, channel=inbound.channel, content=cmd.prompt)
+        tier1.remember(user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id, chat_id=inbound.chat_id, content=cmd.prompt)
         await send_reply(f"Remembered: {cmd.prompt}")
         return
     if cmd.is_forget:
-        removed = tier1.forget(user_id=inbound.user_id, channel=inbound.channel, keyword=cmd.prompt)
+        removed = tier1.forget(user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id, chat_id=inbound.chat_id, keyword=cmd.prompt)
         await send_reply(f"Removed {removed} entries matching '{cmd.prompt}'")
         return
     if cmd.is_recall:
-        results = await tier3.search(user_id=inbound.user_id, channel=inbound.channel, query=cmd.prompt, limit=5)
+        results = await tier3.search(user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id, chat_id=inbound.chat_id, query=cmd.prompt, limit=5)
         if results:
             await send_reply("\n".join(r["content"] for r in results))
         else:
@@ -641,19 +684,19 @@ async def dispatch(
         await send_reply("No active task to cancel.")
         return
     if cmd.is_reset:
-        session_mgr.clear_active_role(inbound.user_id, inbound.channel)
+        session_mgr.clear_active_role(inbound.user_id, inbound.channel, bot_id=inbound.bot_id, chat_id=inbound.chat_id)
         await send_reply("Context cleared.")
         return
     if cmd.is_new:
-        session_mgr.clear_active_role(inbound.user_id, inbound.channel)
+        session_mgr.clear_active_role(inbound.user_id, inbound.channel, bot_id=inbound.bot_id, chat_id=inbound.chat_id)
         await send_reply("New session started.")
         return
     if cmd.is_voice_on:
-        session_mgr.set_voice_enabled(inbound.user_id, inbound.channel, True)
+        session_mgr.set_voice_enabled(inbound.user_id, inbound.channel, True, bot_id=inbound.bot_id, chat_id=inbound.chat_id)
         await send_reply("Voice replies enabled. Send a voice message or text to try.")
         return
     if cmd.is_voice_off:
-        session_mgr.set_voice_enabled(inbound.user_id, inbound.channel, False)
+        session_mgr.set_voice_enabled(inbound.user_id, inbound.channel, False, bot_id=inbound.bot_id, chat_id=inbound.chat_id)
         await send_reply("Voice replies disabled.")
         return
     if cmd.is_usage:
@@ -707,14 +750,15 @@ async def dispatch(
     if cmd.is_status:
         mod_names = module_registry.get_names() if module_registry else []
         context_str = await assembler.build(
-            user_id=inbound.user_id, channel=inbound.channel, recent_turns=recent_turns
+            user_id=inbound.user_id, channel=inbound.channel,
+            bot_id=inbound.bot_id, chat_id=inbound.chat_id, recent_turns=recent_turns
         )
         from src.core.memory.context import count_tokens
         context_tokens = count_tokens(context_str) if context_str else 0
         default_runner_obj = runners.get(session.current_runner)
         token_budget = default_runner_obj.context_token_budget if default_runner_obj else 4000
         turns = await tier3.get_recent(
-            user_id=inbound.user_id, channel=inbound.channel, n=recent_turns
+            user_id=inbound.user_id, channel=inbound.channel, bot_id=inbound.bot_id, chat_id=inbound.chat_id, n=recent_turns
         )
         auth_mode = getattr(cfg, "allow_all_users", None)
         auth_desc = "open" if auth_mode else "strict allowlist"
@@ -798,6 +842,7 @@ async def dispatch(
             )
             if cfg:
                 await maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                    bot_id=inbound.bot_id, chat_id=inbound.chat_id,
                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
             for _wmsg in _pending_budget_warnings:
                 await send_reply(_wmsg)
@@ -816,6 +861,7 @@ async def dispatch(
             )
             if cfg:
                 await maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                    bot_id=inbound.bot_id, chat_id=inbound.chat_id,
                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
             for _wmsg in _pending_budget_warnings:
                 await send_reply(_wmsg)
@@ -830,6 +876,7 @@ async def dispatch(
             )
             if cfg:
                 await maybe_distill(user_id=inbound.user_id, channel=inbound.channel,
+                                    bot_id=inbound.bot_id, chat_id=inbound.chat_id,
                                     tier1=tier1, tier3=tier3, runners=runners, cfg=cfg)
             for _wmsg in _pending_budget_warnings:
                 await send_reply(_wmsg)

@@ -105,3 +105,73 @@ allow_bot_messages = "off"     # "off" | "mentions" | "all"  — default: "off"
 #     - allow_bot_messages = "mentions"/"all" + trusted_bot_ids empty
 #       → any bot satisfying the mentions rule is accepted
 # trusted_bot_ids = []         # e.g. [123456789012345678, 987654321098765432]
+
+# ── 多 bot 模式（B-1） ──────────────────────────────────────────────────
+# 在同一個 MAT process 啟用多個 Telegram bot，每個 bot 預先綁一個 CLI runner
+# + roster role。 Memory 以 (user_id, channel, bot_id) 三元組隔離；不同 bot
+# 的對話歷史絕不互通。
+#
+# 快速設定步驟：
+#   1. 用 @BotFather 建立額外 bot，取得 token。
+#   2. 在 secrets/.env 寫入 BOT_<ID>_TOKEN=... （ID 大寫，例 BOT_DEV_TOKEN）。
+#   3. 取消下面範例的註解、改成你的 bot id / runner / role。
+#   4. 重新啟動 MAT (`mat restart`)。
+#
+# 沒有 [bots.*] 區塊時，MAT 會走 legacy 單 bot 路徑（只認 TELEGRAM_BOT_TOKEN）—
+# 既有安裝可以無痛升級。
+#
+# [bots.dev]
+# channel        = "telegram"
+# token_env      = "BOT_DEV_TOKEN"     # secrets/.env 內的 env var name
+# default_runner = "claude"            # 此 bot 預設交給哪個 runner
+# default_role   = "fullstack-dev"     # roster/<slug>.md 的 slug，可省略
+# label          = "Dev Assistant"     # 純顯示用
+#
+# [bots.search]
+# channel        = "telegram"
+# token_env      = "BOT_SEARCH_TOKEN"
+# default_runner = "gemini"
+# default_role   = "researcher"
+# label          = "Researcher"
+#
+# [bots.review]
+# channel        = "telegram"
+# token_env      = "BOT_REVIEW_TOKEN"
+# default_runner = "codex"
+# default_role   = "code-auditor"
+# label          = "Code Reviewer"
+
+# ── 群組協作（B-2） ────────────────────────────────────────────────────
+# 把多個 bot 放進同一個 Telegram 群組，互相 @-mention 或對 @all 一起回應。
+#
+# Telegram 端必做：到 @BotFather → /setprivacy → 選此 bot → Disable，
+# 才能讓 bot 看到群組裡所有訊息（不只 @-mention / 回覆 / slash command）。
+# 如果只用 @username 定址、不用自然語言，可以保持 ON 也行。
+#
+# 群組記憶以 (user_id, channel, bot_id, chat_id) 四元組隔離 — 同一個 user 在
+# DM 跟群組的對話歷史完全分桶，不會互相滲透。
+#
+# 防止 bot ↔ bot 無限對話：每個 (channel, chat_id) 連續 bot 訊息上限 10 次，
+# 任何人類訊息會把計數歸零。
+#
+# 範例：dev_bot 進固定的工作群組、search_bot 開放給所有群組
+#
+# [bots.dev]
+# channel              = "telegram"
+# token_env            = "BOT_DEV_TOKEN"
+# default_runner       = "claude"
+# default_role         = "fullstack-dev"
+# # 群組設定 ──────────────────────────────────
+# allow_all_groups     = false                  # 預設 false：白名單模式
+# allowed_chat_ids     = [-1001234567890]       # 只在這個群組答話
+# allow_bot_messages   = "mentions"             # 別的 bot @ 我才回（off | mentions | all）
+# respond_to_at_all   = false                  # 預設 false：忽略 @all/@大家/@everyone；改 true 才會回應
+# trusted_bot_ids      = []                     # 空 = 允許所有 bot；填則白名單
+#
+# [bots.search]
+# channel              = "telegram"
+# token_env            = "BOT_SEARCH_TOKEN"
+# default_runner       = "gemini"
+# default_role         = "researcher"
+# allow_all_groups     = true                   # 任何邀請我進的群組都能用
+# allow_bot_messages   = "off"                  # 不回應其他 bot（避免 ping-pong）

@@ -7,6 +7,7 @@ from typing import Callable, Awaitable
 import discord
 from src.channels.auth import AuthPolicy
 from src.channels.base import BaseAdapter, InboundMessage
+from src.gateway.bot_registry import BotRegistry
 
 _UPLOAD_DIR = Path("data/uploads")
 
@@ -40,6 +41,7 @@ class DiscordAdapter(BaseAdapter):
         allow_user_messages: str = "all",
         trusted_bot_ids: list[int] | None = None,
         allow_all_users: bool = False,
+        bot_registry: BotRegistry | None = None,
     ):
         intents = discord.Intents.default()
         intents.message_content = True
@@ -53,6 +55,8 @@ class DiscordAdapter(BaseAdapter):
         self._user_channel: dict[int, discord.TextChannel] = {}
         self._dispatch_channel: dict[int, discord.TextChannel] = {}
         self._user_locks: dict[int, asyncio.Lock] = {}
+        self._bot_registry: BotRegistry = bot_registry if bot_registry is not None else BotRegistry()
+        self._self_registered = False
         self._setup_handlers(gateway_handler)
 
     def _setup_handlers(
@@ -112,21 +116,64 @@ class DiscordAdapter(BaseAdapter):
                                 continue
                             await att.save(dest)
                             attachments.append(str(dest))
-                    await gateway_handler(
-                        InboundMessage(
-                            user_id=user_id,
+                    # Lazily register self the first time on_message fires
+                    # (we have a live self._client.user here).
+                    if not self._self_registered and self._client.user:
+                        self._bot_registry.register(
                             channel="discord",
-                            text=message.content or "(no text)",
-                            message_id=str(message.id),
-                            attachments=attachments,
+                            username=self._client.user.name,
+                            bot_id="default",
                         )
+                        self._self_registered = True
+                    inbound = DiscordAdapter._build_inbound_from_message(
+                        message, attachments=attachments, registry=self._bot_registry,
                     )
+                    await gateway_handler(inbound)
                 finally:
                     typing_task.cancel()
                     self._dispatch_channel.pop(user_id, None)
 
     def is_authorized(self, user_id: int) -> bool:
         return self._auth.is_authorized(user_id)
+
+    @staticmethod
+    def _build_inbound_from_message(
+        message,
+        *,
+        attachments: list[str],
+        registry: BotRegistry,
+    ) -> InboundMessage:
+        """Pure helper: turn a discord.Message into an InboundMessage with B-2
+        group fields populated. Single-bot Discord today; bot_id is 'default'."""
+        mentioned: list[str] = []
+        seen: set[str] = set()
+        for u in (message.mentions or []):
+            if not getattr(u, "bot", False):
+                continue
+            uname = getattr(u, "name", "") or ""
+            resolved = registry.resolve(channel="discord", username=uname)
+            if resolved and resolved not in seen:
+                mentioned.append(resolved)
+                seen.add(resolved)
+        ref = getattr(message, "reference", None)
+        reply_to_message_id = (
+            str(ref.message_id) if ref is not None and getattr(ref, "message_id", None) is not None else None
+        )
+        chan_type = getattr(message.channel.type, "name", str(message.channel.type))
+        return InboundMessage(
+            user_id=message.author.id,
+            channel="discord",
+            text=message.content or "(no text)",
+            message_id=str(message.id),
+            attachments=attachments,
+            bot_id="default",
+            chat_id=message.channel.id,
+            chat_type=chan_type,
+            mentioned_bot_ids=mentioned,
+            from_bot=bool(getattr(message.author, "bot", False)),
+            reply_to_message_id=reply_to_message_id,
+            reply_to_user_id=None,  # Discord exposes ref.author lazily; skip for now
+        )
 
     @property
     def auth_mode(self) -> str:

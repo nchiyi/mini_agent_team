@@ -147,6 +147,38 @@ def _build_compose_yaml(oauth_mounts: list[str] | None = None) -> str:
 _DOCKER_COMPOSE = _build_compose_yaml()
 
 
+def _render_bots_sections(bots: list[dict]) -> str:
+    """Render each bot dict as a [bots.<id>] TOML block. Skip fields whose
+    value is empty/None/default so we don't emit cruft like
+    ``allow_bot_messages = ""`` or ``allow_all_groups = false`` (the default).
+    """
+    blocks: list[str] = []
+    for bot in bots:
+        bid = bot.get("id")
+        if not bid:
+            continue
+        lines: list[str] = [f"[bots.{bid}]"]
+        # ── string fields ─────────────────────────────────────────────
+        for field in ("channel", "token_env", "default_runner",
+                       "default_role", "label", "allow_bot_messages"):
+            val = bot.get(field)
+            if val:
+                lines.append(f'{field} = "{val}"')
+        # ── boolean: only emit when True (False is the default) ───────
+        if bot.get("allow_all_groups"):
+            lines.append("allow_all_groups = true")
+        if bot.get("respond_to_at_all"):
+            lines.append("respond_to_at_all = true")
+        # ── int arrays: emit non-empty lists only ─────────────────────
+        for field in ("allowed_chat_ids", "trusted_bot_ids"):
+            val = bot.get(field)
+            if val:                         # truthy: non-empty list
+                rendered = ", ".join(str(x) for x in val)
+                lines.append(f"{field} = [{rendered}]")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 def write_config_toml(path: str, config: dict) -> None:
     runners = config.get("runners", [])
     sections = "\n\n".join(
@@ -154,13 +186,18 @@ def write_config_toml(path: str, config: dict) -> None:
     )
     default_runner = config.get("default_runner", "claude")
     if default_runner not in _RUNNER_CONFIGS:
-        raise ValueError(f"Unknown runner: {default_runner!r}. Must be one of {list(_RUNNER_CONFIGS)}")
+        raise ValueError(
+            f"Unknown runner: {default_runner!r}. Must be one of {list(_RUNNER_CONFIGS)}"
+        )
     content = _TOML_TEMPLATE.format(
         default_runner=default_runner,
         runner_sections=sections,
         search_mode=config.get("search_mode", "fts5"),
         update_notifications="true" if config.get("update_notifications", True) else "false",
     )
+    bots = config.get("bots") or []
+    if bots:
+        content = content.rstrip() + "\n\n" + _render_bots_sections(bots) + "\n"
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content)

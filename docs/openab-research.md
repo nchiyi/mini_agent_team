@@ -137,6 +137,20 @@ MAT 可在 `requirements.npm.txt` 加版號做到同樣效果。
 | Phase 4 | （視需要）Discord thread-based routing | TBD |
 | 不規劃 | 多 image 多 bot、Helm/K8s、進階 session pool | — |
 
+## Path B 多 bot 進度（與上表獨立）
+
+| 階段 | 內容 | 工作量 | 狀態 |
+|------|------|-------|------|
+| **B-1** | 一個 MAT process 服務 N 個 Telegram bot；私訊 only；per-bot 預設 runner + role；memory 以 `(user_id, channel, bot_id)` 隔離 | ~6-8 小時 | **Done** — 見 multi-bot-feature 分支 |
+| **B-2** | 同樣的 bot 們進到同一個群組；@mention / 自然語言定址；bot 之間可辯論；輪數上限防止迴圈；per-group memory 隔離 | ~6-8 小時 | **Done** — 見 multi-bot-feature 分支（task 1-10 commit 範圍 2722196..52e0676） |
+
+B-1 涵蓋 plan task 1-9（task 9 縮小範圍：互動 wizard loop 延後，capability 已透過手動編 config.toml 完整可用）。Task 10 為本文件 + README 多 bot 設定章節。
+
+B-2 涵蓋 plan task 1-10。Task 11 為本文件 + README 群組協作章節 + sample config 更新。
+Wizard 互動式群組設定收集（plan 完整版 task 10）採取與 B-1 相同的策略延後 —
+power users 透過手動編 `config.toml` 即可使用，相關欄位由 `deploy.py::_render_bots_sections`
+渲染。end-to-end 手動驗證步驟見 plan 檔案的對應章節。
+
 ---
 
 ## 參考路徑（OpenAB repo）
