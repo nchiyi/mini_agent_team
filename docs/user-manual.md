@@ -236,7 +236,7 @@ token 寫進 `/root/.gemini/oauth_creds.json`，效期一年。
 |------|------|------|
 | `mat start` | 啟動 bot（docker 模式 = `docker compose up -d`；其他 = launchctl/systemctl 啟動 service） | `mat start` |
 | `mat stop` | 停止 bot | `mat stop` |
-| `mat restart` | 重啟（讀新的 .env / config） | `mat restart` |
+| `mat restart` | 重啟（讀新的 .env / config）。docker 模式下若偵測到 `src/` / `main.py` / `requirements*.txt` / `Dockerfile` / `docker-compose.yml` 比 `data/.mat-built-at` 新，會自動 `up -d --build` 重 build image | `mat restart` |
 | `mat status` | 看 container / service 狀態 | `mat status` |
 | `mat run` | 前景執行（用 host venv 跑 main.py，繞過 backend）；除錯用 | `mat run` |
 
@@ -292,10 +292,12 @@ token 寫進 `/root/.gemini/oauth_creds.json`，效期一年。
 
 | 改了什麼 | 該做什麼 |
 |---------|---------|
-| `config/config.toml`、`secrets/.env`、`roster/*.md`、`skills/*.py` | `mat restart` |
-| `requirements.txt`、`Dockerfile`、CLI 版本 | `mat update`（docker 會 rebuild image） |
+| `config/config.toml`、`secrets/.env`、`roster/*.md`、`skills/*.py`（mount 進 container 的） | `mat restart`（fast path：純 `docker compose restart`） |
+| `src/`、`main.py`、`requirements*.txt`、`Dockerfile`、`docker-compose.yml`（COPY 進 image 的） | `mat restart` 也可（會自動 rebuild），或 `mat update`（先 git pull 再 rebuild） |
 | 完全重來（保留 volume） | `mat stop && mat start` |
 | 完全重來（連認證也清掉） | `docker compose down -v && mat start && mat auth all` |
+
+> `mat restart` 在 docker 模式會比對 `data/.mat-built-at` 標記檔的 mtime：任一個 baked-in source 比它新就自動 `up -d --build`，否則走原本的 fast restart。第一次跑這版（marker 不存在）會強制 rebuild 一次，之後就走 fast path。
 
 ---
 

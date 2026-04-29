@@ -447,7 +447,7 @@ mat start && mat auth    # 重新認證
 ```bash
 mat start                  # 啟動 bot
 mat stop                   # 停止
-mat restart                # 重啟
+mat restart                # 重啟（docker 模式：source 變更時自動 rebuild）
 mat status                 # 查看執行狀態
 mat run                    # 前景執行（除錯用，繞過 backend）
 ```
