@@ -481,11 +481,20 @@ async def step_3_allowlist(state: WizardState) -> None:
 
     # ── Handle empty allowlist gracefully — deferred config ──────────────
     if not state.allowed_user_ids:
-        print(f"\n{_Y}⚠ No user IDs set — bot will reject all requests until configured.{_X}")
-        print("  You can add your ID later:")
-        print("    mat config          ← interactive editor")
-        print("    ./agent config      ← same, without mat installed")
-        print("    edit secrets/.env   ← set ALLOWED_USER_IDS=<your_id>")
+        choice = _prompt(
+            "  Allow all users instead? (development only — anyone who DMs the bot can use it) (y/N)",
+            "n",
+        ).lower()
+        if choice.startswith("y"):
+            state.data = state.data or {}
+            state.data["allow_all_users"] = True
+            _ok("allow_all_users set — bot will accept any user")
+        else:
+            print(f"\n{_Y}⚠ No user IDs set — bot will reject all requests until configured.{_X}")
+            print("  You can add your ID later:")
+            print("    mat config          ← interactive editor")
+            print("    ./agent config      ← same, without mat installed")
+            print("    edit secrets/.env   ← set ALLOWED_USER_IDS=<your_id>")
 
     mark_micro_step_done(state, "allowlist.done")
 
