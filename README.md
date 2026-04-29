@@ -288,6 +288,31 @@ respond_to_at_all    = true
 
 **Telegram BotFather 必做：**自然語言定址需關掉 Privacy Mode：`/setprivacy → 選 bot → Disable`。只用 `@username` 定址不關也行。
 
+#### D. 多 Discord bot（與多 Telegram bot 等價）
+
+Discord 端也支援 `[bots.<id>] channel = "discord"`，每個 bot 各自綁 token / runner / role / 群組權限，跑同一份 `should_handle()` policy gate 與 turn-cap。`allowed_chat_ids` 在 Discord 路徑下解讀為 channel id（正整數，不是 guild id）。
+
+```toml
+[bots.dev_dc]
+channel              = "discord"
+token_env            = "BOT_DEV_DC_TOKEN"
+default_runner       = "claude"
+default_role         = "fullstack-dev"
+allow_all_groups     = false
+allowed_chat_ids     = [1234567890]   # Discord channel id
+allow_bot_messages   = "mentions"
+
+[bots.search_dc]
+channel              = "discord"
+token_env            = "BOT_SEARCH_DC_TOKEN"
+default_runner       = "gemini"
+allow_all_groups     = true
+```
+
+詳細 Developer Portal 申請流程、Auth 三層優先序、訊息 dedup / turn-cap 保證、從單 bot `[discord]` 升級的 migration 步驟，看 [docs/discord-multi-bot.md](docs/discord-multi-bot.md)。
+
+> 既有 `DISCORD_BOT_TOKEN` env 不寫 `[bots.*]` 也能跑：`src/core/bots.py:load_bots` 偵測到 `DISCORD_BOT_TOKEN` 但沒任何 `[bots.X] channel="discord"` 時，自動合成 `BotConfig(id="default", channel="discord")`，舊安裝零改動相容。
+
 ---
 
 ## 使用情境演示
