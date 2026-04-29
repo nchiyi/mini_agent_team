@@ -85,6 +85,54 @@ _dc() {
     cd "$MAT_DIR" && docker compose "$@"
 }
 
+# Marker file (under data/, which is git-ignored and survives between runs)
+# whose mtime records the last successful image build. `_needs_rebuild`
+# compares source mtimes against it so `mat restart` can auto-promote to
+# `up -d --build` whenever any baked-in source changed (see PR #78).
+MAT_BUILT_AT="$MAT_DIR/data/.mat-built-at"
+
+# Files & directories that get COPYed into the image at build time. If any
+# of these is newer than $MAT_BUILT_AT, the running container has stale
+# code and a plain `docker compose restart` would silently reuse the old
+# image. Mirrors the COPY directives written by src/setup/deploy.py.
+_MAT_REBUILD_PATHS=(
+    "$MAT_DIR/src"
+    "$MAT_DIR/main.py"
+    "$MAT_DIR/requirements.txt"
+    "$MAT_DIR/requirements.extra.txt"
+    "$MAT_DIR/requirements.npm.txt"
+    "$MAT_DIR/Dockerfile"
+    "$MAT_DIR/docker-compose.yml"
+)
+
+# Returns 0 (true) when at least one source path is newer than the marker,
+# or when the marker is missing (first run after this PR — treat as dirty
+# so the next restart picks up the latest image regardless).
+_needs_rebuild() {
+    if [ ! -f "$MAT_BUILT_AT" ]; then
+        return 0
+    fi
+    local p
+    for p in "${_MAT_REBUILD_PATHS[@]}"; do
+        # Skip paths that don't exist (e.g. requirements.extra.txt is
+        # optional). `find` would error on a missing path otherwise.
+        [ -e "$p" ] || continue
+        # -newer compares mtime; -print -quit short-circuits on first hit
+        # so we don't walk the whole tree once we know rebuild is needed.
+        if [ -n "$(find "$p" -newer "$MAT_BUILT_AT" -print -quit 2>/dev/null)" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Touch the marker after a successful build. Creates data/ if missing
+# (some fresh checkouts don't have it yet).
+_touch_built_marker() {
+    mkdir -p "$MAT_DIR/data"
+    : > "$MAT_BUILT_AT" 2>/dev/null || touch "$MAT_BUILT_AT"
+}
+
 CMD="${1:-help}"
 
 case "$CMD" in
@@ -102,7 +150,21 @@ case "$CMD" in
         ;;
     restart)
         case "$(_backend)" in
-            docker) _dc restart ;;
+            docker)
+                # Auto-rebuild when source changed. Plain `docker compose
+                # restart` reuses the existing image — fine when only env
+                # / config changed, but silently runs stale code after a
+                # `git pull`. Compare mtimes against the build marker:
+                #   - any source newer than marker → up -d --build + retouch
+                #   - else                          → fast `restart`
+                if _needs_rebuild; then
+                    echo "🔄  偵測到 source 變更，重 build container..."
+                    _dc up -d --build
+                    _touch_built_marker
+                else
+                    _dc restart
+                fi
+                ;;
             *)      _check_venv; exec "$AGENT" restart ;;
         esac
         ;;
@@ -298,6 +360,10 @@ case "$CMD" in
             docker)
                 echo "🔄  重 build container..."
                 _dc up -d --build
+                # Stamp the marker so the next `mat restart` skips a
+                # redundant rebuild. Same hook is used by `mat restart`
+                # itself when it auto-promotes to `up -d --build`.
+                _touch_built_marker
                 ;;
             *)
                 if "$AGENT" status 2>/dev/null | grep -q running; then
@@ -335,7 +401,7 @@ case "$CMD" in
         echo "  生命週期"
         echo "    start                 啟動 bot"
         echo "    stop                  停止 bot"
-        echo "    restart               重啟 bot"
+        echo "    restart               重啟 bot（docker 模式：source 變更時自動 rebuild）"
         echo "    status                查看執行狀態"
         echo "    run                   前景執行（除錯用，繞過 backend）"
         echo ""
