@@ -83,3 +83,73 @@ def test_appcontext_has_bot_registry_and_turns():
     fields = AppContext.__dataclass_fields__
     assert "bot_registry" in fields
     assert "bot_turns" in fields
+
+
+# ─── Unicode normalisation hardening ──────────────────────────────────
+
+def test_register_handles_fullwidth_at_sign():
+    """Fullwidth ＠ (U+FF20) should NFKC-normalise to ASCII @."""
+    reg = BotRegistry()
+    reg.register(channel="telegram", username="dev_bot", bot_id="dev")
+    assert reg.resolve(channel="telegram", username="＠dev_bot") == "dev"
+
+
+def test_register_handles_fullwidth_letters():
+    """Fullwidth Latin letters (U+FF21-FF5A) should NFKC-fold to ASCII."""
+    reg = BotRegistry()
+    reg.register(channel="telegram", username="dev_bot", bot_id="dev")
+    assert reg.resolve(channel="telegram", username="@ｄｅｖ_ｂｏｔ") == "dev"
+    assert reg.resolve(channel="telegram", username="ｄｅｖ_ｂｏｔ") == "dev"
+
+
+def test_register_handles_compatibility_ligatures():
+    """Ligatures like ﬁ (U+FB01) decompose under NFKC to f + i."""
+    reg = BotRegistry()
+    reg.register(channel="telegram", username="finder_bot", bot_id="finder")
+    assert reg.resolve(channel="telegram", username="@ﬁnder_bot") == "finder"
+
+
+def test_register_uses_casefold_not_lower():
+    """Casefold handles edge cases lower() misses (Turkish-i, German ß)."""
+    reg = BotRegistry()
+    # German ß casefolds to "ss"; .lower() leaves it as ß.
+    # Use a registered username that matches the casefold form.
+    reg.register(channel="telegram", username="grossbot", bot_id="gross")
+    assert reg.resolve(channel="telegram", username="@GROßbot") == "gross"
+
+
+def test_distinct_scripts_remain_distinct():
+    """NFKC doesn't cross-script-fold. Cyrillic 'е' (U+0435) is NOT Latin 'e'."""
+    reg = BotRegistry()
+    reg.register(channel="telegram", username="dev_bot", bot_id="latin_dev")
+    # Cyrillic 'е' bot is a different identity (operator's choice to register it)
+    reg.register(channel="telegram", username="dеv_bot", bot_id="cyrillic_dev")  # с looks Latin but is Cyrillic
+    latin_resolved = reg.resolve(channel="telegram", username="@dev_bot")
+    cyrillic_resolved = reg.resolve(channel="telegram", username="@dеv_bot")
+    # They MUST resolve to their own distinct bot_ids:
+    assert latin_resolved == "latin_dev"
+    assert cyrillic_resolved == "cyrillic_dev"
+    # Both are visible in .all()
+    assert set(reg.all(channel="telegram")) == {"latin_dev", "cyrillic_dev"}
+
+
+def test_normalisation_idempotent_on_already_ascii():
+    """ASCII input round-trips unchanged through NFKC.casefold."""
+    reg = BotRegistry()
+    reg.register(channel="telegram", username="dev_bot", bot_id="dev")
+    assert reg.resolve(channel="telegram", username="@dev_bot") == "dev"
+    assert reg.resolve(channel="telegram", username="dev_bot") == "dev"
+    assert reg.resolve(channel="telegram", username="@DEV_BOT") == "dev"
+
+
+def test_register_idempotency_under_normalisation():
+    """Two registrations of equivalent forms collapse to one entry."""
+    reg = BotRegistry()
+    reg.register(channel="telegram", username="dev_bot", bot_id="first")
+    reg.register(channel="telegram", username="ＤＥＶ_ＢＯＴ", bot_id="second")  # fullwidth
+    # Latest registration wins:
+    assert reg.resolve(channel="telegram", username="@dev_bot") == "second"
+    # Two distinct bot_ids tracked in .all() (we register'd two different bot_ids
+    # against the same normalised key — both are remembered).
+    assert "first" in reg.all(channel="telegram")
+    assert "second" in reg.all(channel="telegram")
