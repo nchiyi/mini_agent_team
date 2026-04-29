@@ -1,7 +1,10 @@
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class Tier1Store:
@@ -30,6 +33,16 @@ class Tier1Store:
         for ext in ("jsonl", "md"):
             new = self._dir / f"{user_id}_{channel}_{bot_id}_{user_id}.{ext}"
             if new.exists():
+                skipped = [self._dir / f"{user_id}_{channel}_{bot_id}.{ext}"]
+                if bot_id == "default":
+                    skipped.append(self._dir / f"{user_id}_{channel}.{ext}")
+                for legacy in skipped:
+                    if legacy.exists():
+                        logger.warning(
+                            "Ignoring legacy Tier1 memory file %s because new-format file %s already exists",
+                            legacy.name,
+                            new.name,
+                        )
                 continue
             # B-1 shape: {uid}_{ch}_{bid}.{ext}
             b1_legacy = self._dir / f"{user_id}_{channel}_{bot_id}.{ext}"
