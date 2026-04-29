@@ -139,7 +139,7 @@ allow_bot_messages  = "off"
 
 只要沒有任何 `[bots.X] channel = "discord"` 條目，`src/core/bots.py:72-78` 的 legacy fallback 會在偵測到 `DISCORD_BOT_TOKEN` env 後合成一筆 `BotConfig(id="default", channel="discord", token_env="DISCORD_BOT_TOKEN", default_runner=<gateway.default_runner>)`。`_build_channel_tasks()` 把它當成普通的多 bot 條目排程，行為與舊版完全一致。
 
-如果同時有 `TELEGRAM_BOT_TOKEN` + `DISCORD_BOT_TOKEN` 而沒寫 `[bots.*]`，會合成兩筆——telegram 的 `id="default"`、discord 的 `id="default_discord"`（避免 id 衝突，見 `src/core/bots.py:72-78`）。
+如果同時有 `TELEGRAM_BOT_TOKEN` + `DISCORD_BOT_TOKEN` 而沒寫 `[bots.*]`，會合成兩筆——兩邊都用 `id="default"`，靠 `channel` 區分。所有路由 key（`BotTurnTracker` 的 `(channel, chat_id)`、`bot_registry` 的 `(channel, username)`、Tier1 檔名 `{user_id}_{channel}_{bot_id}_{chat_id}.jsonl`）都帶 channel，所以同 id 不會衝突；對稱命名也讓未來 cross-channel memory 聚合自然落在 `(user_id, "default")`。見 `src/core/bots.py:72-78`。
 
 ### 選項 B：升級成顯式 `[bots.X]`（推薦）
 

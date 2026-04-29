@@ -71,7 +71,7 @@ def load_bots(raw_toml: dict[str, Any], default_runner: str) -> list[BotConfig]:
         ))
     if os.environ.get("DISCORD_BOT_TOKEN"):
         out.append(BotConfig(
-            id="default" if not out else "default_discord",
+            id="default",
             channel="discord",
             token_env="DISCORD_BOT_TOKEN",
             default_runner=default_runner,

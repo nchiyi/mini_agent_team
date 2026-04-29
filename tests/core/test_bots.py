@@ -133,12 +133,15 @@ def test_legacy_telegram_fallback_still_works(monkeypatch):
 
 
 def test_legacy_both_fallbacks_when_both_tokens_set(monkeypatch):
-    """If both legacy env vars exist, get both default bots."""
+    """If both legacy env vars exist, get both default bots — same id, distinct channels."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tg_fake")
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "dc_fake")
     bots = load_bots(raw_toml={}, default_runner="claude")
-    channels = sorted(b.channel for b in bots)
-    assert channels == ["discord", "telegram"]
+    assert len(bots) == 2
+    assert {(b.id, b.channel) for b in bots} == {
+        ("default", "telegram"),
+        ("default", "discord"),
+    }
 
 
 def test_explicit_bots_section_skips_legacy_fallback(monkeypatch):
