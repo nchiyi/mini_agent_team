@@ -56,7 +56,7 @@ def should_handle(
         if policy == "mentions" and bot_cfg.id not in inbound.mentioned_bot_ids:
             return False
         if turns is not None and inbound.chat_id is not None and turns.cap_reached(
-            channel="telegram", chat_id=inbound.chat_id,
+            channel=inbound.channel, chat_id=inbound.chat_id,
         ):
             return False
         if turns is not None and not turns.claim_message(
