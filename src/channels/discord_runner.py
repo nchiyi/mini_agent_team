@@ -10,22 +10,13 @@ import logging
 from typing import TYPE_CHECKING
 
 from src.channels.discord_adapter import DiscordAdapter
+from src.core.config import _resolve_channel_auth
 
 if TYPE_CHECKING:
     from src.core.bots import BotConfig
     from src.gateway.app_context import AppContext
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_channel_auth(cfg, channel_allowed, channel_allow_all):
-    """3-level precedence: bot → channel → global. Same shape as telegram_runner."""
-    if channel_allowed is not None or channel_allow_all is not None:
-        return (
-            channel_allowed if channel_allowed is not None else (cfg.allowed_user_ids or []),
-            channel_allow_all if channel_allow_all is not None else cfg.allow_all_users,
-        )
-    return (cfg.allowed_user_ids or []), cfg.allow_all_users
 
 
 async def run_discord_for_bot(ctx: "AppContext", bot_cfg: "BotConfig") -> None:
