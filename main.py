@@ -18,6 +18,7 @@ from src.runners.cli_runner import CLIRunner
 from src.runners.acp_runner import ACPRunner
 from src.channels.telegram import TelegramAdapter
 from src.channels.telegram_runner import run_telegram_for_bot
+from src.channels.discord_runner import run_discord_for_bot
 from src.channels.discord_adapter import DiscordAdapter
 from src.channels.base import InboundMessage, BaseAdapter
 from src.channels.attachments import safe_ext, download_telegram_file
@@ -128,59 +129,24 @@ def _build_shared(cfg: Config, audit: AuditLog) -> AppContext:
     )
 
 
-async def run_discord(ctx: AppContext) -> None:
-    cfg = ctx.cfg
-    discord_bridges: dict[int, StreamingBridge] = {}
-
-    async def gateway_handler(inbound: InboundMessage) -> None:
-        if inbound.user_id not in discord_bridges:
-            discord_bridges[inbound.user_id] = StreamingBridge(
-                dc_adapter, edit_interval=cfg.gateway.stream_edit_interval_seconds
-            )
-        bridge = discord_bridges[inbound.user_id]
-        await dispatch(
-            inbound, bridge, ctx.session_mgr, ctx.router, ctx.runners,
-            ctx.tier1, ctx.tier3, ctx.assembler,
-            lambda t: dc_adapter.send(inbound.user_id, t),
-            recent_turns=cfg.memory.tier3_context_turns,
-            module_registry=ctx.module_registry,
-            cfg=cfg,
-            nlu_detector=ctx.nlu_detector,
-            rate_limiter=ctx.rate_limiter,
-        )
-
-    dc_ids, dc_all = _resolve_channel_auth(
-        cfg, cfg.discord.allowed_user_ids, cfg.discord.allow_all_users
-    )
-    dc_adapter = DiscordAdapter(
-        token=cfg.discord_token,
-        allowed_user_ids=dc_ids,
-        gateway_handler=gateway_handler,
-        allowed_channel_ids=cfg.discord.allowed_channel_ids,
-        allow_bot_messages=cfg.discord.allow_bot_messages,
-        allow_user_messages=cfg.discord.allow_user_messages,
-        trusted_bot_ids=cfg.discord.trusted_bot_ids,
-        allow_all_users=dc_all,
-        bot_registry=ctx.bot_registry,
-    )
-    logger.info("Discord bot starting")
-    await dc_adapter.start()
-
-
 def _build_channel_tasks(ctx: AppContext) -> list:
-    """Return one coroutine per configured channel.
+    """Return one coroutine per configured bot.
 
-    - One ``run_telegram_for_bot`` coroutine per ``cfg.bots`` entry whose
-      ``channel == "telegram"``.
-    - One ``run_discord`` coroutine if ``cfg.discord_token`` is set.
-    Discord remains single-bot for now; a future plan extends it.
+    Each cfg.bots entry produces one coroutine, dispatched by channel:
+    - channel == "telegram" → run_telegram_for_bot(ctx, bot_cfg)
+    - channel == "discord"  → run_discord_for_bot(ctx, bot_cfg)
     """
     coroutines = []
     for bot_cfg in ctx.cfg.bots:
         if bot_cfg.channel == "telegram":
             coroutines.append(run_telegram_for_bot(ctx, bot_cfg))
-    if ctx.cfg.discord_token:
-        coroutines.append(run_discord(ctx))
+        elif bot_cfg.channel == "discord":
+            coroutines.append(run_discord_for_bot(ctx, bot_cfg))
+        else:
+            logger.warning(
+                "Skipping bot %s: unknown channel %r",
+                bot_cfg.id, bot_cfg.channel,
+            )
     return coroutines
 
 
