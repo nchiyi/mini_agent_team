@@ -154,7 +154,7 @@ sudo ./mat install-cmd     # 一次性，安裝 mat 全域指令
 |------|------|------|
 | 0 | Pre-flight：Python / 磁碟 / 網路 / pkg manager / systemd / Docker | 自動 |
 | 1 | Channel Selection — Telegram / Discord / 兩者 | checkbox |
-| 2 | Bot Token — 貼上並驗證 | 文字輸入 |
+| 2 | Bot Configuration — 每個 channel 問「要設幾隻 bot」，逐隻收集 token / id / 群組設定（可填 0 跳過，事後再加）| 數字 + 文字輸入 |
 | 3 | Allowlist — 你的 user ID（傳訊息給 bot 自動抓 / Enter 跳過）| 自動 / Enter |
 | 4 | CLI Tools — claude / codex / gemini，未裝會自動 npm install | checkbox |
 | 4.5 | ACP 協作模式 — orchestrator / multi / both | 單選 |
@@ -164,7 +164,30 @@ sudo ./mat install-cmd     # 一次性，安裝 mat 全域指令
 | 8 | Deploy Mode — foreground / systemd / launchd / docker | 單選 |
 | 9 | 寫設定 + 啟動服務 + smoke test | 自動 |
 
-> 多 bot（B-1）/ 群組多 bot（B-2）目前必須手動編 `config/config.toml`，wizard 還不收集（保留為單 bot UX，避免雜訊）。
+> 群組多 bot（B-2）的進階開關（`respond_to_at_all` / `trusted_bot_ids` 等）wizard 仍不收集，需事後編 `config/config.toml`。多 bot（B-1）的 token、id、群組權限已由 Step 2 互動式收集。
+
+### 多 bot / 多 channel 設定
+
+Wizard 的 Step 2 會為每個你勾選的 channel 問「要設幾隻 bot」：
+
+- 輸入正整數 → 為每隻 bot 互動式收集 token、id（slug）、label、`default_runner`、`default_role`、群組權限
+- 輸入 `0` → 跳過該 channel，可在安裝後再加；wizard 仍會走完 Step 3..9 並產生 config
+
+**之後再加 bot**：
+
+```bash
+python3 -m src.setup.add_bot --channel telegram   # 或 discord
+```
+
+讀取現有 `config/config.toml` 與 `secrets/.env`，互動式問完之後 append 新的 `[bots.<id>]` 區塊與 `BOT_<ID>_TOKEN` 環境變數（同 id 會被拒）。重啟 mat（`mat restart`）後新 bot 上線。
+
+每隻 bot 可獨立設定：
+
+- `default_runner` / `default_role`（角色綁定）
+- `allow_all_groups` / `allowed_chat_ids`（群組白名單）
+- `allow_bot_messages`（`off` / `mentions` / `all`）
+
+Auth（`allowed_user_ids` / `allow_all_users`）採 3 層 precedence：bot → channel → global，per-bot 覆蓋為最高優先（B-1 細節見上方「多 bot 共存」段落，三層規則同樣適用 Telegram 與 Discord）。Legacy 單 bot 安裝（只設 `TELEGRAM_BOT_TOKEN` / `DISCORD_BOT_TOKEN`，沒有任何 `[bots.*]` 區塊）持續零改動相容；升級至顯式多 bot 路徑見 [`docs/user-manual.md` §9.3](docs/user-manual.md#93-從-v1單-bot升級到-multi-bot)。
 
 ---
 
