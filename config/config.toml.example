@@ -175,3 +175,31 @@ allow_bot_messages = "off"     # "off" | "mentions" | "all"  — default: "off"
 # default_role         = "researcher"
 # allow_all_groups     = true                   # 任何邀請我進的群組都能用
 # allow_bot_messages   = "off"                  # 不回應其他 bot（避免 ping-pong）
+
+# ── 多 Discord bot 範例 ─────────────────────────────────────────────────
+# 同一個 MAT process 也可以跑多個 Discord bot；每個 bot 各自一支 application
+# + bot user + token（Discord Developer Portal 申請），以 `channel="discord"`
+# 區分。`allowed_chat_ids` 在 Discord 路徑下解讀為 channel id（整數，
+# 來自 Discord channel 的右鍵「複製 ID」），對齊 Telegram 多 bot 同欄位語義。
+# 每個 bot 可獨立指定 `default_runner` / `default_role` / `allow_bot_messages`。
+#
+# legacy 單 bot：沒有任何 channel="discord" 的 [bots.*] 但 DISCORD_BOT_TOKEN
+# 已設時，src/core/bots.py:load_bots 會自動合成 BotConfig(id="default",
+# channel="discord")，舊安裝零改動相容。
+#
+# [bots.dev_dc]
+# channel              = "discord"
+# token_env            = "BOT_DEV_DC_TOKEN"     # secrets/.env 內的 env var name
+# default_runner       = "claude"
+# default_role         = "fullstack-dev"
+# allow_all_groups     = false                  # 白名單模式
+# allowed_chat_ids     = [1234567890]           # Discord channel ids（不是 guild id）
+# allow_bot_messages   = "mentions"             # 別的 bot @ 我才回（off | mentions | all）
+#
+# [bots.search_dc]
+# channel              = "discord"
+# token_env            = "BOT_SEARCH_DC_TOKEN"
+# default_runner       = "gemini"
+# default_role         = "researcher"
+# allow_all_groups     = true                   # 任何允許清單內 channel 都能用
+# allow_bot_messages   = "off"                  # 不回應其他 bot（避免 ping-pong）

@@ -110,3 +110,46 @@ def test_load_bots_parses_respond_to_at_all(monkeypatch):
     from src.core.bots import load_bots
     bots = load_bots(raw_toml=raw, default_runner="claude")
     assert bots[0].respond_to_at_all is True
+
+
+def test_legacy_discord_fallback_when_no_bots_section_but_discord_token_set(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "fake")
+    bots = load_bots(raw_toml={}, default_runner="claude")
+    assert len(bots) == 1
+    assert bots[0].id == "default"
+    assert bots[0].channel == "discord"
+    assert bots[0].token_env == "DISCORD_BOT_TOKEN"
+    assert bots[0].default_runner == "claude"
+
+
+def test_legacy_telegram_fallback_still_works(monkeypatch):
+    """Don't regress the existing Telegram legacy fallback."""
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake")
+    bots = load_bots(raw_toml={}, default_runner="claude")
+    assert len(bots) == 1
+    assert bots[0].channel == "telegram"
+
+
+def test_legacy_both_fallbacks_when_both_tokens_set(monkeypatch):
+    """If both legacy env vars exist, get both default bots — same id, distinct channels."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tg_fake")
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dc_fake")
+    bots = load_bots(raw_toml={}, default_runner="claude")
+    assert len(bots) == 2
+    assert {(b.id, b.channel) for b in bots} == {
+        ("default", "telegram"),
+        ("default", "discord"),
+    }
+
+
+def test_explicit_bots_section_skips_legacy_fallback(monkeypatch):
+    monkeypatch.setenv("BOT_DEV_TOKEN", "x")
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "y")
+    bots = load_bots(
+        raw_toml={"bots": {"dev": {"channel": "telegram", "token_env": "BOT_DEV_TOKEN"}}},
+        default_runner="claude",
+    )
+    # 走顯式 bots 路徑就不走 legacy fallback；Discord 條目應該也要在 bots.* 才會出現
+    assert [b.id for b in bots] == ["dev"]

@@ -10,11 +10,13 @@ from src.gateway.bot_turns import BotTurnTracker
 from src.gateway.policy import should_handle
 
 
-def _msg(**overrides):
+def _msg(*, channel="telegram", chat_id=-100, mentioned_bot_ids=None,
+         message_id=None, from_bot=False, chat_type="supergroup", **overrides):
     base = dict(
-        user_id=1, channel="telegram", text="hi", message_id="1",
-        bot_id="dev", chat_id=-100, chat_type="supergroup",
-        mentioned_bot_ids=[], from_bot=False,
+        user_id=1, channel=channel, text="hi",
+        message_id=message_id if message_id is not None else "1",
+        bot_id="dev", chat_id=chat_id, chat_type=chat_type,
+        mentioned_bot_ids=list(mentioned_bot_ids or []), from_bot=from_bot,
     )
     base.update(overrides)
     return InboundMessage(**base)
@@ -74,3 +76,20 @@ def test_re_export_from_telegram_runner_still_works():
     from src.channels.telegram_runner import _should_handle
     from src.gateway.policy import should_handle as canonical
     assert _should_handle is canonical
+
+
+def test_bot_to_bot_turn_cap_uses_inbound_channel_not_hardcoded_telegram():
+    """Regression: cap_reached() must look up the right channel bucket."""
+    turns = BotTurnTracker(cap=1)
+    # 把 telegram 桶填滿到 cap
+    turns.note_bot_turn(channel="telegram", chat_id=-100)
+    cfg = _cfg(id="dev", allow_all_groups=True, allow_bot_messages="all")
+    # discord 訊息進來，cap_reached 應查 discord 桶（空），故 should_handle == True
+    msg = _msg(
+        channel="discord",
+        chat_id=-100,
+        from_bot=True,
+        mentioned_bot_ids=["dev"],
+        message_id="42",
+    )
+    assert should_handle(msg, cfg, turns=turns) is True

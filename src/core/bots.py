@@ -60,12 +60,20 @@ def load_bots(raw_toml: dict[str, Any], default_runner: str) -> list[BotConfig]:
             out.append(cfg)
         return out
 
-    # Legacy fallback
+    # Legacy fallback: synthesize default bot per channel that has a token env set.
+    out: list[BotConfig] = []
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
-        return [BotConfig(
+        out.append(BotConfig(
             id="default",
             channel="telegram",
             token_env="TELEGRAM_BOT_TOKEN",
             default_runner=default_runner,
-        )]
-    return []
+        ))
+    if os.environ.get("DISCORD_BOT_TOKEN"):
+        out.append(BotConfig(
+            id="default",
+            channel="discord",
+            token_env="DISCORD_BOT_TOKEN",
+            default_runner=default_runner,
+        ))
+    return out
