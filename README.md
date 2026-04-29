@@ -4,6 +4,8 @@
 
 > 🇬🇧 **English:** see [README.en.md](README.en.md).
 
+> 📘 **完整使用手冊**：[`docs/user-manual.md`](docs/user-manual.md) — 安裝 / 認證 / 操作 / 命令 / 情境 / 除錯 一站式。
+
 ---
 
 ## 設計原則（讀我！）
