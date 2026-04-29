@@ -17,7 +17,7 @@ from src.setup.installer import (
 from src.setup.deploy import (
     write_config_toml, write_env_file, write_systemd_unit,
     write_docker_compose, create_data_dirs,
-    _TOML_TEMPLATE, _RUNNER_CONFIGS,
+    _TOML_TEMPLATE, _RUNNER_CONFIGS, _render_bots_sections,
 )
 from src.setup.config_writer import write_config_with_diff, write_env_with_diff
 from src.setup.preflight import run_preflight
@@ -1182,15 +1182,41 @@ async def step_9_launch(
         search_mode=state.search_mode or "fts5",
         update_notifications="true" if state.update_notifications else "false",
     )
+    # Append [bots.X] sections for each configured bot. Strip transient
+    # private keys (anything starting with `_`, e.g. _token_value) so secrets
+    # never leak into config.toml — they go into secrets/.env only.
+    _bot_blocks = [
+        {k: v for k, v in b.items() if not k.startswith("_")}
+        for b in (state.bots or [])
+    ]
+    if _bot_blocks:
+        _bots_rendered = _render_bots_sections(_bot_blocks)
+        if _bots_rendered:
+            _config_content = _config_content.rstrip() + "\n\n" + _bots_rendered + "\n"
     write_config_with_diff(
         os.path.join(cwd, "config", "config.toml"),
         _config_content,
         label="config.toml",
     )
     env: dict[str, str] = {}
-    if state.telegram_token:
+    # Per-bot tokens from state.bots (BOT_<ID>_TOKEN). Track which channels
+    # already have explicit [bots.X] entries so we don't double-emit a legacy
+    # TELEGRAM_BOT_TOKEN / DISCORD_BOT_TOKEN that would conflict.
+    _channels_with_bots: set[str] = set()
+    for _bot in (state.bots or []):
+        _tok_env = _bot.get("token_env")
+        _tok_val = _bot.get("_token_value")
+        if _tok_env and _tok_val:
+            env[_tok_env] = _tok_val
+        _ch = _bot.get("channel")
+        if _ch:
+            _channels_with_bots.add(_ch)
+    # Legacy fallback: only emit TELEGRAM_BOT_TOKEN / DISCORD_BOT_TOKEN if
+    # NO bot in state.bots has that channel — preserves load_bots() fallback
+    # path for v2 state files without breaking multi-bot configs.
+    if state.telegram_token and "telegram" not in _channels_with_bots:
         env["TELEGRAM_BOT_TOKEN"] = state.telegram_token
-    if state.discord_token:
+    if state.discord_token and "discord" not in _channels_with_bots:
         env["DISCORD_BOT_TOKEN"] = state.discord_token
     if state.allowed_user_ids:
         env["ALLOWED_USER_IDS"] = ",".join(str(i) for i in state.allowed_user_ids)

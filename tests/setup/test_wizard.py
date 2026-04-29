@@ -684,3 +684,86 @@ async def test_step8_docker_calls_compose(tmp_path):
         await wizard.step_9_launch(state, str(tmp_path))
     mock_dc.assert_called_once()
     mock_run.assert_called_once()
+
+
+# ── Task 3: state.bots → [bots.X] sections + per-bot env vars ─────
+# NOTE: The plan refers to this as "step_8_deploy"; the actual config-writing
+# logic lives in step_9_launch (where write_config_with_diff and
+# write_env_with_diff are invoked). Tests target step_9_launch accordingly.
+
+@pytest.mark.asyncio
+async def test_step_8_writes_bots_sections(tmp_path, monkeypatch):
+    state = WizardState(
+        completed_steps=[1, 2, 3, 4, 5, 6, 7, 8],
+        channels=["telegram"],
+        selected_clis=["claude"],
+        deploy_mode="foreground",
+        allowed_user_ids=[1],
+        search_mode="fts5",
+        update_notifications=True,
+        bots=[
+            {
+                "id": "dev", "channel": "telegram",
+                "token_env": "BOT_DEV_TOKEN", "_token_value": "tok_dev",
+                "default_runner": "claude", "allow_all_groups": True,
+            },
+            {
+                "id": "ops", "channel": "telegram",
+                "token_env": "BOT_OPS_TOKEN", "_token_value": "tok_ops",
+                "default_runner": "claude",
+            },
+        ],
+    )
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stdout.__aiter__ = lambda self: iter([])
+    mock_proc.returncode = 0
+
+    with patch("src.setup.wizard.write_systemd_unit", lambda cwd: None), \
+         patch("src.setup.wizard.run_preflight", lambda cwd: type("R", (), {"ok": True, "issues": []})()), \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=False), \
+         patch("sys.exit"):
+        await wizard.step_9_launch(state, cwd=str(tmp_path))
+
+    toml_text = (tmp_path / "config" / "config.toml").read_text()
+    assert "[bots.dev]" in toml_text
+    assert 'token_env = "BOT_DEV_TOKEN"' in toml_text
+    assert "allow_all_groups = true" in toml_text
+    assert "[bots.ops]" in toml_text
+
+    env_text = (tmp_path / "secrets" / ".env").read_text()
+    assert 'BOT_DEV_TOKEN="tok_dev"' in env_text
+    assert 'BOT_OPS_TOKEN="tok_ops"' in env_text
+    # _token_value should NOT leak into config.toml
+    assert "_token_value" not in toml_text
+    assert "tok_dev" not in toml_text
+
+
+@pytest.mark.asyncio
+async def test_step_8_zero_bots_writes_minimal_config(tmp_path, monkeypatch):
+    state = WizardState(
+        completed_steps=[1, 2, 3, 4, 5, 6, 7, 8],
+        channels=[],
+        selected_clis=["claude"],
+        deploy_mode="foreground",
+        search_mode="fts5",
+        update_notifications=True,
+        bots=[],
+    )
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stdout.__aiter__ = lambda self: iter([])
+    mock_proc.returncode = 0
+
+    with patch("src.setup.wizard.write_systemd_unit", lambda cwd: None), \
+         patch("src.setup.wizard.run_preflight", lambda cwd: type("R", (), {"ok": True, "issues": []})()), \
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+         patch("src.setup.wizard.run_smoke_test", new_callable=AsyncMock, return_value=False), \
+         patch("sys.exit"):
+        await wizard.step_9_launch(state, cwd=str(tmp_path))
+
+    toml_text = (tmp_path / "config" / "config.toml").read_text()
+    assert "[bots." not in toml_text  # no bot sections
