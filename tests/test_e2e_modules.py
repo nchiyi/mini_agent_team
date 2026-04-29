@@ -188,20 +188,15 @@ async def test_active_role_is_injected_into_default_dispatch(tmp_path):
     from src.core.memory.context import ContextAssembler
     from src.skills.loader import ModuleRegistry
 
-    roster_dir = tmp_path / "roster"
-    roster_dir.mkdir()
-    (roster_dir / "code-auditor.md").write_text(
-        "---\n"
-        "slug: code-auditor\n"
-        "name: Code Auditor\n"
-        "summary: Review code changes\n"
-        "identity: You are a meticulous code auditor.\n"
-        "rules:\n"
-        "  - Focus on correctness\n"
-        "---\n"
-        "Body\n",
-        encoding="utf-8",
-    )
+    # NOTE: dispatcher's apply_role_prompt() resolves roster files against
+    # repo_root() (see src/gateway/dispatcher.py — base_dir is intentionally
+    # ignored), so the active role is loaded from the real repo roster, not
+    # from a tmp-path fixture. We assert against the real roster's content.
+    from src.roles import load_role
+    real_role = load_role("code-auditor")
+    assert real_role is not None, "expected roster/code-auditor.md to exist in repo"
+    expected_identity = real_role["identity"].strip()
+    expected_rule = real_role["rules"][0].strip()
 
     reg = ModuleRegistry()
     audit = AuditLog(audit_dir=str(tmp_path / "audit"), max_entries=100)
@@ -233,7 +228,11 @@ async def test_active_role_is_injected_into_default_dispatch(tmp_path):
 
     all_output = adapter.sent + list(adapter.edits.values())
     combined = " ".join(all_output)
-    assert "You are a meticulous code auditor." in combined
-    assert "Focus on correctness" in combined
+    # If role_prefix is properly threaded through CLIRunner.run(), `echo`
+    # echoes back the role identity + rules prepended to the user prompt.
+    # Before the fix, CLIRunner rejected role_prefix as an unexpected kwarg
+    # and the user saw only "An error occurred. Please try again."
+    assert expected_identity in combined, f"role identity missing from output: {combined!r}"
+    assert expected_rule in combined, f"role rule missing from output: {combined!r}"
 
     await tier3.close()

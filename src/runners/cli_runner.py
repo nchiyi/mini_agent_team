@@ -55,8 +55,17 @@ class CLIRunner:
         channel: str,
         cwd: str,
         attachments: list[str] | None = None,
+        role_prefix: str = "",
     ) -> AsyncIterator[str]:
-        effective_prompt = prompt
+        # CLI tools (claude / codex / gemini binaries) accept a single string
+        # prompt, not Anthropic content blocks — so we prepend the role prefix
+        # directly. `apply_role_prompt` typically returns text ending with a
+        # single newline; rstrip first to avoid double-newline weirdness when
+        # joining with our own "\n\n" separator.
+        if role_prefix:
+            effective_prompt = role_prefix.rstrip() + "\n\n" + prompt
+        else:
+            effective_prompt = prompt
         extra_args: list[str] = []
 
         if attachments:
