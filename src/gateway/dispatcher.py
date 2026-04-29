@@ -43,6 +43,29 @@ _COT_REASONING_PREFIX = (
     "請一步一步仔細分析問題，推理後只輸出最終結論，不要顯示思考過程。\n\n"
 )
 
+_MAT_SYSTEM_PREFIX = """\
+[MAT system context]
+You are running inside MAT (mini_agent_team), a multi-CLI agent gateway. The
+user can invoke other LLMs (claude / codex / gemini) and persistent memory via
+slash commands:
+
+- /discuss <runners> <prompt>  bring multiple LLMs into one reply chain
+                                 example: /discuss claude,codex,gemini compare X vs Y
+- /debate  <runners> <prompt>  voted debate among runners
+- /relay   <runners> <prompt>  pipeline (output of one feeds the next)
+- /remember <fact>   /forget <keyword>   /recall <keyword>   long-term memory
+- /role <slug>                  switch persona (defined under roster/)
+- /voice on  /voice off         enable / disable TTS replies
+
+If the user asks whether you can call codex / gemini / other LLMs, tell them
+yes via /discuss; do NOT claim you have no access to other models. If they
+ask about earlier conversations, you can rely on /recall returning relevant
+turns from the SQLite history.
+
+[end MAT system context]
+
+"""
+
 
 def apply_role_prompt(prompt: str, role_slug: str, base_dir: str) -> str:
     # Roster files (`roster/*.md`) ship with the repo, so resolve them against
@@ -63,7 +86,8 @@ def apply_role_prompt(prompt: str, role_slug: str, base_dir: str) -> str:
         _role_prompt_cache[role_slug] = (mtime, prefix)
     else:
         prefix = cached[1]
-    return prefix + prompt if prefix else prompt
+    body = prefix + prompt if prefix else prompt
+    return _MAT_SYSTEM_PREFIX + body
 
 
 async def maybe_distill(
