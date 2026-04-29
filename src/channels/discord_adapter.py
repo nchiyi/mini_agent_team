@@ -36,6 +36,8 @@ class DiscordAdapter(BaseAdapter):
         token: str,
         allowed_user_ids: list[int],
         gateway_handler: Callable[[InboundMessage], Awaitable[None]],
+        *,
+        bot_id: str = "default",
         allowed_channel_ids: list[int] | None = None,
         allow_bot_messages: str = "off",
         allow_user_messages: str = "all",
@@ -47,6 +49,7 @@ class DiscordAdapter(BaseAdapter):
         intents.message_content = True
         self._client = discord.Client(intents=intents)
         self._token = token
+        self._bot_id = bot_id
         self._auth = AuthPolicy(allowed_user_ids, allow_all_users)
         self._allowed_channels: set[int] = set(allowed_channel_ids or [])
         self._allow_bot_messages = allow_bot_messages if allow_bot_messages in _ALLOW_OPTS else "off"
@@ -118,20 +121,25 @@ class DiscordAdapter(BaseAdapter):
                             attachments.append(str(dest))
                     # Lazily register self the first time on_message fires
                     # (we have a live self._client.user here).
-                    if not self._self_registered and self._client.user:
-                        self._bot_registry.register(
-                            channel="discord",
-                            username=self._client.user.name,
-                            bot_id="default",
-                        )
-                        self._self_registered = True
+                    self._maybe_register_self()
                     inbound = DiscordAdapter._build_inbound_from_message(
-                        message, attachments=attachments, registry=self._bot_registry,
+                        message, attachments=attachments,
+                        registry=self._bot_registry, bot_id=self._bot_id,
                     )
                     await gateway_handler(inbound)
                 finally:
                     typing_task.cancel()
                     self._dispatch_channel.pop(user_id, None)
+
+    def _maybe_register_self(self) -> None:
+        if self._self_registered or not self._client.user:
+            return
+        self._bot_registry.register(
+            channel="discord",
+            username=self._client.user.name,
+            bot_id=self._bot_id,
+        )
+        self._self_registered = True
 
     def is_authorized(self, user_id: int) -> bool:
         return self._auth.is_authorized(user_id)
@@ -142,9 +150,11 @@ class DiscordAdapter(BaseAdapter):
         *,
         attachments: list[str],
         registry: BotRegistry,
+        bot_id: str = "default",
     ) -> InboundMessage:
         """Pure helper: turn a discord.Message into an InboundMessage with B-2
-        group fields populated. Single-bot Discord today; bot_id is 'default'."""
+        group fields populated. ``bot_id`` is passed by the caller (DiscordAdapter
+        forwards ``self._bot_id``) so multi-bot setups stamp inbounds correctly."""
         mentioned: list[str] = []
         seen: set[str] = set()
         for u in (message.mentions or []):
@@ -166,7 +176,7 @@ class DiscordAdapter(BaseAdapter):
             text=message.content or "(no text)",
             message_id=str(message.id),
             attachments=attachments,
-            bot_id="default",
+            bot_id=bot_id,
             chat_id=message.channel.id,
             chat_type=chan_type,
             mentioned_bot_ids=mentioned,
