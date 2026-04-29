@@ -26,6 +26,7 @@ def test_at_all_regex_does_not_match_words_with_at_inside():
     assert not _AT_ALL_RE.search("contact@all-hands.com")
     assert not _AT_ALL_RE.search("call_all_users")
     assert not _AT_ALL_RE.search("recall")
+    assert not _AT_ALL_RE.search("hi.@all")
 
 
 def test_expand_at_all_returns_all_registered_when_pattern_present():

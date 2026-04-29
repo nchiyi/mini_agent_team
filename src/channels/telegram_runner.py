@@ -31,21 +31,25 @@ logger = logging.getLogger(__name__)
 _SAFE_EXT = re.compile(r'^\.[a-zA-Z0-9]{1,10}$')
 
 
-def _build_inbound_from_update(update, *, bot_id, registry) -> InboundMessage:
+def _build_inbound_from_update(
+    update, *, bot_id, registry, text: str | None = None,
+    attachments: list[str] | None = None,
+) -> InboundMessage:
     """Pure helper: construct an InboundMessage with B-2 group fields populated.
 
     Extracted so we can unit-test mention parsing / chat_id extraction
     without spinning up a real Telegram Application.
     """
     msg = update.message
-    text = msg.text or msg.caption or ""
+    raw_text = msg.text or msg.caption or ""
+    inbound_text = raw_text if text is None else text
 
     mentioned: list[str] = []
     seen: set[str] = set()
     for ent in (msg.entities or []):
         if getattr(ent, "type", None) != "mention":
             continue
-        mention_text = text[ent.offset:ent.offset + ent.length]
+        mention_text = raw_text[ent.offset:ent.offset + ent.length]
         resolved = registry.resolve(channel="telegram", username=mention_text)
         if resolved and resolved not in seen:
             mentioned.append(resolved)
@@ -64,12 +68,13 @@ def _build_inbound_from_update(update, *, bot_id, registry) -> InboundMessage:
     return InboundMessage(
         user_id=update.effective_user.id,
         channel="telegram",
-        text=text or "(no text)",
+        text=inbound_text or "(no text)",
         message_id=str(msg.message_id),
         bot_id=bot_id,
         chat_id=msg.chat.id,
         chat_type=msg.chat.type,
         mentioned_bot_ids=mentioned,
+        attachments=attachments or [],
         from_bot=bool(msg.from_user and msg.from_user.is_bot),
         reply_to_message_id=reply_to_message_id,
         reply_to_user_id=reply_to_user_id,
@@ -103,8 +108,11 @@ async def run_telegram_for_bot(ctx: AppContext, bot_cfg: BotConfig) -> None:
     tg_app = Application.builder().token(bot_cfg.token).build()
 
     me = await tg_app.bot.get_me()
-    bot_cfg.bot_username = me.username or ""
-    bot_cfg.bot_id_telegram = me.id or 0
+    bot_cfg = replace(
+        bot_cfg,
+        bot_username=me.username or "",
+        bot_id_telegram=me.id or 0,
+    )
     ctx.bot_registry.register(
         channel="telegram",
         username=bot_cfg.bot_username,
@@ -145,11 +153,9 @@ async def run_telegram_for_bot(ctx: AppContext, bot_cfg: BotConfig) -> None:
             chat_id=update.effective_chat.id, action="typing",
         )
         inbound = _build_inbound_from_update(
-            update, bot_id=bot_cfg.id, registry=ctx.bot_registry,
-        )
-        # caller-side may have stripped/processed text differently
-        inbound = replace(
-            inbound,
+            update,
+            bot_id=bot_cfg.id,
+            registry=ctx.bot_registry,
             text=text or "(no text)",
             attachments=attachments,
         )
