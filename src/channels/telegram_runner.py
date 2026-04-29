@@ -23,6 +23,7 @@ from src.core.config import _resolve_channel_auth
 from src.gateway.app_context import AppContext
 from src.gateway.bot_turns import BotTurnTracker
 from src.gateway.dispatcher import dispatch
+from src.gateway.policy import should_handle as _should_handle
 from src.gateway.streaming import StreamingBridge
 
 logger = logging.getLogger(__name__)
@@ -73,51 +74,6 @@ def _build_inbound_from_update(update, *, bot_id, registry) -> InboundMessage:
         reply_to_message_id=reply_to_message_id,
         reply_to_user_id=reply_to_user_id,
     )
-
-
-def _should_handle(
-    inbound: "InboundMessage",
-    bot_cfg: "BotConfig",
-    turns: "BotTurnTracker | None",
-) -> bool:
-    """Decide whether to dispatch this Telegram inbound (B-2 policy gate).
-
-    Order of checks:
-    1. DMs (chat_type == "private") always pass — group rules don't apply.
-    2. Group authorisation: bot_cfg.allow_all_groups OR chat_id in
-       bot_cfg.allowed_chat_ids; otherwise drop.
-    3. If from another bot: gate by bot_cfg.allow_bot_messages
-       (off / mentions / all). For "all", also require turn-cap not
-       reached on this (channel, chat_id).
-    4. If from a human: respond only if this bot is in mentioned_bot_ids
-       (covers Privacy-Mode-OFF case where we receive all group
-       messages but only act on @-mention).
-    """
-    if inbound.chat_type == "private":
-        return True
-
-    # ── Group authorisation ──
-    if not bot_cfg.allow_all_groups:
-        allowed = bot_cfg.allowed_chat_ids or []
-        if inbound.chat_id not in allowed:
-            return False
-
-    # ── Bot-to-bot policy ──
-    if inbound.from_bot:
-        policy = bot_cfg.allow_bot_messages
-        if policy == "off":
-            return False
-        if policy == "mentions" and bot_cfg.id not in inbound.mentioned_bot_ids:
-            return False
-        # policy in {"mentions" with us mentioned} or "all": check turn-cap
-        if turns is not None and inbound.chat_id is not None and turns.cap_reached(
-            channel="telegram", chat_id=inbound.chat_id,
-        ):
-            return False
-        return True
-
-    # ── Human in group ──
-    return bot_cfg.id in inbound.mentioned_bot_ids
 
 
 def _maybe_expand_at_all(
