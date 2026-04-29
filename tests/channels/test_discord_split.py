@@ -173,3 +173,54 @@ def test_discord_inbound_attachments_round_trip():
         msg, attachments=["/tmp/a.png", "/tmp/b.pdf"], registry=BotRegistry(),
     )
     assert inbound.attachments == ["/tmp/a.png", "/tmp/b.pdf"]
+
+
+# ─── Task 1: parametrized bot_id ────────────────────────────────────────
+
+
+def test_discord_adapter_registers_with_provided_bot_id():
+    from unittest.mock import patch, PropertyMock
+    import discord
+    from src.channels.discord_adapter import DiscordAdapter
+    from src.gateway.bot_registry import BotRegistry
+
+    registry = BotRegistry()
+    async def noop(_): pass
+    adapter = DiscordAdapter(
+        token="x", allowed_user_ids=[1],
+        gateway_handler=noop, bot_id="dev",
+        bot_registry=registry,
+    )
+    # 模擬 lazy registration：直接呼叫內部觸發路徑
+    class _U:
+        name = "dev_bot"
+        id = 999
+    # discord.Client.user is a read-only property → patch at class level
+    with patch.object(discord.Client, "user", new_callable=PropertyMock) as p:
+        p.return_value = _U()
+        adapter._maybe_register_self()  # 預期 task 1 拆出來的 helper
+    assert registry.resolve(channel="discord", username="dev_bot") == "dev"
+
+
+def test_build_inbound_from_message_uses_provided_bot_id():
+    from src.channels.discord_adapter import DiscordAdapter
+    from src.gateway.bot_registry import BotRegistry
+
+    class _Author:
+        id = 1; bot = False; name = "u"
+    class _Channel:
+        id = -100
+        type = type("T", (), {"name": "text"})()
+    class _Msg:
+        author = _Author()
+        channel = _Channel()
+        content = "hi"
+        id = 42
+        attachments = []
+        mentions = []
+        reference = None
+
+    inbound = DiscordAdapter._build_inbound_from_message(
+        _Msg(), attachments=[], registry=BotRegistry(), bot_id="dev",
+    )
+    assert inbound.bot_id == "dev"
